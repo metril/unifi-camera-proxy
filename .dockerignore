@@ -1,0 +1,16 @@
+*.pyc
+build
+dist
+docs
+*.egg-info
+venv
+client.pem
+run/
+MANIFEST
+MANIFEST.in
+.pyre/
+frontend/node_modules
+frontend/dist
+.git
+.github
+.devcontainer
