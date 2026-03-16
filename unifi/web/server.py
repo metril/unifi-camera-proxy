@@ -149,7 +149,7 @@ async def generate_cert(request: web.Request) -> web.Response:
     # Validate cert_path doesn't escape working directory
     resolved = Path(cert_path).resolve()
     cwd = Path.cwd().resolve()
-    if not str(resolved).startswith(str(cwd)):
+    if not resolved.is_relative_to(cwd):
         return web.json_response(
             {"error": f"Certificate path must be within {cwd}"}, status=400
         )
@@ -180,6 +180,7 @@ async def generate_cert(request: web.Request) -> web.Response:
         # Combine private key and public cert into PEM
         with open(priv_key) as priv, open(pub_key) as pub:
             combined = priv.read() + pub.read()
+        resolved.parent.mkdir(parents=True, exist_ok=True)
         with open(str(resolved), "w") as f:
             f.write(combined)
 
