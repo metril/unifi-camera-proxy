@@ -7,9 +7,8 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - "./client.pem:/client.pem"
-      - "./config.yaml:/app/config.yaml"
-    command: unifi-cam-proxy-web --config /app/config.yaml --port 8080
+      - "./data:/app/data"
+    command: unifi-cam-proxy-web --config /app/data/config.yaml --port 8080
 
   # Individual camera containers (legacy mode - use web UI instead)
   unifi-cam-backyard:

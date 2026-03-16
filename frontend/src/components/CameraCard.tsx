@@ -25,7 +25,9 @@ function formatUptime(seconds: number | null): string {
 const TYPE_COLORS: Record<string, string> = {
   rtsp: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   frigate: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  amcrest: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
   dahua: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  lorex: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
   hikvision: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
   reolink: 'bg-green-500/20 text-green-400 border-green-500/30',
   reolink_nvr: 'bg-teal-500/20 text-teal-400 border-teal-500/30',

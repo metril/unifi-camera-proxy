@@ -120,7 +120,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
           type={field.type === 'number' ? 'number' : 'text'}
           value={value != null ? String(value) : ''}
           onChange={(e) => {
-            const v = field.type === 'number' ? (e.target.value ? Number(e.target.value) : null) : e.target.value;
+            const v = field.type === 'number' ? (e.target.value ? (Number.isNaN(Number(e.target.value)) ? null : Number(e.target.value)) : null) : e.target.value;
             handleChange(configKey, v);
           }}
           placeholder={field.default != null ? String(field.default) : ''}

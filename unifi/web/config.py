@@ -32,7 +32,7 @@ CAMS = {
 
 DEFAULT_GLOBAL = {
     "host": "",
-    "cert": "client.pem",
+    "cert": "data/client.pem",
     "token": "",
     "nvr_username": None,
     "nvr_password": None,
