@@ -9,3 +9,8 @@ run/
 MANIFEST
 MANIFEST.in
 .pyre/
+frontend/node_modules
+frontend/dist
+.git
+.github
+.devcontainer

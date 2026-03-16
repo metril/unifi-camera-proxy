@@ -1,4 +1,17 @@
 services:
+  # Web UI - manages all cameras from a single container
+  unifi-cam-proxy-web:
+    container_name: unifi-cam-proxy-web
+    restart: unless-stopped
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - "./client.pem:/client.pem"
+      - "./config.yaml:/app/config.yaml"
+    command: unifi-cam-proxy-web --config /app/config.yaml --port 8080
+
+  # Individual camera containers (legacy mode - use web UI instead)
   unifi-cam-backyard:
     container_name: unifi-cam-backyard
     restart: unless-stopped

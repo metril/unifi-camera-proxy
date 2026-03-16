@@ -1,4 +1,4 @@
-name: 📚 Deploy Documentation
+name: Deploy Documentation
 
 on:
   push:
@@ -11,30 +11,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: 📂 Checkout
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: 🔵 Setup NodeJS
-        uses: actions/setup-node@v3
+      - name: Setup NodeJS
+        uses: actions/setup-node@v4
         with:
-          node-version: 16
+          node-version: 24
           cache: yarn
           cache-dependency-path: ./docs/yarn.lock
 
-      - name: ⏬ Install Dependencies
+      - name: Install Dependencies
         run: yarn install --frozen-lockfile
         working-directory: docs
 
-      - name: 🏗 Build
+      - name: Build
         run: yarn build
         working-directory: docs
 
-      - name: 🚀 Deploy
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Deploy
+        uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: docs/build
-          cname: zacharee.github.io/unifi-cam-proxy
         if: github.ref == 'refs/heads/main'

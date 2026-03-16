@@ -47,6 +47,7 @@ all = ["unifi-cam-proxy[test]"]
 
 [project.scripts]
 unifi-cam-proxy = "unifi.main:main"
+unifi-cam-proxy-web = "unifi.web.server:main"
 
 
 [tool.setuptools]
