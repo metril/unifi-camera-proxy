@@ -36,6 +36,7 @@ DEFAULT_GLOBAL = {
     "token": "",
     "nvr_username": None,
     "nvr_password": None,
+    "api_key": None,
     "verbose": False,
     "mqtt_host": "",
     "mqtt_port": 1883,
@@ -175,6 +176,8 @@ def config_to_args(global_config: dict, camera_config: dict) -> list[str]:
         args.extend(["--nvr-username", str(global_config["nvr_username"])])
     if global_config.get("nvr_password"):
         args.extend(["--nvr-password", str(global_config["nvr_password"])])
+    if global_config.get("api_key"):
+        args.extend(["--api-key", str(global_config["api_key"])])
     if global_config.get("verbose"):
         args.append("--verbose")
 

@@ -11,6 +11,8 @@ from pathlib import Path
 import coloredlogs
 from aiohttp import web
 
+from uiprotect import ProtectApiClient
+
 from unifi.web.camera_manager import CameraManager
 from unifi.web.config import MODEL_CHOICES, get_camera_type_schemas
 
@@ -136,6 +138,44 @@ async def get_camera_types(request: web.Request) -> web.Response:
     return web.json_response({"types": schemas, "models": MODEL_CHOICES})
 
 
+async def fetch_token(request: web.Request) -> web.Response:
+    """Fetch adoption token from UniFi Protect NVR."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request body"}, status=400)
+
+    host = body.get("host")
+    username = body.get("username", "")
+    password = body.get("password", "")
+    api_key = body.get("api_key")
+
+    if not host:
+        return web.json_response({"error": "NVR host is required"}, status=400)
+    if not api_key and (not username or not password):
+        return web.json_response(
+            {"error": "Either API key or NVR username/password is required"}, status=400
+        )
+
+    protect = None
+    try:
+        protect = ProtectApiClient(
+            host, 443, username, password,
+            api_key=api_key or None,
+            verify_ssl=False,
+        )
+        await protect.update()
+        response = await protect.api_request("cameras/manage-payload")
+        token = response["mgmt"]["token"]
+        return web.json_response({"token": token})
+    except Exception as e:
+        logger.error(f"Failed to fetch token: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+    finally:
+        if protect:
+            await protect.close_session()
+
+
 async def generate_cert(request: web.Request) -> web.Response:
     """Generate a UniFi-compatible SSL certificate."""
     manager = get_manager(request)
@@ -256,6 +296,7 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_get("/api/cameras/{id}/logs", get_camera_logs)
     app.router.add_get("/api/camera-types", get_camera_types)
     app.router.add_post("/api/generate-cert", generate_cert)
+    app.router.add_post("/api/fetch-token", fetch_token)
 
     # Static files (built frontend)
     dist = find_frontend_dist()
