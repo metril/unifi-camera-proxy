@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { api } from '../api';
 import type { GlobalConfig } from '../types';
 
 interface GlobalSettingsProps {
@@ -10,9 +11,11 @@ interface GlobalSettingsProps {
 
 export default function GlobalSettings({ isOpen, onClose, config, onSave }: GlobalSettingsProps) {
   const [form, setForm] = useState<GlobalConfig>(config);
+  const [certStatus, setCertStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
 
   useEffect(() => {
     setForm(config);
+    setCertStatus({ type: 'idle' });
   }, [config, isOpen]);
 
   if (!isOpen) return null;
@@ -26,14 +29,27 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
     onSave(form);
   };
 
+  const handleGenerateCert = async () => {
+    setCertStatus({ type: 'loading' });
+    try {
+      const result = await api.generateCert();
+      setCertStatus({ type: 'success', message: `Certificate generated: ${result.path}` });
+    } catch (err) {
+      setCertStatus({ type: 'error', message: err instanceof Error ? err.message : 'Failed to generate certificate' });
+    }
+  };
+
+  const tokenHintUrl = form.host ? `https://${form.host}/proxy/protect/api/cameras/manage-payload` : null;
+
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-lg w-full max-w-lg">
+      <div className="bg-gray-900 border border-gray-700 rounded-lg w-full max-w-lg max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
           <h3 className="text-white font-medium text-lg">Global Settings</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
         </div>
-        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-auto p-5 space-y-4">
+          {/* NVR Settings */}
           <div>
             <label className="block text-sm text-gray-400 mb-1">NVR Host</label>
             <input
@@ -44,16 +60,34 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
               className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
             />
           </div>
+
           <div>
             <label className="block text-sm text-gray-400 mb-1">Certificate Path</label>
-            <input
-              type="text"
-              value={form.cert}
-              onChange={(e) => handleChange('cert', e.target.value)}
-              placeholder="/client.pem"
-              className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={form.cert}
+                onChange={(e) => handleChange('cert', e.target.value)}
+                placeholder="/client.pem"
+                className="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+              />
+              <button
+                type="button"
+                onClick={handleGenerateCert}
+                disabled={certStatus.type === 'loading'}
+                className="px-3 py-2 text-xs bg-green-600/20 text-green-400 border border-green-600/30 rounded hover:bg-green-600/30 transition-colors whitespace-nowrap disabled:opacity-50"
+              >
+                {certStatus.type === 'loading' ? 'Generating...' : 'Generate Cert'}
+              </button>
+            </div>
+            {certStatus.type === 'success' && (
+              <p className="text-xs text-green-400 mt-1">{certStatus.message}</p>
+            )}
+            {certStatus.type === 'error' && (
+              <p className="text-xs text-red-400 mt-1">{certStatus.message}</p>
+            )}
           </div>
+
           <div>
             <label className="block text-sm text-gray-400 mb-1">Adoption Token</label>
             <input
@@ -62,7 +96,13 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
               onChange={(e) => handleChange('token', e.target.value)}
               className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
             />
+            {tokenHintUrl && (
+              <p className="text-xs text-gray-500 mt-1">
+                Get token from: <span className="text-gray-400 font-mono break-all">{tokenHintUrl}</span>
+              </p>
+            )}
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm text-gray-400 mb-1">NVR Username</label>
@@ -83,6 +123,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
               />
             </div>
           </div>
+
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -93,7 +134,66 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
             />
             <label htmlFor="verbose" className="text-sm text-gray-400">Verbose logging</label>
           </div>
-          <div className="flex justify-end gap-3 pt-2">
+
+          {/* MQTT Settings */}
+          <div className="border-t border-gray-700 pt-4">
+            <h4 className="text-sm font-medium text-gray-300 uppercase tracking-wider mb-3">MQTT Settings (Frigate)</h4>
+            <div className="space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-sm text-gray-400 mb-1">MQTT Host</label>
+                  <input
+                    type="text"
+                    value={form.mqtt_host || ''}
+                    onChange={(e) => handleChange('mqtt_host', e.target.value)}
+                    placeholder="192.168.1.2"
+                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Port</label>
+                  <input
+                    type="number"
+                    value={form.mqtt_port || 1883}
+                    onChange={(e) => handleChange('mqtt_port', e.target.value ? Number(e.target.value) : 1883)}
+                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">MQTT Username</label>
+                  <input
+                    type="text"
+                    value={form.mqtt_username || ''}
+                    onChange={(e) => handleChange('mqtt_username', e.target.value || null)}
+                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">MQTT Password</label>
+                  <input
+                    type="password"
+                    value={form.mqtt_password || ''}
+                    onChange={(e) => handleChange('mqtt_password', e.target.value || null)}
+                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Topic Prefix</label>
+                <input
+                  type="text"
+                  value={form.mqtt_prefix || 'frigate'}
+                  onChange={(e) => handleChange('mqtt_prefix', e.target.value)}
+                  placeholder="frigate"
+                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-2 border-t border-gray-700">
             <button
               type="button"
               onClick={onClose}

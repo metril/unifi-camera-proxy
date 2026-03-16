@@ -134,6 +134,49 @@ async def get_camera_types(request: web.Request) -> web.Response:
     return web.json_response({"types": schemas, "models": MODEL_CHOICES})
 
 
+async def generate_cert(request: web.Request) -> web.Response:
+    """Generate a UniFi-compatible SSL certificate."""
+    manager = get_manager(request)
+    cert_path = manager.config.get("global", {}).get("cert", "client.pem")
+
+    try:
+        cmds = [
+            ["openssl", "ecparam", "-out", "/tmp/private.key", "-name", "prime256v1", "-genkey", "-noout"],
+            ["openssl", "req", "-new", "-sha256", "-key", "/tmp/private.key", "-out", "/tmp/server.csr",
+             "-subj", "/C=TW/L=Taipei/O=Ubiquiti Networks Inc./OU=devint/CN=camera.ubnt.dev/emailAddress=support@ubnt.com"],
+            ["openssl", "x509", "-req", "-sha256", "-days", "36500", "-in", "/tmp/server.csr",
+             "-signkey", "/tmp/private.key", "-out", "/tmp/public.key"],
+        ]
+        for cmd in cmds:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            _, stderr = await proc.communicate()
+            if proc.returncode != 0:
+                return web.json_response(
+                    {"error": f"OpenSSL failed: {stderr.decode()}"}, status=500
+                )
+
+        # Combine private key and public cert into PEM
+        with open("/tmp/private.key") as priv, open("/tmp/public.key") as pub:
+            combined = priv.read() + pub.read()
+        with open(cert_path, "w") as f:
+            f.write(combined)
+
+        # Clean up temp files
+        for tmp in ["/tmp/private.key", "/tmp/public.key", "/tmp/server.csr"]:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+
+        logger.info(f"Generated certificate at {cert_path}")
+        return web.json_response({"status": "ok", "path": cert_path})
+    except Exception as e:
+        logger.error(f"Certificate generation failed: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 # --- Static file serving ---
 
 
@@ -196,6 +239,7 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_post("/api/cameras/{id}/restart", restart_camera)
     app.router.add_get("/api/cameras/{id}/logs", get_camera_logs)
     app.router.add_get("/api/camera-types", get_camera_types)
+    app.router.add_post("/api/generate-cert", generate_cert)
 
     # Static files (built frontend)
     dist = find_frontend_dist()

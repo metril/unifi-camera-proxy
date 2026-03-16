@@ -37,6 +37,11 @@ DEFAULT_GLOBAL = {
     "nvr_username": None,
     "nvr_password": None,
     "verbose": False,
+    "mqtt_host": "",
+    "mqtt_port": 1883,
+    "mqtt_username": None,
+    "mqtt_password": None,
+    "mqtt_prefix": "frigate",
 }
 
 MODEL_CHOICES = [
@@ -102,8 +107,10 @@ def get_camera_type_schemas() -> dict[str, list[dict]]:
     unique_types = {
         "rtsp": RTSPCam,
         "frigate": FrigateCam,
+        "amcrest": DahuaCam,
         "dahua": DahuaCam,
         "hikvision": HikvisionCam,
+        "lorex": DahuaCam,
         "reolink": Reolink,
         "reolink_nvr": ReolinkNVRCam,
         "tapo": TapoCam,
@@ -208,6 +215,23 @@ def config_to_args(global_config: dict, camera_config: dict) -> list[str]:
         val = camera_config.get(config_key)
         if val is not None:
             args.extend([cli_flag, str(val)])
+
+    # Merge global MQTT settings for frigate cameras
+    if cam_type == "frigate":
+        mqtt_fields = {
+            "mqtt_host": "mqtt-host",
+            "mqtt_port": "mqtt-port",
+            "mqtt_username": "mqtt-username",
+            "mqtt_password": "mqtt-password",
+            "mqtt_prefix": "mqtt-prefix",
+        }
+        for config_key, cli_name in mqtt_fields.items():
+            # Per-camera value takes precedence over global
+            val = camera_config.get(config_key) or global_config.get(config_key)
+            if val is not None and val != "":
+                args.extend([f"--{cli_name}", str(val)])
+        # Track which MQTT fields we already handled
+        skip_fields.update(mqtt_fields.values())
 
     # Type-specific fields
     for field in type_fields:

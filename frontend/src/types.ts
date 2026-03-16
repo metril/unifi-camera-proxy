@@ -27,6 +27,11 @@ export interface GlobalConfig {
   nvr_username: string | null;
   nvr_password: string | null;
   verbose: boolean;
+  mqtt_host: string;
+  mqtt_port: number;
+  mqtt_username: string | null;
+  mqtt_password: string | null;
+  mqtt_prefix: string;
 }
 
 export interface FieldSchema {
