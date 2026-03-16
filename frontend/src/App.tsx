@@ -13,6 +13,11 @@ const DEFAULT_GLOBAL: GlobalConfig = {
   nvr_username: null,
   nvr_password: null,
   verbose: false,
+  mqtt_host: '',
+  mqtt_port: 1883,
+  mqtt_username: null,
+  mqtt_password: null,
+  mqtt_prefix: 'frigate',
 };
 
 function App() {
@@ -50,6 +55,11 @@ function App() {
   const handleStop = async (id: string) => {
     await api.stopCamera(id);
     fetchCameras();
+  };
+
+  const handleRestart = async (id: string) => {
+    await api.restartCamera(id);
+    setTimeout(fetchCameras, 1500);
   };
 
   const handleDelete = async (id: string) => {
@@ -112,6 +122,7 @@ function App() {
         cameras={cameras}
         onStart={handleStart}
         onStop={handleStop}
+        onRestart={handleRestart}
         onEdit={handleEdit}
         onDelete={handleDelete}
         onAdd={handleAddCamera}
