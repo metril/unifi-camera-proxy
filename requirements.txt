@@ -8,7 +8,7 @@ flvlib3@https://github.com/zkonge/flvlib3/archive/master.zip
 hikvisionapi==0.3.2
 packaging==24.1
 Pillow>=10.0.0
-uiprotect==1.2.1
+uiprotect==10.2.2
 reolinkapi==0.1.5
 websockets==12.0
 xmltodict==0.13.0

@@ -12,10 +12,12 @@ interface GlobalSettingsProps {
 export default function GlobalSettings({ isOpen, onClose, config, onSave }: GlobalSettingsProps) {
   const [form, setForm] = useState<GlobalConfig>(config);
   const [certStatus, setCertStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
+  const [tokenStatus, setTokenStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
 
   useEffect(() => {
     setForm(config);
     setCertStatus({ type: 'idle' });
+    setTokenStatus({ type: 'idle' });
   }, [config, isOpen]);
 
   if (!isOpen) return null;
@@ -39,7 +41,16 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
     }
   };
 
-  const tokenHintUrl = form.host ? `https://${form.host}/proxy/protect/api/cameras/manage-payload` : null;
+  const handleFetchToken = async () => {
+    setTokenStatus({ type: 'loading' });
+    try {
+      const result = await api.fetchToken(form.host, form.nvr_username, form.nvr_password, form.api_key);
+      handleChange('token', result.token);
+      setTokenStatus({ type: 'success', message: 'Token fetched successfully' });
+    } catch (err) {
+      setTokenStatus({ type: 'error', message: err instanceof Error ? err.message : 'Failed to fetch token' });
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -68,7 +79,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
                 type="text"
                 value={form.cert}
                 onChange={(e) => handleChange('cert', e.target.value)}
-                placeholder="/client.pem"
+                placeholder="data/client.pem"
                 className="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
               />
               <button
@@ -88,21 +99,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
             )}
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Adoption Token</label>
-            <input
-              type="text"
-              value={form.token}
-              onChange={(e) => handleChange('token', e.target.value)}
-              className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-            />
-            {tokenHintUrl && (
-              <p className="text-xs text-gray-500 mt-1">
-                Get token from: <span className="text-gray-400 font-mono break-all">{tokenHintUrl}</span>
-              </p>
-            )}
-          </div>
-
+          {/* NVR Credentials - before token so users set these first */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm text-gray-400 mb-1">NVR Username</label>
@@ -122,6 +119,46 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
                 className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">API Key</label>
+            <input
+              type="password"
+              value={form.api_key || ''}
+              onChange={(e) => handleChange('api_key', e.target.value || null)}
+              placeholder="Optional — alternative to username/password"
+              className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Adoption Token</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={form.token}
+                onChange={(e) => handleChange('token', e.target.value)}
+                className="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+              />
+              <button
+                type="button"
+                onClick={handleFetchToken}
+                disabled={tokenStatus.type === 'loading' || !form.host}
+                className="px-3 py-2 text-xs bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded hover:bg-blue-600/30 transition-colors whitespace-nowrap disabled:opacity-50"
+              >
+                {tokenStatus.type === 'loading' ? 'Fetching...' : 'Fetch Token'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Leave empty to auto-fetch on camera start using credentials above. Tokens expire after 60 minutes.
+            </p>
+            {tokenStatus.type === 'success' && (
+              <p className="text-xs text-green-400 mt-1">{tokenStatus.message}</p>
+            )}
+            {tokenStatus.type === 'error' && (
+              <p className="text-xs text-red-400 mt-1">{tokenStatus.message}</p>
+            )}
           </div>
 
           <div className="flex items-center gap-2">

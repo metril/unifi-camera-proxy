@@ -26,6 +26,7 @@ export interface GlobalConfig {
   token: string;
   nvr_username: string | null;
   nvr_password: string | null;
+  api_key: string | null;
   verbose: boolean;
   mqtt_host: string;
   mqtt_port: number;

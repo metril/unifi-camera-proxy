@@ -38,6 +38,7 @@ def parse_args():
     parser.add_argument("--host", "-H", required=True, help="NVR ip address and port")
     parser.add_argument("--nvr-username", required=False, help="NVR username")
     parser.add_argument("--nvr-password", required=False, help="NVR password")
+    parser.add_argument("--api-key", required=False, default=None, help="UniFi Protect API key")
     parser.add_argument(
         "--cert",
         "-c",
@@ -122,7 +123,9 @@ def parse_args():
 async def generate_token(args, logger):
     try:
         protect = ProtectApiClient(
-            args.host, 443, args.nvr_username, args.nvr_password, verify_ssl=False
+            args.host, 443, args.nvr_username, args.nvr_password,
+            api_key=getattr(args, 'api_key', None),
+            verify_ssl=False,
         )
         await protect.update()
         response = await protect.api_request("cameras/manage-payload")
