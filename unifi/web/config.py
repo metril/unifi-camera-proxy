@@ -227,7 +227,9 @@ def config_to_args(global_config: dict, camera_config: dict) -> list[str]:
         }
         for config_key, cli_name in mqtt_fields.items():
             # Per-camera value takes precedence over global
-            val = camera_config.get(config_key) or global_config.get(config_key)
+            val = camera_config.get(config_key)
+            if val is None or val == "":
+                val = global_config.get(config_key)
             if val is not None and val != "":
                 args.extend([f"--{cli_name}", str(val)])
         # Track which MQTT fields we already handled
