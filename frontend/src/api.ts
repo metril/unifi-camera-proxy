@@ -1,0 +1,60 @@
+import type { AppConfig, CameraConfig, CameraStatus, CameraTypeSchemas, GlobalConfig } from './types';
+
+const BASE = '/api';
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || res.statusText);
+  }
+  return res.json();
+}
+
+export const api = {
+  getConfig: () => request<AppConfig>('/config'),
+
+  updateGlobal: (config: GlobalConfig) =>
+    request<GlobalConfig>('/config/global', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  listCameras: () => request<CameraStatus[]>('/cameras'),
+
+  addCamera: (config: CameraConfig) =>
+    request<CameraConfig>('/cameras', {
+      method: 'POST',
+      body: JSON.stringify(config),
+    }),
+
+  getCamera: (id: string) => request<CameraStatus>(`/cameras/${id}`),
+
+  updateCamera: (id: string, config: CameraConfig) =>
+    request<CameraConfig>(`/cameras/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
+
+  deleteCamera: (id: string) =>
+    request<{ status: string }>(`/cameras/${id}`, { method: 'DELETE' }),
+
+  startCamera: (id: string) =>
+    request<{ status: string }>(`/cameras/${id}/start`, { method: 'POST' }),
+
+  stopCamera: (id: string) =>
+    request<{ status: string }>(`/cameras/${id}/stop`, { method: 'POST' }),
+
+  restartCamera: (id: string) =>
+    request<{ status: string }>(`/cameras/${id}/restart`, { method: 'POST' }),
+
+  startAll: () => request<{ status: string }>('/cameras/start-all'),
+  stopAll: () => request<{ status: string }>('/cameras/stop-all'),
+
+  getCameraLogs: (id: string) => request<{ logs: string[] }>(`/cameras/${id}/logs`),
+
+  getCameraTypes: () => request<CameraTypeSchemas>('/camera-types'),
+};
