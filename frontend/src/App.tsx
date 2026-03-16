@@ -12,6 +12,7 @@ const DEFAULT_GLOBAL: GlobalConfig = {
   token: '',
   nvr_username: null,
   nvr_password: null,
+  api_key: null,
   verbose: false,
   mqtt_host: '',
   mqtt_port: 1883,

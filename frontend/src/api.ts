@@ -58,6 +58,12 @@ export const api = {
 
   getCameraTypes: () => request<CameraTypeSchemas>('/camera-types'),
 
+  fetchToken: (host: string, username: string | null, password: string | null, apiKey: string | null) =>
+    request<{ token: string }>('/fetch-token', {
+      method: 'POST',
+      body: JSON.stringify({ host, username, password, api_key: apiKey }),
+    }),
+
   generateCert: (certPath?: string) =>
     request<{ status: string; path: string }>('/generate-cert', {
       method: 'POST',
