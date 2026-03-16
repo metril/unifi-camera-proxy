@@ -127,7 +127,7 @@ async def generate_token(args, logger):
             api_key=getattr(args, 'api_key', None),
             verify_ssl=False,
         )
-        await protect.update()
+        await protect.ensure_authenticated()
         response = await protect.api_request("cameras/manage-payload")
         return response["mgmt"]["token"]
     except Exception:
