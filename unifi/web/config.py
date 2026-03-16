@@ -96,6 +96,7 @@ def load_config(path: str) -> dict:
 
 
 def save_config(path: str, config: dict) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
