@@ -57,4 +57,7 @@ export const api = {
   getCameraLogs: (id: string) => request<{ logs: string[] }>(`/cameras/${id}/logs`),
 
   getCameraTypes: () => request<CameraTypeSchemas>('/camera-types'),
+
+  generateCert: () =>
+    request<{ status: string; path: string }>('/generate-cert', { method: 'POST' }),
 };

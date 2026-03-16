@@ -7,6 +7,7 @@ interface CameraCardProps {
   camera: CameraStatus;
   onStart: (id: string) => void;
   onStop: (id: string) => void;
+  onRestart: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
 }
@@ -31,7 +32,7 @@ const TYPE_COLORS: Record<string, string> = {
   tapo: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
 };
 
-export default function CameraCard({ camera, onStart, onStop, onEdit, onDelete }: CameraCardProps) {
+export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit, onDelete }: CameraCardProps) {
   const [showLogs, setShowLogs] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
@@ -97,12 +98,20 @@ export default function CameraCard({ camera, onStart, onStop, onEdit, onDelete }
 
         <div className="flex gap-2 flex-wrap">
           {camera.status === 'running' ? (
-            <button
-              onClick={() => onStop(camera.id)}
-              className="flex-1 px-3 py-1.5 text-xs bg-red-600/20 text-red-400 border border-red-600/30 rounded hover:bg-red-600/30 transition-colors"
-            >
-              Stop
-            </button>
+            <>
+              <button
+                onClick={() => onStop(camera.id)}
+                className="flex-1 px-3 py-1.5 text-xs bg-red-600/20 text-red-400 border border-red-600/30 rounded hover:bg-red-600/30 transition-colors"
+              >
+                Stop
+              </button>
+              <button
+                onClick={() => onRestart(camera.id)}
+                className="flex-1 px-3 py-1.5 text-xs bg-yellow-600/20 text-yellow-400 border border-yellow-600/30 rounded hover:bg-yellow-600/30 transition-colors"
+              >
+                Restart
+              </button>
+            </>
           ) : (
             <button
               onClick={() => onStart(camera.id)}
