@@ -8,7 +8,7 @@ import GlobalSettings from './components/GlobalSettings';
 
 const DEFAULT_GLOBAL: GlobalConfig = {
   host: '',
-  cert: 'client.pem',
+  cert: 'data/client.pem',
   token: '',
   nvr_username: null,
   nvr_password: null,

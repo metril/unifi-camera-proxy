@@ -32,7 +32,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
   const handleGenerateCert = async () => {
     setCertStatus({ type: 'loading' });
     try {
-      const result = await api.generateCert();
+      const result = await api.generateCert(form.cert);
       setCertStatus({ type: 'success', message: `Certificate generated: ${result.path}` });
     } catch (err) {
       setCertStatus({ type: 'error', message: err instanceof Error ? err.message : 'Failed to generate certificate' });

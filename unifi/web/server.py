@@ -139,7 +139,12 @@ async def get_camera_types(request: web.Request) -> web.Response:
 async def generate_cert(request: web.Request) -> web.Response:
     """Generate a UniFi-compatible SSL certificate."""
     manager = get_manager(request)
-    cert_path = manager.config.get("global", {}).get("cert", "client.pem")
+    # Accept optional path from request body, fall back to saved config
+    try:
+        body = await request.json()
+        cert_path = body.get("path") or manager.config.get("global", {}).get("cert", "data/client.pem")
+    except Exception:
+        cert_path = manager.config.get("global", {}).get("cert", "data/client.pem")
 
     # Validate cert_path doesn't escape working directory
     resolved = Path(cert_path).resolve()
