@@ -41,7 +41,7 @@ COPY --from=builder \
     /usr/local/lib/python${version}/site-packages \
     /usr/local/lib/python${version}/site-packages
 
-RUN apk add --update ffmpeg netcat-openbsd libusb-dev
+RUN apk add --update ffmpeg netcat-openbsd libusb-dev openssl
 
 COPY . .
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist

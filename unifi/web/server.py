@@ -4,6 +4,8 @@ import argparse
 import asyncio
 import logging
 import os
+import shutil
+import tempfile
 from pathlib import Path
 
 import coloredlogs
@@ -139,13 +141,26 @@ async def generate_cert(request: web.Request) -> web.Response:
     manager = get_manager(request)
     cert_path = manager.config.get("global", {}).get("cert", "client.pem")
 
+    # Validate cert_path doesn't escape working directory
+    resolved = Path(cert_path).resolve()
+    cwd = Path.cwd().resolve()
+    if not str(resolved).startswith(str(cwd)):
+        return web.json_response(
+            {"error": f"Certificate path must be within {cwd}"}, status=400
+        )
+
+    tmpdir = tempfile.mkdtemp(prefix="unifi-cert-")
     try:
+        priv_key = os.path.join(tmpdir, "private.key")
+        csr_file = os.path.join(tmpdir, "server.csr")
+        pub_key = os.path.join(tmpdir, "public.key")
+
         cmds = [
-            ["openssl", "ecparam", "-out", "/tmp/private.key", "-name", "prime256v1", "-genkey", "-noout"],
-            ["openssl", "req", "-new", "-sha256", "-key", "/tmp/private.key", "-out", "/tmp/server.csr",
+            ["openssl", "ecparam", "-out", priv_key, "-name", "prime256v1", "-genkey", "-noout"],
+            ["openssl", "req", "-new", "-sha256", "-key", priv_key, "-out", csr_file,
              "-subj", "/C=TW/L=Taipei/O=Ubiquiti Networks Inc./OU=devint/CN=camera.ubnt.dev/emailAddress=support@ubnt.com"],
-            ["openssl", "x509", "-req", "-sha256", "-days", "36500", "-in", "/tmp/server.csr",
-             "-signkey", "/tmp/private.key", "-out", "/tmp/public.key"],
+            ["openssl", "x509", "-req", "-sha256", "-days", "36500", "-in", csr_file,
+             "-signkey", priv_key, "-out", pub_key],
         ]
         for cmd in cmds:
             proc = await asyncio.create_subprocess_exec(
@@ -158,23 +173,18 @@ async def generate_cert(request: web.Request) -> web.Response:
                 )
 
         # Combine private key and public cert into PEM
-        with open("/tmp/private.key") as priv, open("/tmp/public.key") as pub:
+        with open(priv_key) as priv, open(pub_key) as pub:
             combined = priv.read() + pub.read()
-        with open(cert_path, "w") as f:
+        with open(str(resolved), "w") as f:
             f.write(combined)
 
-        # Clean up temp files
-        for tmp in ["/tmp/private.key", "/tmp/public.key", "/tmp/server.csr"]:
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-
-        logger.info(f"Generated certificate at {cert_path}")
-        return web.json_response({"status": "ok", "path": cert_path})
+        logger.info(f"Generated certificate at {resolved}")
+        return web.json_response({"status": "ok", "path": str(resolved)})
     except Exception as e:
         logger.error(f"Certificate generation failed: {e}")
         return web.json_response({"error": str(e)}, status=500)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 # --- Static file serving ---
