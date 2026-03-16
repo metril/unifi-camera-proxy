@@ -24,7 +24,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt --no-build-isolation
 
 # Stage 2: Frontend builder
-FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:24-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
 RUN npm ci
