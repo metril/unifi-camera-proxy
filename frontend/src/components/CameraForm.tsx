@@ -26,6 +26,13 @@ const COMMON_HANDLED = new Set([
   'timestamp-modifier', 'loglevel', 'format',
 ]);
 
+// Fields preserved across camera type changes
+const COMMON_KEYS = new Set([
+  'id', 'enabled', 'name', 'mac', 'ip', 'model', 'fw_version', 'type',
+  'ffmpeg_args', 'ffmpeg_base_args', 'rtsp_transport',
+  'timestamp_modifier', 'loglevel', 'format',
+]);
+
 export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamera }: CameraFormProps) {
   const [form, setForm] = useState<CameraConfig>({ ...DEFAULT_CAMERA });
 
@@ -43,6 +50,20 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
   const typeFields = schemas.types[cameraType] || [];
 
   const handleChange = (key: string, value: unknown) => {
+    if (key === 'type' && schemas) {
+      // Strip type-specific fields from old type, keep only common fields
+      setForm((prev) => {
+        const cleaned: CameraConfig = { ...DEFAULT_CAMERA };
+        for (const k of Object.keys(prev)) {
+          if (COMMON_KEYS.has(k)) {
+            (cleaned as Record<string, unknown>)[k] = prev[k];
+          }
+        }
+        cleaned.type = value as string;
+        return cleaned;
+      });
+      return;
+    }
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 

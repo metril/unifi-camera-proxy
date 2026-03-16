@@ -155,7 +155,10 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
                   <input
                     type="number"
                     value={form.mqtt_port || 1883}
-                    onChange={(e) => handleChange('mqtt_port', e.target.value ? Number(e.target.value) : 1883)}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      handleChange('mqtt_port', Number.isNaN(n) ? 1883 : Math.max(1, Math.min(65535, n)));
+                    }}
                     className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                   />
                 </div>
