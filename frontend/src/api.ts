@@ -1,4 +1,4 @@
-import type { AppConfig, CameraConfig, CameraStatus, CameraTypeSchemas, GlobalConfig } from './types';
+import type { AppConfig, CameraConfig, CameraStatus, CameraTypeSchemas, GlobalConfig, LogEntry } from './types';
 
 const BASE = '/api';
 
@@ -54,7 +54,7 @@ export const api = {
   startAll: () => request<{ status: string }>('/cameras/start-all'),
   stopAll: () => request<{ status: string }>('/cameras/stop-all'),
 
-  getCameraLogs: (id: string) => request<{ logs: string[] }>(`/cameras/${id}/logs`),
+  getCameraLogs: (id: string) => request<{ logs: LogEntry[] }>(`/cameras/${id}/logs`),
 
   getCameraTypes: () => request<CameraTypeSchemas>('/camera-types'),
 
