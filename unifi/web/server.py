@@ -161,42 +161,22 @@ async def fetch_token(request: web.Request) -> web.Response:
     api_key = body.get("api_key")
 
     if not host:
-        return web.json_response({"error": "NVR host is required"}, status=400)
-    if not api_key and (not username or not password):
+        return web.json_response({"error": "UniFi Protect host is required"}, status=400)
+    if not username or not password:
         return web.json_response(
-            {"error": "Either API key or NVR username/password is required"}, status=400
+            {"error": "Username and password are required to fetch token (API keys cannot access this endpoint)"}, status=400
         )
 
     try:
-        if api_key and (not username or not password):
-            # API key auth — direct HTTP request
-            url = f"https://{host}/proxy/protect/api/cameras/manage-payload"
-            async with aiohttp_client.ClientSession() as session:
-                async with session.get(
-                    url,
-                    headers={"X-API-KEY": api_key},
-                    ssl=False,
-                    timeout=aiohttp_client.ClientTimeout(total=10),
-                ) as resp:
-                    if resp.status != 200:
-                        text = await resp.text()
-                        return web.json_response(
-                            {"error": f"HTTP {resp.status}: {text[:200]}"}, status=500
-                        )
-                    data = await resp.json()
-                    token = data["mgmt"]["token"]
-                    return web.json_response({"token": token})
-        else:
-            # Username/password auth via ProtectApiClient
-            protect = ProtectApiClient(
-                host, 443, username, password,
-                verify_ssl=False,
-                store_sessions=False,
-            )
-            await protect.authenticate()
-            response = await protect.api_request("cameras/manage-payload")
-            token = response["mgmt"]["token"]
-            return web.json_response({"token": token})
+        protect = ProtectApiClient(
+            host, 443, username, password,
+            verify_ssl=False,
+            store_sessions=False,
+        )
+        await protect.authenticate()
+        response = await protect.api_request("cameras/manage-payload")
+        token = response["mgmt"]["token"]
+        return web.json_response({"token": token})
     except Exception as e:
         logger.error(f"Failed to fetch token: {e}")
         return web.json_response({"error": str(e)}, status=500)
