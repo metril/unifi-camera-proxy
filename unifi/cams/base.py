@@ -16,6 +16,7 @@ from typing import Any, Optional
 from urllib.parse import urlparse
 
 import aiohttp
+from aiohttp import web
 import websockets
 
 from unifi.core import RetryableError
