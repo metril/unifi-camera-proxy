@@ -13,6 +13,31 @@ from unifi.web.config import config_to_args, load_config, save_config
 
 logger = logging.getLogger("CameraManager")
 
+# Parse coloredlogs format: "TIMESTAMP HOSTNAME LOGGER[PID] LEVEL MESSAGE"
+_LOG_PATTERN = re.compile(
+    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) \S+ (\w+)\[\d+\] (\w+) (.*)", re.DOTALL
+)
+
+
+def parse_log_line(line: str) -> dict:
+    """Parse a log line into structured data."""
+    m = _LOG_PATTERN.match(line)
+    if m:
+        return {
+            "timestamp": m.group(1),
+            "logger": m.group(2),
+            "level": m.group(3).upper(),
+            "message": m.group(4),
+            "raw": line,
+        }
+    return {
+        "timestamp": "",
+        "logger": "",
+        "level": "INFO",
+        "message": line,
+        "raw": line,
+    }
+
 
 @dataclass
 class CameraInstance:
@@ -110,7 +135,8 @@ class CameraManager:
                         break
                     decoded = line.decode("utf-8", errors="replace").rstrip()
                     if decoded:
-                        instance.log_buffer.append(decoded)
+                        entry = parse_log_line(decoded)
+                        instance.log_buffer.append(entry)
                         # Echo to web server logs so output appears in docker logs
                         logger.debug(f"[{instance.id}] {decoded}")
             except Exception as e:
@@ -135,8 +161,8 @@ class CameraManager:
                     instance.status = "stopped"
                 else:
                     instance.status = "error"
-                    last_lines = list(instance.log_buffer)[-5:]
-                    error_detail = "\n".join(last_lines) if last_lines else "No output captured"
+                    last_entries = list(instance.log_buffer)[-5:]
+                    error_detail = "\n".join(e.get("raw", str(e)) if isinstance(e, dict) else str(e) for e in last_entries) if last_entries else "No output captured"
                     instance.error_message = f"Process exited with code {returncode}: {error_detail}"
                     logger.warning(
                         f"Camera {instance.id} exited with code {returncode}. "

@@ -52,6 +52,14 @@ export interface CameraTypeSchemas {
   models: string[];
 }
 
+export interface LogEntry {
+  timestamp: string;
+  logger: string;
+  level: string;
+  message: string;
+  raw: string;
+}
+
 export interface AppConfig {
   global: GlobalConfig;
   cameras: CameraConfig[];
