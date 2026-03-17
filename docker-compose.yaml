@@ -13,7 +13,6 @@ services:
     #   - 192.168.1.1  # Your router/DNS server
     # Or use host networking (exposes all ports directly):
     # network_mode: host
-    command: unifi-cam-proxy-web
 
   # Individual camera containers (legacy mode - use web UI instead)
   unifi-cam-backyard:
