@@ -26,6 +26,7 @@ const DEFAULT_GLOBAL: GlobalConfig = {
   frigate_http_url: '',
   frigate_username: null,
   frigate_password: null,
+  frigate_verify_ssl: true,
 };
 
 function App() {

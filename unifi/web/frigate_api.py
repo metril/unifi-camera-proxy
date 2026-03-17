@@ -14,6 +14,7 @@ async def frigate_request(
     path: str,
     username: str | None = None,
     password: str | None = None,
+    verify_ssl: bool = True,
     timeout: int = 10,
 ) -> dict[str, Any]:
     """Make an authenticated request to the Frigate HTTP API.
@@ -28,7 +29,7 @@ async def frigate_request(
             async with session.post(
                 login_url,
                 json={"user": username, "password": password},
-                ssl=False,
+                ssl=False if not verify_ssl else None,
                 timeout=aiohttp.ClientTimeout(total=timeout),
             ) as login_resp:
                 if login_resp.status != 200:
@@ -43,7 +44,7 @@ async def frigate_request(
         request_url = f"{base_url}{path}"
         async with session.get(
             request_url,
-            ssl=False,
+            ssl=False if not verify_ssl else None,
             timeout=aiohttp.ClientTimeout(total=timeout),
         ) as resp:
             if resp.status != 200:

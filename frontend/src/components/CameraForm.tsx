@@ -245,7 +245,8 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
 
     setAutoDetectStatus({ type: 'loading' });
     try {
-      const result = await api.detectFrigateCamera(frigateUrl, cameraName, frigateUser, frigatePass);
+      const verifySsl = globalConfig.frigate_verify_ssl ?? true;
+      const result = await api.detectFrigateCamera(frigateUrl, cameraName, frigateUser, frigatePass, verifySsl);
       // Auto-fill detected values
       if (result.detect.width) {
         handleChange('camera_width', result.detect.width);

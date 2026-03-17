@@ -300,12 +300,13 @@ async def test_frigate(request: web.Request) -> web.Response:
     url = body.get("url")
     username = body.get("username")
     password = body.get("password")
+    verify_ssl = body.get("verify_ssl", True)
 
     if not url:
         return web.json_response({"error": "Frigate HTTP URL is required"}, status=400)
 
     try:
-        config = await frigate_request(url, "/api/config", username, password)
+        config = await frigate_request(url, "/api/config", username, password, verify_ssl=verify_ssl)
         cameras = list(config.get("cameras", {}).keys())
         return web.json_response({
             "status": "ok",
@@ -328,6 +329,7 @@ async def detect_frigate_camera(request: web.Request) -> web.Response:
     username = body.get("username")
     password = body.get("password")
     camera_name = body.get("camera_name")
+    verify_ssl = body.get("verify_ssl", True)
 
     if not url:
         return web.json_response({"error": "Frigate HTTP URL is required"}, status=400)
@@ -335,7 +337,7 @@ async def detect_frigate_camera(request: web.Request) -> web.Response:
         return web.json_response({"error": "Camera name is required"}, status=400)
 
     try:
-        config = await frigate_request(url, "/api/config", username, password)
+        config = await frigate_request(url, "/api/config", username, password, verify_ssl=verify_ssl)
 
         camera_config = config.get("cameras", {}).get(camera_name)
         if not camera_config:

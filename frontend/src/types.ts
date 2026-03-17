@@ -39,6 +39,7 @@ export interface GlobalConfig {
   frigate_http_url: string;
   frigate_username: string | null;
   frigate_password: string | null;
+  frigate_verify_ssl: boolean;
 }
 
 export interface FieldSchema {
