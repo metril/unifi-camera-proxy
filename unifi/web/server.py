@@ -17,6 +17,7 @@ from uiprotect import ProtectApiClient
 
 from unifi.web.camera_manager import CameraManager
 from unifi.web.config import MODEL_CHOICES, get_camera_type_schemas, inject_rtsp_credentials
+from unifi.web.frigate_api import frigate_request
 
 logger = logging.getLogger("WebServer")
 
@@ -304,28 +305,13 @@ async def test_frigate(request: web.Request) -> web.Response:
         return web.json_response({"error": "Frigate HTTP URL is required"}, status=400)
 
     try:
-        auth = None
-        if username and password:
-            auth = aiohttp_client.BasicAuth(username, password)
-        async with aiohttp_client.ClientSession() as session:
-            async with session.get(
-                f"{url}/api/config",
-                auth=auth,
-                ssl=False,
-                timeout=aiohttp_client.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    return web.json_response(
-                        {"error": f"HTTP {resp.status}: {text[:200]}"}, status=500
-                    )
-                config = await resp.json()
-                cameras = list(config.get("cameras", {}).keys())
-                return web.json_response({
-                    "status": "ok",
-                    "cameras": cameras,
-                    "version": config.get("version", "unknown"),
-                })
+        config = await frigate_request(url, "/api/config", username, password)
+        cameras = list(config.get("cameras", {}).keys())
+        return web.json_response({
+            "status": "ok",
+            "cameras": cameras,
+            "version": config.get("version", "unknown"),
+        })
     except Exception as e:
         logger.error(f"Frigate test failed: {e}")
         return web.json_response({"error": str(e)}, status=500)
@@ -349,22 +335,7 @@ async def detect_frigate_camera(request: web.Request) -> web.Response:
         return web.json_response({"error": "Camera name is required"}, status=400)
 
     try:
-        auth = None
-        if username and password:
-            auth = aiohttp_client.BasicAuth(username, password)
-        async with aiohttp_client.ClientSession() as session:
-            async with session.get(
-                f"{url}/api/config",
-                auth=auth,
-                ssl=False,
-                timeout=aiohttp_client.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status != 200:
-                    text = await resp.text()
-                    return web.json_response(
-                        {"error": f"HTTP {resp.status}: {text[:200]}"}, status=500
-                    )
-                config = await resp.json()
+        config = await frigate_request(url, "/api/config", username, password)
 
         camera_config = config.get("cameras", {}).get(camera_name)
         if not camera_config:

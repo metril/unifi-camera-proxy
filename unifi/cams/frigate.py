@@ -364,16 +364,13 @@ class FrigateCam(RTSPCam):
         if not self.args.frigate_http_url:
             return
         try:
-            url = f"{self.args.frigate_http_url}/api/config"
-            auth = None
-            if getattr(self.args, 'frigate_username', None) and getattr(self.args, 'frigate_password', None):
-                auth = aiohttp.BasicAuth(self.args.frigate_username, self.args.frigate_password)
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, auth=auth, ssl=False, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status != 200:
-                        self.logger.warning(f"Failed to fetch Frigate config: HTTP {resp.status}")
-                        return
-                    config = await resp.json()
+            from unifi.web.frigate_api import frigate_request
+            config = await frigate_request(
+                self.args.frigate_http_url,
+                "/api/config",
+                getattr(self.args, 'frigate_username', None),
+                getattr(self.args, 'frigate_password', None),
+            )
 
             camera_config = config.get("cameras", {}).get(self.args.frigate_camera)
             if not camera_config:
