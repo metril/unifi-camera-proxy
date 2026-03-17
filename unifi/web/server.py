@@ -8,6 +8,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
+import aiohttp as aiohttp_client
+import aiomqtt
 import coloredlogs
 from aiohttp import web
 
@@ -157,24 +159,132 @@ async def fetch_token(request: web.Request) -> web.Response:
             {"error": "Either API key or NVR username/password is required"}, status=400
         )
 
-    protect = None
     try:
-        protect = ProtectApiClient(
-            host, 443, username, password,
-            api_key=api_key or None,
-            verify_ssl=False,
-            store_sessions=False,
-        )
-        await protect.authenticate()
-        response = await protect.api_request("cameras/manage-payload")
-        token = response["mgmt"]["token"]
-        return web.json_response({"token": token})
+        if api_key and (not username or not password):
+            # API key auth — direct HTTP request
+            url = f"https://{host}/proxy/protect/api/cameras/manage-payload"
+            async with aiohttp_client.ClientSession() as session:
+                async with session.get(
+                    url,
+                    headers={"X-API-KEY": api_key},
+                    ssl=False,
+                    timeout=aiohttp_client.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        return web.json_response(
+                            {"error": f"HTTP {resp.status}: {text[:200]}"}, status=500
+                        )
+                    data = await resp.json()
+                    token = data["mgmt"]["token"]
+                    return web.json_response({"token": token})
+        else:
+            # Username/password auth via ProtectApiClient
+            protect = ProtectApiClient(
+                host, 443, username, password,
+                verify_ssl=False,
+                store_sessions=False,
+            )
+            await protect.authenticate()
+            response = await protect.api_request("cameras/manage-payload")
+            token = response["mgmt"]["token"]
+            return web.json_response({"token": token})
     except Exception as e:
         logger.error(f"Failed to fetch token: {e}")
         return web.json_response({"error": str(e)}, status=500)
-    finally:
-        if protect:
-            await protect.close_session()
+
+
+async def test_mqtt(request: web.Request) -> web.Response:
+    """Test MQTT connection and discover topics."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request body"}, status=400)
+
+    host = body.get("host")
+    port = body.get("port", 1883)
+    username = body.get("username")
+    password = body.get("password")
+    ssl = body.get("ssl", False)
+    prefix = body.get("prefix", "frigate")
+
+    if not host:
+        return web.json_response({"error": "MQTT host is required"}, status=400)
+
+    topics: set[str] = set()
+    try:
+        tls_params = aiomqtt.TLSParameters() if ssl else None
+        async with aiomqtt.Client(
+            host,
+            port=int(port),
+            username=username or None,
+            password=password or None,
+            tls_params=tls_params,
+        ) as client:
+            await client.subscribe(f"{prefix}/#")
+            # Collect topics for up to 5 seconds
+            try:
+                async with asyncio.timeout(5):
+                    async for message in client.messages:
+                        topics.add(message.topic.value)
+            except TimeoutError:
+                pass
+        return web.json_response({
+            "status": "ok",
+            "topics": sorted(topics),
+        })
+    except Exception as e:
+        logger.error(f"MQTT test failed: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def test_rtsp(request: web.Request) -> web.Response:
+    """Test RTSP stream connectivity using ffprobe."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request body"}, status=400)
+
+    url = body.get("url")
+    transport = body.get("transport", "tcp")
+
+    if not url:
+        return web.json_response({"error": "RTSP URL is required"}, status=400)
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v", "error",
+            "-rtsp_transport", transport,
+            "-i", url,
+            "-show_streams",
+            "-of", "json",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+
+        if proc.returncode != 0:
+            error_msg = stderr.decode().strip() or f"ffprobe exited with code {proc.returncode}"
+            return web.json_response({"error": error_msg}, status=500)
+
+        import json
+        data = json.loads(stdout.decode())
+        streams = []
+        for s in data.get("streams", []):
+            info = {"codec": s.get("codec_name", "unknown"), "type": s.get("codec_type", "unknown")}
+            if s.get("width"):
+                info["resolution"] = f"{s['width']}x{s['height']}"
+            if s.get("r_frame_rate"):
+                info["fps"] = s["r_frame_rate"]
+            streams.append(info)
+
+        return web.json_response({"status": "ok", "streams": streams})
+    except asyncio.TimeoutError:
+        return web.json_response({"error": "Connection timed out after 10 seconds"}, status=500)
+    except Exception as e:
+        logger.error(f"RTSP test failed: {e}")
+        return web.json_response({"error": str(e)}, status=500)
 
 
 async def generate_cert(request: web.Request) -> web.Response:
@@ -298,6 +408,8 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_get("/api/camera-types", get_camera_types)
     app.router.add_post("/api/generate-cert", generate_cert)
     app.router.add_post("/api/fetch-token", fetch_token)
+    app.router.add_post("/api/test-mqtt", test_mqtt)
+    app.router.add_post("/api/test-rtsp", test_rtsp)
 
     # Static files (built frontend)
     dist = find_frontend_dist()

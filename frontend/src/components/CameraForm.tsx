@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { api } from '../api';
 import type { CameraConfig, CameraTypeSchemas, FieldSchema } from '../types';
 
 interface CameraFormProps {
@@ -33,8 +34,11 @@ const COMMON_KEYS = new Set([
   'timestamp_modifier', 'loglevel', 'format',
 ]);
 
+const RTSP_FIELDS = new Set(['video1', 'video2', 'video3', 'source', 'rtsp']);
+
 export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamera }: CameraFormProps) {
   const [form, setForm] = useState<CameraConfig>({ ...DEFAULT_CAMERA });
+  const [rtspTest, setRtspTest] = useState<Record<string, { type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
 
   useEffect(() => {
     if (editCamera) {
@@ -111,22 +115,59 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
       );
     }
 
+    const isRtspField = RTSP_FIELDS.has(field.name);
+    const testState = rtspTest[field.name];
+
+    const handleTestRtsp = async () => {
+      const url = String(value || '');
+      if (!url) return;
+      setRtspTest((prev) => ({ ...prev, [field.name]: { type: 'loading' } }));
+      try {
+        const transport = (form.rtsp_transport as string) || 'tcp';
+        const result = await api.testRtsp(url, transport);
+        const info = result.streams.map((s) =>
+          `${s.type}: ${s.codec}${s.resolution ? ` ${s.resolution}` : ''}${s.fps ? ` @${s.fps}` : ''}`
+        ).join(', ');
+        setRtspTest((prev) => ({ ...prev, [field.name]: { type: 'success', message: info || 'Stream reachable' } }));
+      } catch (err) {
+        setRtspTest((prev) => ({ ...prev, [field.name]: { type: 'error', message: err instanceof Error ? err.message : 'Test failed' } }));
+      }
+    };
+
     return (
       <div key={field.name}>
         <label className="block text-sm text-gray-400 mb-1">
           {field.name}{field.required && <span className="text-red-400 ml-1">*</span>}
         </label>
-        <input
-          type={field.type === 'number' ? 'number' : 'text'}
-          value={value != null ? String(value) : ''}
-          onChange={(e) => {
-            const v = field.type === 'number' ? (e.target.value ? (Number.isNaN(Number(e.target.value)) ? null : Number(e.target.value)) : null) : e.target.value;
-            handleChange(configKey, v);
-          }}
-          placeholder={field.default != null ? String(field.default) : ''}
-          className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-        />
+        <div className={isRtspField ? 'flex gap-2' : ''}>
+          <input
+            type={field.type === 'number' ? 'number' : 'text'}
+            value={value != null ? String(value) : ''}
+            onChange={(e) => {
+              const v = field.type === 'number' ? (e.target.value ? (Number.isNaN(Number(e.target.value)) ? null : Number(e.target.value)) : null) : e.target.value;
+              handleChange(configKey, v);
+            }}
+            placeholder={field.default != null ? String(field.default) : ''}
+            className={`${isRtspField ? 'flex-1' : 'w-full'} bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500`}
+          />
+          {isRtspField && (
+            <button
+              type="button"
+              onClick={handleTestRtsp}
+              disabled={!value || testState?.type === 'loading'}
+              className="px-3 py-2 text-xs bg-cyan-600/20 text-cyan-400 border border-cyan-600/30 rounded hover:bg-cyan-600/30 transition-colors whitespace-nowrap disabled:opacity-50"
+            >
+              {testState?.type === 'loading' ? 'Testing...' : 'Test'}
+            </button>
+          )}
+        </div>
         {field.help && <p className="text-xs text-gray-500 mt-1">{field.help}</p>}
+        {testState?.type === 'success' && (
+          <p className="text-xs text-green-400 mt-1">{testState.message}</p>
+        )}
+        {testState?.type === 'error' && (
+          <p className="text-xs text-red-400 mt-1">{testState.message}</p>
+        )}
       </div>
     );
   };

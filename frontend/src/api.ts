@@ -64,6 +64,18 @@ export const api = {
       body: JSON.stringify({ host, username, password, api_key: apiKey }),
     }),
 
+  testMqtt: (host: string, port: number, username: string | null, password: string | null, ssl: boolean, prefix: string) =>
+    request<{ status: string; topics: string[] }>('/test-mqtt', {
+      method: 'POST',
+      body: JSON.stringify({ host, port, username, password, ssl, prefix }),
+    }),
+
+  testRtsp: (url: string, transport?: string) =>
+    request<{ status: string; streams: Array<{ codec: string; type: string; resolution?: string; fps?: string }> }>('/test-rtsp', {
+      method: 'POST',
+      body: JSON.stringify({ url, transport: transport || 'tcp' }),
+    }),
+
   generateCert: (certPath?: string) =>
     request<{ status: string; path: string }>('/generate-cert', {
       method: 'POST',
