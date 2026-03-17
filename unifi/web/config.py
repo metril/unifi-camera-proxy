@@ -309,6 +309,8 @@ def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: i
         # Merge global Frigate HTTP settings
         frigate_fields = {
             "frigate_http_url": "frigate-http-url",
+            "frigate_username": "frigate-username",
+            "frigate_password": "frigate-password",
         }
         for config_key, cli_name in frigate_fields.items():
             val = camera_config.get(config_key)

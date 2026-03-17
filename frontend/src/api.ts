@@ -76,6 +76,12 @@ export const api = {
       body: JSON.stringify({ url, transport: transport || 'tcp', username, password }),
     }),
 
+  testFrigate: (url: string, username?: string | null, password?: string | null) =>
+    request<{ status: string; cameras: string[]; version: string }>('/test-frigate', {
+      method: 'POST',
+      body: JSON.stringify({ url, username, password }),
+    }),
+
   generateCert: (certPath?: string) =>
     request<{ status: string; path: string }>('/generate-cert', {
       method: 'POST',

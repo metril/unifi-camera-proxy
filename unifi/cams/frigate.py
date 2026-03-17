@@ -29,6 +29,7 @@ class FrigateCam(RTSPCam):
         self.event_last_update: dict[int, float] = {}
         self.event_timeout_seconds = 600  # Timeout after 600 seconds (10 minutes) without updates
         self._motion_is_on = False  # Track motion state for deferred analytics stop
+        self._auto_detected: dict[str, Any] = {}  # Store auto-detected settings from Frigate API
 
     @classmethod
     def add_parser(cls, parser: argparse.ArgumentParser) -> None:
@@ -77,6 +78,8 @@ class FrigateCam(RTSPCam):
             type=str,
             help="Frigate HTTP API URL (e.g., http://frigate:5000). If provided, snapshots will be fetched via HTTP instead of MQTT.",
         )
+        parser.add_argument("--frigate-username", required=False, help="Frigate HTTP API username")
+        parser.add_argument("--frigate-password", required=False, help="Frigate HTTP API password")
         parser.add_argument(
             "--frigate-time-sync-ms",
             default=0,
@@ -87,16 +90,18 @@ class FrigateCam(RTSPCam):
     def get_diagnostics(self) -> dict[str, Any]:
         diag = super().get_diagnostics()
         diag["mqtt"] = {
-            "connected": hasattr(self, '_motion_is_on'),  # proxy for MQTT being set up
+            "connected": hasattr(self, '_motion_is_on'),
             "host": f"{self.args.mqtt_host}:{self.args.mqtt_port}",
         }
         diag["frigate"] = {
             "camera": self.args.frigate_camera,
+            "http_url": getattr(self.args, 'frigate_http_url', ''),
             "active_event_count": len(self.frigate_to_unifi_event_map),
             "motion_active": self._motion_is_on,
             "event_mappings": {
                 fid: uid for fid, uid in self.frigate_to_unifi_event_map.items()
             },
+            "auto_detected": self._auto_detected,
         }
         return diag
 
@@ -403,13 +408,17 @@ class FrigateCam(RTSPCam):
                     self.args.video3_fps = detect_fps
                 self.logger.info(f"Frigate auto-detect: detect FPS {detect_fps}")
 
-            # For video1/video2 (main/record stream), resolution must come from
-            # ffprobe since Frigate API doesn't include stream resolution.
-            # The existing probe_video_resolution() in init_adoption() handles this.
-            # But we can estimate bitrate from the probed resolution later.
+            # Store auto-detected values for diagnostics visibility
+            self._auto_detected = {
+                "detect_resolution": f"{detect_w}x{detect_h}" if detect_w else "unknown",
+                "detect_fps": detect_fps or "unknown",
+                "video1_fps": getattr(self.args, 'video1_fps', 30),
+                "video1_bitrate_kbps": getattr(self.args, 'video1_bitrate', 6000),
+                "source": "Frigate API",
+            }
             self.logger.info(
-                f"Frigate auto-detect: video1/2 resolution will be probed from stream. "
-                f"Detect: {detect_w}x{detect_h}@{detect_fps}fps"
+                f"Frigate auto-detect complete: detect {detect_w}x{detect_h}@{detect_fps}fps, "
+                f"video1 {self.args.video1_bitrate}kbps@{self.args.video1_fps}fps"
             )
 
         except Exception as e:
