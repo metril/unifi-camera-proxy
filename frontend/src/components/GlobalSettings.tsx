@@ -146,7 +146,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
               type="password"
               value={form.api_key || ''}
               onChange={(e) => handleChange('api_key', e.target.value || null)}
-              placeholder="Optional — alternative to username/password"
+              placeholder="Optional — used by cameras at runtime"
               className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -163,14 +163,14 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
               <button
                 type="button"
                 onClick={handleFetchToken}
-                disabled={tokenStatus.type === 'loading' || !form.host}
+                disabled={tokenStatus.type === 'loading' || !form.host || !form.nvr_username || !form.nvr_password}
                 className="px-3 py-2 text-xs bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded hover:bg-blue-600/30 transition-colors whitespace-nowrap disabled:opacity-50"
               >
                 {tokenStatus.type === 'loading' ? 'Fetching...' : 'Fetch Token'}
               </button>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Leave empty to auto-fetch on camera start using credentials above. Tokens expire after 60 minutes.
+              Requires username/password above. Leave empty to auto-fetch on camera start. Tokens expire after 60 minutes.
             </p>
             {tokenStatus.type === 'success' && (
               <p className="text-xs text-green-400 mt-1">{tokenStatus.message}</p>
