@@ -375,43 +375,42 @@ class FrigateCam(RTSPCam):
                 self.logger.warning(f"Camera '{self.args.frigate_camera}' not found in Frigate config")
                 return
 
-            # Extract stream info from ffmpeg inputs
-            inputs = camera_config.get("ffmpeg", {}).get("inputs", [])
+            # Frigate API: detect config has width, height, fps
+            # ffmpeg.inputs[] has path and roles but NOT resolution
             detect_config = camera_config.get("detect", {})
 
-            # Find record stream (highest quality) for video1
-            for inp in inputs:
-                roles = inp.get("roles", [])
-                if "record" in roles:
-                    w = inp.get("width", 0)
-                    h = inp.get("height", 0)
-                    if w and h:
-                        self._detected_resolutions["video1"] = (w, h)
-                        self._detected_resolutions["video2"] = (w, h)
-                        self.logger.info(f"Frigate auto-detect: video1/2 resolution {w}x{h}")
-                if "detect" in roles:
-                    w = inp.get("width", 0)
-                    h = inp.get("height", 0)
-                    if w and h:
-                        self._detected_resolutions["video3"] = (w, h)
-                        self.logger.info(f"Frigate auto-detect: video3 resolution {w}x{h}")
+            # Get detect resolution (used for video3/sub stream and detection coordinates)
+            detect_w = detect_config.get("width", 0)
+            detect_h = detect_config.get("height", 0)
+            if detect_w and detect_h:
+                self._detected_resolutions["video3"] = (detect_w, detect_h)
+                # Also update frigate detect dimensions if not manually set
+                if getattr(self.args, 'frigate_detect_width', 1280) == 1280:
+                    self.args.frigate_detect_width = detect_w
+                if getattr(self.args, 'frigate_detect_height', 720) == 720:
+                    self.args.frigate_detect_height = detect_h
+                self.logger.info(f"Frigate auto-detect: detect resolution {detect_w}x{detect_h}")
 
-            # Extract FPS from detect config
+            # Get FPS from detect config
             detect_fps = detect_config.get("fps")
-            if detect_fps and not hasattr(self.args, '_fps_overridden'):
-                self.args.video1_fps = detect_fps
-                self.args.video2_fps = detect_fps
-                self.args.video3_fps = detect_fps
-                self.logger.info(f"Frigate auto-detect: FPS {detect_fps}")
+            if detect_fps:
+                # Use detect FPS for all streams unless manually overridden
+                if getattr(self.args, 'video1_fps', 30) == 30:
+                    self.args.video1_fps = detect_fps
+                if getattr(self.args, 'video2_fps', 15) == 15:
+                    self.args.video2_fps = detect_fps
+                if getattr(self.args, 'video3_fps', 15) == 15:
+                    self.args.video3_fps = detect_fps
+                self.logger.info(f"Frigate auto-detect: detect FPS {detect_fps}")
 
-            # Estimate bitrate from resolution
-            v1_res = self._detected_resolutions["video1"]
-            pixels = v1_res[0] * v1_res[1]
-            fps = getattr(self.args, 'video1_fps', 30)
-            estimated_bitrate_kbps = max(2000, int(pixels * fps * 0.07 / 1000))
-            if getattr(self.args, 'video1_bitrate', 6000) == 6000:  # Only override if still default
-                self.args.video1_bitrate = estimated_bitrate_kbps
-                self.logger.info(f"Frigate auto-detect: estimated video1 bitrate {estimated_bitrate_kbps} kbps")
+            # For video1/video2 (main/record stream), resolution must come from
+            # ffprobe since Frigate API doesn't include stream resolution.
+            # The existing probe_video_resolution() in init_adoption() handles this.
+            # But we can estimate bitrate from the probed resolution later.
+            self.logger.info(
+                f"Frigate auto-detect: video1/2 resolution will be probed from stream. "
+                f"Detect: {detect_w}x{detect_h}@{detect_fps}fps"
+            )
 
         except Exception as e:
             self.logger.warning(f"Failed to auto-detect Frigate settings: {e}")
