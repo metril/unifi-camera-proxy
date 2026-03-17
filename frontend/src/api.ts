@@ -76,6 +76,18 @@ export const api = {
       body: JSON.stringify({ url, transport: transport || 'tcp', username, password }),
     }),
 
+  detectFrigateCamera: (url: string, cameraName: string, username?: string | null, password?: string | null) =>
+    request<{
+      status: string;
+      camera_name: string;
+      detect: { width: number; height: number; fps: number; enabled: boolean };
+      streams: Array<{ path: string; roles: string[] }>;
+      record_enabled: boolean;
+    }>('/detect-frigate-camera', {
+      method: 'POST',
+      body: JSON.stringify({ url, camera_name: cameraName, username, password }),
+    }),
+
   testFrigate: (url: string, username?: string | null, password?: string | null) =>
     request<{ status: string; cameras: string[]; version: string }>('/test-frigate', {
       method: 'POST',

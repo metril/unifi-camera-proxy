@@ -331,6 +331,75 @@ async def test_frigate(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def detect_frigate_camera(request: web.Request) -> web.Response:
+    """Fetch camera settings from Frigate API for auto-population."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request body"}, status=400)
+
+    url = body.get("url")
+    username = body.get("username")
+    password = body.get("password")
+    camera_name = body.get("camera_name")
+
+    if not url:
+        return web.json_response({"error": "Frigate HTTP URL is required"}, status=400)
+    if not camera_name:
+        return web.json_response({"error": "Camera name is required"}, status=400)
+
+    try:
+        auth = None
+        if username and password:
+            auth = aiohttp_client.BasicAuth(username, password)
+        async with aiohttp_client.ClientSession() as session:
+            async with session.get(
+                f"{url}/api/config",
+                auth=auth,
+                ssl=False,
+                timeout=aiohttp_client.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    return web.json_response(
+                        {"error": f"HTTP {resp.status}: {text[:200]}"}, status=500
+                    )
+                config = await resp.json()
+
+        camera_config = config.get("cameras", {}).get(camera_name)
+        if not camera_config:
+            available = list(config.get("cameras", {}).keys())
+            return web.json_response({
+                "error": f"Camera '{camera_name}' not found. Available: {', '.join(available)}",
+            }, status=404)
+
+        detect = camera_config.get("detect", {})
+        inputs = camera_config.get("ffmpeg", {}).get("inputs", [])
+
+        streams = []
+        for inp in inputs:
+            streams.append({
+                "path": inp.get("path", ""),
+                "roles": inp.get("roles", []),
+            })
+
+        return web.json_response({
+            "status": "ok",
+            "camera_name": camera_name,
+            "detect": {
+                "width": detect.get("width", 0),
+                "height": detect.get("height", 0),
+                "fps": detect.get("fps", 0),
+                "enabled": detect.get("enabled", False),
+            },
+            "streams": streams,
+            "record_enabled": camera_config.get("record", {}).get("enabled", False),
+        })
+    except Exception as e:
+        logger.error(f"Frigate camera detection failed: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def test_rtsp(request: web.Request) -> web.Response:
     """Test RTSP stream connectivity using ffprobe."""
     try:
@@ -515,6 +584,7 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_post("/api/test-mqtt", test_mqtt)
     app.router.add_post("/api/test-rtsp", test_rtsp)
     app.router.add_post("/api/test-frigate", test_frigate)
+    app.router.add_post("/api/detect-frigate-camera", detect_frigate_camera)
 
     # Static files (built frontend)
     dist = find_frontend_dist()
