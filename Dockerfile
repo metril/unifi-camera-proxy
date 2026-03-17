@@ -52,4 +52,4 @@ COPY ./docker/entrypoint.sh /
 EXPOSE 8080
 
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["unifi-cam-proxy"]
+CMD ["unifi-cam-proxy-web"]
