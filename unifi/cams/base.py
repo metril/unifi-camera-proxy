@@ -180,6 +180,30 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             help="Set the ffpmeg output format",
         )
         parser.add_argument(
+            "--video1-bitrate", type=int, default=6000,
+            help="Max bitrate for high quality stream in kbps (default: 6000)",
+        )
+        parser.add_argument(
+            "--video1-fps", type=int, default=30,
+            help="FPS for high quality stream (default: 30)",
+        )
+        parser.add_argument(
+            "--video2-bitrate", type=int, default=1500,
+            help="Max bitrate for medium quality stream in kbps (default: 1500)",
+        )
+        parser.add_argument(
+            "--video2-fps", type=int, default=15,
+            help="FPS for medium quality stream (default: 15)",
+        )
+        parser.add_argument(
+            "--video3-bitrate", type=int, default=750,
+            help="Max bitrate for low quality stream in kbps (default: 750)",
+        )
+        parser.add_argument(
+            "--video3-fps", type=int, default=15,
+            help="FPS for low quality stream (default: 15)",
+        )
+        parser.add_argument(
             "--diagnostics-port",
             type=int,
             default=0,

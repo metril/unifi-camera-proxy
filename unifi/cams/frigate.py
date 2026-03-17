@@ -354,7 +354,70 @@ class FrigateCam(RTSPCam):
         
         return (snapshot_crop, snapshot_fov, heatmap)
 
+    async def auto_detect_settings(self) -> None:
+        """Fetch camera settings from Frigate's HTTP API and override defaults."""
+        if not self.args.frigate_http_url:
+            return
+        try:
+            url = f"{self.args.frigate_http_url}/api/config"
+            auth = None
+            if getattr(self.args, 'frigate_username', None) and getattr(self.args, 'frigate_password', None):
+                auth = aiohttp.BasicAuth(self.args.frigate_username, self.args.frigate_password)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, auth=auth, ssl=False, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                    if resp.status != 200:
+                        self.logger.warning(f"Failed to fetch Frigate config: HTTP {resp.status}")
+                        return
+                    config = await resp.json()
+
+            camera_config = config.get("cameras", {}).get(self.args.frigate_camera)
+            if not camera_config:
+                self.logger.warning(f"Camera '{self.args.frigate_camera}' not found in Frigate config")
+                return
+
+            # Extract stream info from ffmpeg inputs
+            inputs = camera_config.get("ffmpeg", {}).get("inputs", [])
+            detect_config = camera_config.get("detect", {})
+
+            # Find record stream (highest quality) for video1
+            for inp in inputs:
+                roles = inp.get("roles", [])
+                if "record" in roles:
+                    w = inp.get("width", 0)
+                    h = inp.get("height", 0)
+                    if w and h:
+                        self._detected_resolutions["video1"] = (w, h)
+                        self._detected_resolutions["video2"] = (w, h)
+                        self.logger.info(f"Frigate auto-detect: video1/2 resolution {w}x{h}")
+                if "detect" in roles:
+                    w = inp.get("width", 0)
+                    h = inp.get("height", 0)
+                    if w and h:
+                        self._detected_resolutions["video3"] = (w, h)
+                        self.logger.info(f"Frigate auto-detect: video3 resolution {w}x{h}")
+
+            # Extract FPS from detect config
+            detect_fps = detect_config.get("fps")
+            if detect_fps and not hasattr(self.args, '_fps_overridden'):
+                self.args.video1_fps = detect_fps
+                self.args.video2_fps = detect_fps
+                self.args.video3_fps = detect_fps
+                self.logger.info(f"Frigate auto-detect: FPS {detect_fps}")
+
+            # Estimate bitrate from resolution
+            v1_res = self._detected_resolutions["video1"]
+            pixels = v1_res[0] * v1_res[1]
+            fps = getattr(self.args, 'video1_fps', 30)
+            estimated_bitrate_kbps = max(2000, int(pixels * fps * 0.07 / 1000))
+            if getattr(self.args, 'video1_bitrate', 6000) == 6000:  # Only override if still default
+                self.args.video1_bitrate = estimated_bitrate_kbps
+                self.logger.info(f"Frigate auto-detect: estimated video1 bitrate {estimated_bitrate_kbps} kbps")
+
+        except Exception as e:
+            self.logger.warning(f"Failed to auto-detect Frigate settings: {e}")
+
     async def run(self) -> None:
+        await self.auto_detect_settings()
         has_connected = False
 
         @backoff.on_predicate(backoff.expo, max_value=60, logger=self.logger)
