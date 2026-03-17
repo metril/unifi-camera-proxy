@@ -130,9 +130,11 @@ class CameraManager:
             returncode = await instance.process.wait()
             if instance.status == "running":
                 instance.exit_code = returncode
-                if returncode != 0:
+                # SIGTERM (-15) and SIGKILL (-9) are normal stop signals
+                if returncode in (-15, -9) or returncode == 0:
+                    instance.status = "stopped"
+                else:
                     instance.status = "error"
-                    # Include last log lines in error message for visibility
                     last_lines = list(instance.log_buffer)[-5:]
                     error_detail = "\n".join(last_lines) if last_lines else "No output captured"
                     instance.error_message = f"Process exited with code {returncode}: {error_detail}"
@@ -140,8 +142,6 @@ class CameraManager:
                         f"Camera {instance.id} exited with code {returncode}. "
                         f"Last output: {error_detail}"
                     )
-                else:
-                    instance.status = "stopped"
 
     async def stop_camera(self, camera_id: str) -> None:
         instance = self.instances.get(camera_id)
@@ -223,7 +223,7 @@ class CameraManager:
 
     def add_camera(self, camera_config: dict) -> dict:
         """Add a new camera to config and return it with generated id."""
-        if "id" not in camera_config:
+        if not camera_config.get("id"):
             camera_config["id"] = str(__import__("uuid").uuid4())[:8]
         self.config.setdefault("cameras", []).append(camera_config)
         save_config(self.config_path, self.config)
