@@ -19,6 +19,7 @@ const DEFAULT_GLOBAL: GlobalConfig = {
   mqtt_username: null,
   mqtt_password: null,
   mqtt_prefix: 'frigate',
+  mqtt_ssl: false,
 };
 
 function App() {
