@@ -52,18 +52,30 @@ function App() {
   }, [fetchCameras]);
 
   const handleStart = async (id: string) => {
-    await api.startCamera(id);
-    fetchCameras();
+    try {
+      await api.startCamera(id);
+      fetchCameras();
+    } catch (err) {
+      alert(`Failed to start camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   const handleStop = async (id: string) => {
-    await api.stopCamera(id);
-    fetchCameras();
+    try {
+      await api.stopCamera(id);
+      fetchCameras();
+    } catch (err) {
+      alert(`Failed to stop camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   const handleRestart = async (id: string) => {
-    await api.restartCamera(id);
-    setTimeout(fetchCameras, 1500);
+    try {
+      await api.restartCamera(id);
+      setTimeout(fetchCameras, 1500);
+    } catch (err) {
+      alert(`Failed to restart camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   const handleDelete = async (id: string) => {
@@ -146,6 +158,7 @@ function App() {
         onSave={handleSaveCamera}
         schemas={schemas}
         editCamera={editCamera}
+        globalConfig={globalConfig}
       />
 
       <GlobalSettings
