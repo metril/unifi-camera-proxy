@@ -80,6 +80,7 @@ class FrigateCam(RTSPCam):
         )
         parser.add_argument("--frigate-username", required=False, help="Frigate HTTP API username")
         parser.add_argument("--frigate-password", required=False, help="Frigate HTTP API password")
+        parser.add_argument("--no-frigate-verify-ssl", action="store_true", help="Trust self-signed SSL certificates for Frigate HTTP API")
         parser.add_argument(
             "--frigate-time-sync-ms",
             default=0,
@@ -312,7 +313,8 @@ class FrigateCam(RTSPCam):
         async def fetch_url(url: str, snapshot_type: str) -> Optional[Path]:
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(url, ssl=False, timeout=aiohttp.ClientTimeout(total=5.0)) as response:
+                    ssl_val = False if getattr(self.args, 'no_frigate_verify_ssl', False) else None
+                    async with session.get(url, ssl=ssl_val, timeout=aiohttp.ClientTimeout(total=5.0)) as response:
                         if response.status == 200:
                             image_data = await response.read()
                             f = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
@@ -365,11 +367,13 @@ class FrigateCam(RTSPCam):
             return
         try:
             from unifi.web.frigate_api import frigate_request
+            verify_ssl = not getattr(self.args, 'no_frigate_verify_ssl', False)
             config = await frigate_request(
                 self.args.frigate_http_url,
                 "/api/config",
                 getattr(self.args, 'frigate_username', None),
                 getattr(self.args, 'frigate_password', None),
+                verify_ssl=verify_ssl,
             )
 
             camera_config = config.get("cameras", {}).get(self.args.frigate_camera)
