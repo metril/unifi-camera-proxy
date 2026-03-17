@@ -65,7 +65,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
   const handleTestFrigate = async () => {
     setFrigateStatus({ type: 'loading' });
     try {
-      const result = await api.testFrigate(form.frigate_http_url, form.frigate_username, form.frigate_password);
+      const result = await api.testFrigate(form.frigate_http_url, form.frigate_username, form.frigate_password, form.frigate_verify_ssl);
       setFrigateStatus({
         type: 'success',
         message: `Connected (v${result.version}). Found ${result.cameras.length} camera(s)`,
@@ -341,6 +341,19 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
                     className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                   />
                 </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="frigate_verify_ssl"
+                  checked={form.frigate_verify_ssl}
+                  onChange={(e) => handleChange('frigate_verify_ssl', e.target.checked)}
+                  className="rounded bg-gray-800 border-gray-600"
+                />
+                <label htmlFor="frigate_verify_ssl" className="text-sm text-gray-400">
+                  Verify SSL certificates
+                  <span className="text-xs text-gray-500 ml-1">(uncheck for self-signed certs)</span>
+                </label>
               </div>
               <button
                 type="button"

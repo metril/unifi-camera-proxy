@@ -76,7 +76,7 @@ export const api = {
       body: JSON.stringify({ url, transport: transport || 'tcp', username, password }),
     }),
 
-  detectFrigateCamera: (url: string, cameraName: string, username?: string | null, password?: string | null) =>
+  detectFrigateCamera: (url: string, cameraName: string, username?: string | null, password?: string | null, verifySsl?: boolean) =>
     request<{
       status: string;
       camera_name: string;
@@ -85,13 +85,13 @@ export const api = {
       record_enabled: boolean;
     }>('/detect-frigate-camera', {
       method: 'POST',
-      body: JSON.stringify({ url, camera_name: cameraName, username, password }),
+      body: JSON.stringify({ url, camera_name: cameraName, username, password, verify_ssl: verifySsl ?? true }),
     }),
 
-  testFrigate: (url: string, username?: string | null, password?: string | null) =>
+  testFrigate: (url: string, username?: string | null, password?: string | null, verifySsl?: boolean) =>
     request<{ status: string; cameras: string[]; version: string }>('/test-frigate', {
       method: 'POST',
-      body: JSON.stringify({ url, username, password }),
+      body: JSON.stringify({ url, username, password, verify_ssl: verifySsl ?? true }),
     }),
 
   generateCert: (certPath?: string) =>

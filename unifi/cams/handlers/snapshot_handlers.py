@@ -207,7 +207,8 @@ class SnapshotHandlers:
         """
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(snapshot_url, ssl=False, timeout=aiohttp.ClientTimeout(total=5.0)) as response:
+                ssl_val = False if getattr(self.args, 'no_frigate_verify_ssl', False) else None
+                async with session.get(snapshot_url, ssl=ssl_val, timeout=aiohttp.ClientTimeout(total=5.0)) as response:
                     if response.status != 200:
                         error_body = await response.text()
                         self.logger.warning(

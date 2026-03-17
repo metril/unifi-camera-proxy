@@ -53,6 +53,7 @@ DEFAULT_GLOBAL = {
     "frigate_http_url": "",
     "frigate_username": None,
     "frigate_password": None,
+    "frigate_verify_ssl": True,
 }
 
 MODEL_CHOICES = [
@@ -336,6 +337,13 @@ def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: i
             if val is not None and val != "":
                 args.extend([f"--{cli_name}", str(val)])
         skip_fields.update(frigate_fields.values())
+        # Handle frigate_verify_ssl boolean — pass --no-frigate-verify-ssl to disable
+        verify_ssl = camera_config.get("frigate_verify_ssl")
+        if verify_ssl is None:
+            verify_ssl = global_config.get("frigate_verify_ssl", True)
+        if not verify_ssl:
+            args.append("--no-frigate-verify-ssl")
+        skip_fields.add("no-frigate-verify-ssl")
 
     # Type-specific fields
     for field in type_fields:
