@@ -13,11 +13,13 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
   const [form, setForm] = useState<GlobalConfig>(config);
   const [certStatus, setCertStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
   const [tokenStatus, setTokenStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
+  const [mqttStatus, setMqttStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string; topics?: string[] }>({ type: 'idle' });
 
   useEffect(() => {
     setForm(config);
     setCertStatus({ type: 'idle' });
     setTokenStatus({ type: 'idle' });
+    setMqttStatus({ type: 'idle' });
   }, [config, isOpen]);
 
   if (!isOpen) return null;
@@ -38,6 +40,23 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
       setCertStatus({ type: 'success', message: `Certificate generated: ${result.path}` });
     } catch (err) {
       setCertStatus({ type: 'error', message: err instanceof Error ? err.message : 'Failed to generate certificate' });
+    }
+  };
+
+  const handleTestMqtt = async () => {
+    setMqttStatus({ type: 'loading' });
+    try {
+      const result = await api.testMqtt(
+        form.mqtt_host, form.mqtt_port, form.mqtt_username, form.mqtt_password,
+        form.mqtt_ssl || false, form.mqtt_prefix || 'frigate'
+      );
+      if (result.topics.length === 0) {
+        setMqttStatus({ type: 'success', message: 'Connected but no topics received in 5 seconds', topics: [] });
+      } else {
+        setMqttStatus({ type: 'success', message: `Found ${result.topics.length} topics`, topics: result.topics });
+      }
+    } catch (err) {
+      setMqttStatus({ type: 'error', message: err instanceof Error ? err.message : 'MQTT connection failed' });
     }
   };
 
@@ -244,6 +263,29 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
                   </div>
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={handleTestMqtt}
+                disabled={mqttStatus.type === 'loading' || !form.mqtt_host}
+                className="w-full px-3 py-2 text-xs bg-purple-600/20 text-purple-400 border border-purple-600/30 rounded hover:bg-purple-600/30 transition-colors disabled:opacity-50"
+              >
+                {mqttStatus.type === 'loading' ? 'Discovering topics...' : 'Test MQTT & Discover Topics'}
+              </button>
+              {mqttStatus.type === 'success' && (
+                <div>
+                  <p className="text-xs text-green-400">{mqttStatus.message}</p>
+                  {mqttStatus.topics && mqttStatus.topics.length > 0 && (
+                    <div className="mt-2 max-h-32 overflow-auto bg-black/30 rounded p-2">
+                      {mqttStatus.topics.map((t) => (
+                        <div key={t} className="text-xs text-gray-300 font-mono py-0.5">{t}</div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {mqttStatus.type === 'error' && (
+                <p className="text-xs text-red-400">{mqttStatus.message}</p>
+              )}
             </div>
           </div>
 
