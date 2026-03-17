@@ -50,9 +50,13 @@ class CameraInstance:
     log_buffer: deque = field(default_factory=lambda: deque(maxlen=500))
     started_at: Optional[float] = None
     _log_task: Optional[asyncio.Task] = None
+    diagnostics_port: int = 0
+    ws_clients: set = field(default_factory=set)
 
 
 class CameraManager:
+    _next_diag_port: int = 9100
+
     def __init__(self, config_path: str):
         self.config_path = config_path
         self.config = load_config(config_path)
@@ -88,7 +92,10 @@ class CameraManager:
             return
 
         global_config = self.config.get("global", {})
-        args = config_to_args(global_config, instance.config)
+        diag_port = CameraManager._next_diag_port
+        CameraManager._next_diag_port += 1
+        instance.diagnostics_port = diag_port
+        args = config_to_args(global_config, instance.config, diagnostics_port=diag_port)
 
         # Mask credentials in logged command
         sensitive_flags = {'--token', '--nvr-password', '--api-key', '--mqtt-password'}
@@ -139,6 +146,8 @@ class CameraManager:
                         instance.log_buffer.append(entry)
                         # Echo to web server logs so output appears in docker logs
                         logger.debug(f"[{instance.id}] {decoded}")
+                        # Broadcast to WebSocket clients
+                        await self.broadcast_log(instance.id, entry)
             except Exception as e:
                 logger.error(f"Error reading {label} for camera {instance.id}: {e}")
             logger.debug(f"Stream {label} ended for camera {instance.id}")
@@ -286,8 +295,43 @@ class CameraManager:
         save_config(self.config_path, self.config)
         return global_config
 
-    def get_logs(self, camera_id: str) -> list[str]:
+    def get_logs(self, camera_id: str) -> list:
         instance = self.instances.get(camera_id)
         if not instance:
             raise ValueError(f"Camera {camera_id} not found")
         return list(instance.log_buffer)
+
+    async def get_diagnostics(self, camera_id: str) -> dict:
+        """Query the camera subprocess's diagnostics HTTP API."""
+        instance = self.instances.get(camera_id)
+        if not instance:
+            raise ValueError(f"Camera {camera_id} not found")
+        if instance.status != "running" or not instance.diagnostics_port:
+            return {"connected": False, "status": instance.status}
+        try:
+            import aiohttp as aiohttp_client
+            async with aiohttp_client.ClientSession() as session:
+                async with session.get(
+                    f"http://127.0.0.1:{instance.diagnostics_port}/diagnostics",
+                    timeout=aiohttp_client.ClientTimeout(total=2),
+                ) as resp:
+                    if resp.status == 200:
+                        return await resp.json()
+                    return {"connected": False, "error": f"HTTP {resp.status}"}
+        except Exception as e:
+            return {"connected": False, "error": str(e)}
+
+    async def broadcast_log(self, camera_id: str, entry: dict) -> None:
+        """Broadcast a log entry to all WebSocket clients for this camera."""
+        instance = self.instances.get(camera_id)
+        if not instance or not instance.ws_clients:
+            return
+        import json
+        msg = json.dumps({"type": "log", "data": entry})
+        dead = set()
+        for ws in instance.ws_clients:
+            try:
+                await ws.send_str(msg)
+            except Exception:
+                dead.add(ws)
+        instance.ws_clients -= dead

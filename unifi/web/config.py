@@ -206,7 +206,7 @@ def inject_rtsp_credentials(url: str, username: str | None, password: str | None
     return f"{scheme}://{encoded_user}:{encoded_pass}@{rest}"
 
 
-def config_to_args(global_config: dict, camera_config: dict) -> list[str]:
+def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: int = 0) -> list[str]:
     """Build a CLI argument list from global + camera config."""
     args = []
 
@@ -242,13 +242,17 @@ def config_to_args(global_config: dict, camera_config: dict) -> list[str]:
     cam_type = camera_config.get("type", "rtsp")
     args.append(cam_type)
 
+    # Diagnostics port (auto-assigned by manager, not user-configurable)
+    if diagnostics_port:
+        args.extend(["--diagnostics-port", str(diagnostics_port)])
+
     # Type-specific args: get schema for this type and map config values
     schemas = get_camera_type_schemas()
     type_fields = schemas.get(cam_type, [])
     # Fields that are already handled above or are common
     skip_fields = {
         "ffmpeg-args", "ffmpeg-base-args", "rtsp-transport",
-        "timestamp-modifier", "loglevel", "format",
+        "timestamp-modifier", "loglevel", "format", "diagnostics-port",
     }
 
     # Handle base class fields explicitly

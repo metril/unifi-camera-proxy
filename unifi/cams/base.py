@@ -179,9 +179,16 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             default="flv",
             help="Set the ffpmeg output format",
         )
+        parser.add_argument(
+            "--diagnostics-port",
+            type=int,
+            default=0,
+            help="Port for diagnostics HTTP API (0 = disabled)",
+        )
 
     async def _run(self, ws) -> None:
         self._session = ws
+        await self.start_diagnostics_server()
         await self.init_adoption()
         while True:
             try:
@@ -198,6 +205,66 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
 
     async def run(self) -> None:
         return
+
+    def get_diagnostics(self) -> dict[str, Any]:
+        """Return diagnostic information about this camera."""
+        # Stream health
+        streams = {}
+        for name in ["video1", "video2", "video3"]:
+            res = self._detected_resolutions.get(name)
+            ffmpeg = self._ffmpeg_handles.get(name)
+            streams[name] = {
+                "resolution": f"{res[0]}x{res[1]}" if res else "unknown",
+                "ffmpeg_running": ffmpeg is not None and ffmpeg.poll() is None if ffmpeg else False,
+            }
+
+        # Active events
+        active_events = []
+        for eid, event in self._active_smart_events.items():
+            if event.get("end_time") is not None:
+                continue
+            desc = event.get("last_descriptor") or {}
+            active_events.append({
+                "event_id": eid,
+                "object_type": event["object_type"].value,
+                "confidence": desc.get("confidenceLevel", 0),
+                "duration_sec": round(time.time() - event["start_time"], 1),
+                "bounding_box": desc.get("coord"),
+                "stationary": desc.get("stationary", False),
+            })
+
+        return {
+            "connected": self._session is not None,
+            "uptime": round(self.get_uptime(), 1),
+            "streams": streams,
+            "active_events": active_events,
+            "event_counts": {
+                "analytics_total": len(self._analytics_event_history),
+                "smart_detect_active": len([e for e in self._active_smart_events.values() if e.get("end_time") is None]),
+                "smart_detect_total": len(self._active_smart_events),
+            },
+            "motion_active": self._active_analytics_event_id is not None,
+            "last_event_id": self._motion_event_id,
+        }
+
+    async def start_diagnostics_server(self) -> None:
+        """Start a diagnostics HTTP API server if a port is configured."""
+        port = getattr(self.args, 'diagnostics_port', 0)
+        if not port:
+            return
+
+        diag_app = web.Application()
+
+        async def handle_diagnostics(request):
+            return web.json_response(self.get_diagnostics())
+
+        diag_app.router.add_get("/diagnostics", handle_diagnostics)
+
+        runner = web.AppRunner(diag_app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        self.logger.info(f"Diagnostics server started on port {port}")
 
     async def get_video_settings(self) -> dict[str, Any]:
         return {}

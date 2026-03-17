@@ -143,6 +143,69 @@ async def get_camera_logs(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=404)
 
 
+async def get_camera_diagnostics(request: web.Request) -> web.Response:
+    manager = get_manager(request)
+    camera_id = request.match_info["id"]
+    try:
+        diag = await manager.get_diagnostics(camera_id)
+        return web.json_response(diag)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=404)
+
+
+async def camera_ws(request: web.Request) -> web.WebSocketResponse:
+    """WebSocket endpoint for real-time log streaming and diagnostics."""
+    manager = get_manager(request)
+    camera_id = request.match_info["id"]
+
+    instance = manager.instances.get(camera_id)
+    if not instance:
+        return web.json_response({"error": f"Camera {camera_id} not found"}, status=404)
+
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    # Register this client
+    instance.ws_clients.add(ws)
+    logger.debug(f"WebSocket client connected for camera {camera_id}")
+
+    try:
+        # Send existing logs as initial batch
+        import json
+        existing = list(instance.log_buffer)
+        await ws.send_str(json.dumps({"type": "logs_batch", "data": existing}))
+
+        # Send initial diagnostics
+        diag = await manager.get_diagnostics(camera_id)
+        await ws.send_str(json.dumps({"type": "diagnostics", "data": diag}))
+
+        # Periodically push diagnostics updates
+        async def push_diagnostics():
+            while not ws.closed:
+                await asyncio.sleep(5)
+                if ws.closed:
+                    break
+                try:
+                    diag = await manager.get_diagnostics(camera_id)
+                    await ws.send_str(json.dumps({"type": "diagnostics", "data": diag}))
+                except Exception:
+                    break
+
+        diag_task = asyncio.create_task(push_diagnostics())
+
+        # Keep connection alive, handle client messages
+        async for msg in ws:
+            if msg.type == web.WSMsgType.ERROR:
+                break
+
+        diag_task.cancel()
+    finally:
+        instance.ws_clients.discard(ws)
+        logger.debug(f"WebSocket client disconnected for camera {camera_id}")
+
+    return ws
+
+
 async def get_camera_types(request: web.Request) -> web.Response:
     schemas = get_camera_type_schemas()
     return web.json_response({"types": schemas, "models": MODEL_CHOICES})
@@ -402,6 +465,8 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_post("/api/cameras/{id}/stop", stop_camera)
     app.router.add_post("/api/cameras/{id}/restart", restart_camera)
     app.router.add_get("/api/cameras/{id}/logs", get_camera_logs)
+    app.router.add_get("/api/cameras/{id}/diagnostics", get_camera_diagnostics)
+    app.router.add_get("/api/cameras/{id}/ws", camera_ws)
     app.router.add_get("/api/camera-types", get_camera_types)
     app.router.add_post("/api/generate-cert", generate_cert)
     app.router.add_post("/api/fetch-token", fetch_token)
