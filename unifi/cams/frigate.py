@@ -28,6 +28,7 @@ class FrigateCam(RTSPCam):
         # Track last update time for each event (for timeout detection)
         self.event_last_update: dict[int, float] = {}
         self.event_timeout_seconds = 600  # Timeout after 600 seconds (10 minutes) without updates
+        self._motion_is_on = False  # Track motion state for deferred analytics stop
 
     @classmethod
     def add_parser(cls, parser: argparse.ArgumentParser) -> None:
@@ -385,13 +386,21 @@ class FrigateCam(RTSPCam):
             )
             return
         msg = message.payload.decode()
-        # self.logger.debug(f"Received raw motion event: {msg}")
         if msg == "ON":
             self.logger.debug("Frigate motion event: ON")
+            self._motion_is_on = True
             await self.trigger_analytics_start()
         elif msg == "OFF":
-            self.logger.debug("Frigate motion event: OFF")
-            await self.trigger_analytics_stop()
+            self._motion_is_on = False
+            # Don't stop analytics if smart detect events are still active
+            if not self.frigate_to_unifi_event_map:
+                self.logger.debug("Frigate motion event: OFF (stopping analytics)")
+                await self.trigger_analytics_stop()
+            else:
+                self.logger.debug(
+                    f"Frigate motion event: OFF (deferring analytics stop, "
+                    f"{len(self.frigate_to_unifi_event_map)} smart events active)"
+                )
 
     async def monitor_event_timeouts(self) -> None:
         """Monitor active events and end those that haven't received updates in 600 seconds"""
@@ -666,6 +675,11 @@ class FrigateCam(RTSPCam):
                         f"Frigate: Event {event_id} ended. "
                         f"Remaining active events: {len(self.frigate_to_unifi_event_map)}"
                     )
+
+                    # If this was the last smart event and motion is already OFF, stop analytics now
+                    if not self.frigate_to_unifi_event_map and not self._motion_is_on:
+                        self.logger.debug("Last smart event ended and motion is OFF, stopping analytics")
+                        await self.trigger_analytics_stop()
                 else:
                     self.logger.warning(
                         f"MISSED EVENT: Received 'end' for unknown Frigate event_id={event_id} "
