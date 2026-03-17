@@ -317,8 +317,8 @@ def main():
     parser = argparse.ArgumentParser(description="UniFi Cam Proxy Web UI")
     parser.add_argument(
         "--config",
-        default="config.yaml",
-        help="Path to config file (default: config.yaml)",
+        default="data/config.yaml",
+        help="Path to config file (default: data/config.yaml)",
     )
     parser.add_argument(
         "--port", type=int, default=8080, help="Web server port (default: 8080)"
