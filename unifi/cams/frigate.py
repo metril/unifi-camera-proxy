@@ -84,6 +84,22 @@ class FrigateCam(RTSPCam):
             help="Time synchronization offset in milliseconds to apply to Frigate event timestamps (default: 0). Positive values shift timestamps backward to compensate for Frigate event delay relative to video.",
         )
 
+    def get_diagnostics(self) -> dict[str, Any]:
+        diag = super().get_diagnostics()
+        diag["mqtt"] = {
+            "connected": hasattr(self, '_motion_is_on'),  # proxy for MQTT being set up
+            "host": f"{self.args.mqtt_host}:{self.args.mqtt_port}",
+        }
+        diag["frigate"] = {
+            "camera": self.args.frigate_camera,
+            "active_event_count": len(self.frigate_to_unifi_event_map),
+            "motion_active": self._motion_is_on,
+            "event_mappings": {
+                fid: uid for fid, uid in self.frigate_to_unifi_event_map.items()
+            },
+        }
+        return diag
+
     async def get_feature_flags(self) -> dict[str, Any]:
         return {
             **await super().get_feature_flags(),
