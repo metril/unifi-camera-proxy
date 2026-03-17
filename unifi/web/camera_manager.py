@@ -66,8 +66,13 @@ class CameraManager:
         args = config_to_args(global_config, instance.config)
 
         # Mask credentials in logged command
-        masked_args = re.sub(r'://[^@]+@', '://***:***@', ' '.join(args))
-        logger.info(f"Starting camera {camera_id}: unifi-cam-proxy {masked_args}")
+        sensitive_flags = {'--token', '--nvr-password', '--api-key', '--mqtt-password'}
+        masked = list(args)
+        for i, arg in enumerate(masked):
+            if arg in sensitive_flags and i + 1 < len(masked):
+                masked[i + 1] = '***'
+        masked_str = re.sub(r'://[^@]+@', '://***:***@', ' '.join(masked))
+        logger.info(f"Starting camera {camera_id}: unifi-cam-proxy {masked_str}")
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -95,7 +100,7 @@ class CameraManager:
 
     async def _read_logs(self, instance: CameraInstance) -> None:
         """Read stdout and stderr from the subprocess into the log buffer."""
-        async def read_stream(stream, prefix=""):
+        async def read_stream(stream):
             try:
                 while True:
                     line = await stream.readline()
@@ -104,8 +109,8 @@ class CameraManager:
                     decoded = line.decode("utf-8", errors="replace").rstrip()
                     if decoded:
                         instance.log_buffer.append(decoded)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Error reading stream for camera {instance.id}: {e}")
 
         if instance.process:
             tasks = []
@@ -122,9 +127,13 @@ class CameraManager:
                 instance.exit_code = returncode
                 if returncode != 0:
                     instance.status = "error"
-                    instance.error_message = f"Process exited with code {returncode}"
+                    # Include last log lines in error message for visibility
+                    last_lines = list(instance.log_buffer)[-5:]
+                    error_detail = "\n".join(last_lines) if last_lines else "No output captured"
+                    instance.error_message = f"Process exited with code {returncode}: {error_detail}"
                     logger.warning(
-                        f"Camera {instance.id} exited with code {returncode}"
+                        f"Camera {instance.id} exited with code {returncode}. "
+                        f"Last output: {error_detail}"
                     )
                 else:
                     instance.status = "stopped"
