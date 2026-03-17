@@ -14,12 +14,14 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
   const [certStatus, setCertStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
   const [tokenStatus, setTokenStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
   const [mqttStatus, setMqttStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string; topics?: string[] }>({ type: 'idle' });
+  const [frigateStatus, setFrigateStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string; cameras?: string[] }>({ type: 'idle' });
 
   useEffect(() => {
     setForm(config);
     setCertStatus({ type: 'idle' });
     setTokenStatus({ type: 'idle' });
     setMqttStatus({ type: 'idle' });
+    setFrigateStatus({ type: 'idle' });
   }, [config, isOpen]);
 
   if (!isOpen) return null;
@@ -57,6 +59,20 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
       }
     } catch (err) {
       setMqttStatus({ type: 'error', message: err instanceof Error ? err.message : 'MQTT connection failed' });
+    }
+  };
+
+  const handleTestFrigate = async () => {
+    setFrigateStatus({ type: 'loading' });
+    try {
+      const result = await api.testFrigate(form.frigate_http_url, form.frigate_username, form.frigate_password);
+      setFrigateStatus({
+        type: 'success',
+        message: `Connected (v${result.version}). Found ${result.cameras.length} camera(s)`,
+        cameras: result.cameras,
+      });
+    } catch (err) {
+      setFrigateStatus({ type: 'error', message: err instanceof Error ? err.message : 'Connection failed' });
     }
   };
 
@@ -326,6 +342,29 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
                   />
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={handleTestFrigate}
+                disabled={frigateStatus.type === 'loading' || !form.frigate_http_url}
+                className="w-full px-3 py-2 text-xs bg-orange-600/20 text-orange-400 border border-orange-600/30 rounded hover:bg-orange-600/30 transition-colors disabled:opacity-50"
+              >
+                {frigateStatus.type === 'loading' ? 'Testing...' : 'Test Frigate Connection'}
+              </button>
+              {frigateStatus.type === 'success' && (
+                <div>
+                  <p className="text-xs text-green-400">{frigateStatus.message}</p>
+                  {frigateStatus.cameras && frigateStatus.cameras.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {frigateStatus.cameras.map((c) => (
+                        <span key={c} className="text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded">{c}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+              {frigateStatus.type === 'error' && (
+                <p className="text-xs text-red-400">{frigateStatus.message}</p>
+              )}
             </div>
           </div>
 

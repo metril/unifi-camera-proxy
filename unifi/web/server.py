@@ -289,6 +289,48 @@ async def test_mqtt(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def test_frigate(request: web.Request) -> web.Response:
+    """Test Frigate HTTP API connection and list cameras."""
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request body"}, status=400)
+
+    url = body.get("url")
+    username = body.get("username")
+    password = body.get("password")
+
+    if not url:
+        return web.json_response({"error": "Frigate HTTP URL is required"}, status=400)
+
+    try:
+        auth = None
+        if username and password:
+            auth = aiohttp_client.BasicAuth(username, password)
+        async with aiohttp_client.ClientSession() as session:
+            async with session.get(
+                f"{url}/api/config",
+                auth=auth,
+                ssl=False,
+                timeout=aiohttp_client.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    text = await resp.text()
+                    return web.json_response(
+                        {"error": f"HTTP {resp.status}: {text[:200]}"}, status=500
+                    )
+                config = await resp.json()
+                cameras = list(config.get("cameras", {}).keys())
+                return web.json_response({
+                    "status": "ok",
+                    "cameras": cameras,
+                    "version": config.get("version", "unknown"),
+                })
+    except Exception as e:
+        logger.error(f"Frigate test failed: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def test_rtsp(request: web.Request) -> web.Response:
     """Test RTSP stream connectivity using ffprobe."""
     try:
@@ -472,6 +514,7 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_post("/api/fetch-token", fetch_token)
     app.router.add_post("/api/test-mqtt", test_mqtt)
     app.router.add_post("/api/test-rtsp", test_rtsp)
+    app.router.add_post("/api/test-frigate", test_frigate)
 
     # Static files (built frontend)
     dist = find_frontend_dist()

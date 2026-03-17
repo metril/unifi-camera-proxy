@@ -28,9 +28,11 @@ interface Diagnostics {
   mqtt?: { connected: boolean; host: string };
   frigate?: {
     camera: string;
+    http_url?: string;
     active_event_count: number;
     motion_active: boolean;
     event_mappings: Record<string, number>;
+    auto_detected?: Record<string, unknown>;
   };
   motion_active?: boolean;
   status?: string;
@@ -327,6 +329,12 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                     <span className="text-gray-400">Camera</span>
                     <span className="text-gray-200">{diagnostics.frigate.camera}</span>
                   </div>
+                  {diagnostics.frigate.http_url && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">HTTP API</span>
+                      <span className="text-gray-200 text-xs">{diagnostics.frigate.http_url}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-gray-400">Active Frigate Events</span>
                     <span className="text-gray-200">{diagnostics.frigate.active_event_count}</span>
@@ -338,6 +346,19 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                     </span>
                   </div>
                 </div>
+                {diagnostics.frigate.auto_detected && Object.keys(diagnostics.frigate.auto_detected).length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-700">
+                    <h5 className="text-xs font-medium text-gray-400 mb-2">Auto-Detected Settings</h5>
+                    <div className="space-y-1 text-xs">
+                      {Object.entries(diagnostics.frigate.auto_detected).map(([key, val]) => (
+                        <div key={key} className="flex justify-between">
+                          <span className="text-gray-500">{key.replace(/_/g, ' ')}</span>
+                          <span className="text-gray-300">{String(val)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
