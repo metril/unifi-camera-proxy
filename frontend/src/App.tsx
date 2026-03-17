@@ -23,6 +23,9 @@ const DEFAULT_GLOBAL: GlobalConfig = {
   mqtt_ssl: false,
   rtsp_username: null,
   rtsp_password: null,
+  frigate_http_url: '',
+  frigate_username: null,
+  frigate_password: null,
 };
 
 function App() {

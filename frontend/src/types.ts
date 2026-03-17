@@ -36,6 +36,9 @@ export interface GlobalConfig {
   mqtt_ssl: boolean;
   rtsp_username: string | null;
   rtsp_password: string | null;
+  frigate_http_url: string;
+  frigate_username: string | null;
+  frigate_password: string | null;
 }
 
 export interface FieldSchema {

@@ -289,6 +289,46 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
             </div>
           </div>
 
+          {/* Frigate Settings */}
+          <div className="border-t border-gray-700 pt-4">
+            <h4 className="text-sm font-medium text-gray-300 uppercase tracking-wider mb-3">Frigate Settings</h4>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Frigate HTTP URL</label>
+                <input
+                  type="text"
+                  value={form.frigate_http_url || ''}
+                  onChange={(e) => handleChange('frigate_http_url', e.target.value)}
+                  placeholder="http://frigate:5000"
+                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Used for snapshots and auto-detecting stream resolution/FPS/bitrate
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Frigate Username</label>
+                  <input
+                    type="text"
+                    value={form.frigate_username || ''}
+                    onChange={(e) => handleChange('frigate_username', e.target.value || null)}
+                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Frigate Password</label>
+                  <input
+                    type="password"
+                    value={form.frigate_password || ''}
+                    onChange={(e) => handleChange('frigate_password', e.target.value || null)}
+                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* RTSP Authentication */}
           <div className="border-t border-gray-700 pt-4">
             <h4 className="text-sm font-medium text-gray-300 uppercase tracking-wider mb-3">RTSP Authentication</h4>
