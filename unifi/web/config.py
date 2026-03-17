@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import copy
 import logging
+import urllib.parse
 import uuid
 from pathlib import Path
 from typing import Any
@@ -171,15 +172,19 @@ def get_camera_type_schemas() -> dict[str, list[dict]]:
 
 
 def inject_rtsp_credentials(url: str, username: str | None, password: str | None) -> str:
-    """Inject credentials into an RTSP URL if not already present."""
+    """Inject URL-encoded credentials into an RTSP URL if not already present."""
     if not username or not password:
         return url
-    if "@" in url.split("//", 1)[-1] if "//" in url else url:
+    if "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    # Check if credentials already present (@ before the first /)
+    authority = rest.split("/", 1)[0]
+    if "@" in authority:
         return url  # Already has credentials
-    if "://" in url:
-        scheme, rest = url.split("://", 1)
-        return f"{scheme}://{username}:{password}@{rest}"
-    return url
+    encoded_user = urllib.parse.quote(username, safe="")
+    encoded_pass = urllib.parse.quote(password, safe="")
+    return f"{scheme}://{encoded_user}:{encoded_pass}@{rest}"
 
 
 def config_to_args(global_config: dict, camera_config: dict) -> list[str]:
@@ -297,12 +302,21 @@ def config_to_args(global_config: dict, camera_config: dict) -> list[str]:
             args.extend([cli_flag, str(val)])
 
     # Inject RTSP credentials into video URLs
-    rtsp_user = camera_config.get("rtsp_username") or global_config.get("rtsp_username")
-    rtsp_pass = camera_config.get("rtsp_password") or global_config.get("rtsp_password")
+    rtsp_user = camera_config.get("rtsp_username")
+    if not rtsp_user:
+        rtsp_user = global_config.get("rtsp_username")
+    rtsp_pass = camera_config.get("rtsp_password")
+    if not rtsp_pass:
+        rtsp_pass = global_config.get("rtsp_password")
     if rtsp_user and rtsp_pass:
-        video_flags = {"--video1", "--video2", "--video3", "-s"}
+        video_flags = {"--video1", "--video2", "--video3", "--source", "-s"}
         for i, arg in enumerate(args):
             if arg in video_flags and i + 1 < len(args):
+                original = args[i + 1]
                 args[i + 1] = inject_rtsp_credentials(args[i + 1], rtsp_user, rtsp_pass)
+                if args[i + 1] != original:
+                    logger.info(f"Injected RTSP credentials into {arg} URL")
+    else:
+        logger.debug(f"No RTSP credentials to inject (user={rtsp_user is not None}, pass={rtsp_pass is not None})")
 
     return args
