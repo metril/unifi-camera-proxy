@@ -50,6 +50,9 @@ DEFAULT_GLOBAL = {
     "mqtt_ssl": False,
     "rtsp_username": None,
     "rtsp_password": None,
+    "frigate_http_url": "",
+    "frigate_username": None,
+    "frigate_password": None,
 }
 
 MODEL_CHOICES = [
@@ -253,6 +256,8 @@ def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: i
     skip_fields = {
         "ffmpeg-args", "ffmpeg-base-args", "rtsp-transport",
         "timestamp-modifier", "loglevel", "format", "diagnostics-port",
+        "video1-bitrate", "video1-fps", "video2-bitrate", "video2-fps",
+        "video3-bitrate", "video3-fps",
     }
 
     # Handle base class fields explicitly
@@ -263,6 +268,12 @@ def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: i
         "timestamp_modifier": "--timestamp-modifier",
         "loglevel": "--loglevel",
         "format": "--format",
+        "video1_bitrate": "--video1-bitrate",
+        "video1_fps": "--video1-fps",
+        "video2_bitrate": "--video2-bitrate",
+        "video2_fps": "--video2-fps",
+        "video3_bitrate": "--video3-bitrate",
+        "video3_fps": "--video3-fps",
     }
     for config_key, cli_flag in base_field_map.items():
         val = camera_config.get(config_key)
@@ -294,6 +305,18 @@ def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: i
         skip_fields.add("mqtt-ssl")
         # Track which MQTT fields we already handled
         skip_fields.update(mqtt_fields.values())
+
+        # Merge global Frigate HTTP settings
+        frigate_fields = {
+            "frigate_http_url": "frigate-http-url",
+        }
+        for config_key, cli_name in frigate_fields.items():
+            val = camera_config.get(config_key)
+            if val is None or val == "":
+                val = global_config.get(config_key)
+            if val is not None and val != "":
+                args.extend([f"--{cli_name}", str(val)])
+        skip_fields.update(frigate_fields.values())
 
     # Type-specific fields
     for field in type_fields:
