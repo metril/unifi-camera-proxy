@@ -147,7 +147,7 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
         </div>
       </div>
 
-      <LogViewer cameraId={camera.id} isOpen={showLogs} onClose={() => setShowLogs(false)} />
+      <LogViewer cameraId={camera.id} cameraName={config.name || 'Unnamed'} isOpen={showLogs} onClose={() => setShowLogs(false)} />
     </>
   );
 }
