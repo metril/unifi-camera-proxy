@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 import aiohttp
 import backoff
+import aiomqtt
 from aiomqtt import Client, Message
 from aiomqtt.exceptions import MqttError
 
