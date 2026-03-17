@@ -245,27 +245,38 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
 
         # Active events
         active_events = []
+        recent_events = []
         for eid, event in self._active_smart_events.items():
-            if event.get("end_time") is not None:
-                continue
             desc = event.get("last_descriptor") or {}
-            active_events.append({
+            entry = {
                 "event_id": eid,
                 "object_type": event["object_type"].value,
                 "confidence": desc.get("confidenceLevel", 0),
-                "duration_sec": round(time.time() - event["start_time"], 1),
                 "bounding_box": desc.get("coord"),
                 "stationary": desc.get("stationary", False),
-            })
+                "start_time": event["start_time"],
+            }
+            if event.get("end_time") is None:
+                entry["duration_sec"] = round(time.time() - event["start_time"], 1)
+                active_events.append(entry)
+            else:
+                entry["duration_sec"] = round(event["end_time"] - event["start_time"], 1)
+                entry["ended_ago_sec"] = round(time.time() - event["end_time"], 1)
+                recent_events.append(entry)
+
+        # Sort recent events by end time (most recent first), limit to 10
+        recent_events.sort(key=lambda e: e.get("ended_ago_sec", 0))
+        recent_events = recent_events[:10]
 
         return {
             "connected": self._session is not None,
             "uptime": round(self.get_uptime(), 1),
             "streams": streams,
             "active_events": active_events,
+            "recent_events": recent_events,
             "event_counts": {
                 "analytics_total": len(self._analytics_event_history),
-                "smart_detect_active": len([e for e in self._active_smart_events.values() if e.get("end_time") is None]),
+                "smart_detect_active": len(active_events),
                 "smart_detect_total": len(self._active_smart_events),
             },
             "motion_active": self._active_analytics_event_id is not None,

@@ -20,6 +20,13 @@ interface Diagnostics {
     bounding_box?: number[];
     stationary?: boolean;
   }>;
+  recent_events?: Array<{
+    event_id: number;
+    object_type: string;
+    confidence: number;
+    duration_sec: number;
+    ended_ago_sec: number;
+  }>;
   event_counts?: {
     analytics_total: number;
     smart_detect_active: number;
@@ -267,24 +274,50 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
             </div>
 
             {/* Active Events */}
-            {diagnostics.active_events && diagnostics.active_events.length > 0 && (
-              <div className="border border-green-600/30 bg-green-600/5 rounded-lg p-4">
-                <h4 className="text-sm font-medium text-green-400 mb-3">Active Detections</h4>
+            <div className={`border rounded-lg p-4 ${diagnostics.active_events && diagnostics.active_events.length > 0 ? 'border-green-600/30 bg-green-600/5' : 'border-gray-700'}`}>
+              <h4 className={`text-sm font-medium mb-3 ${diagnostics.active_events && diagnostics.active_events.length > 0 ? 'text-green-400' : 'text-gray-300'}`}>
+                Active Detections {diagnostics.active_events ? `(${diagnostics.active_events.length})` : ''}
+              </h4>
+              {diagnostics.active_events && diagnostics.active_events.length > 0 ? (
                 <div className="space-y-2">
                   {diagnostics.active_events.map((evt) => (
-                    <div key={evt.event_id} className="flex items-center justify-between bg-black/20 rounded px-3 py-2">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-medium text-white capitalize">{evt.object_type}</span>
-                        <span className="text-xs text-gray-400">
-                          {evt.confidence}% confidence
-                        </span>
-                        {evt.stationary && (
-                          <span className="text-xs bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">stationary</span>
-                        )}
+                    <div key={evt.event_id} className="bg-black/20 rounded px-3 py-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-medium text-white capitalize">{evt.object_type}</span>
+                          <span className="text-xs text-gray-400">{evt.confidence}%</span>
+                          {evt.stationary && (
+                            <span className="text-xs bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">stationary</span>
+                          )}
+                        </div>
+                        <span className="text-xs text-gray-400">{formatDuration(evt.duration_sec)}</span>
                       </div>
-                      <span className="text-xs text-gray-400">
-                        {formatDuration(evt.duration_sec)}
-                      </span>
+                      {evt.bounding_box && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          Box: [{evt.bounding_box.join(', ')}]
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 italic">No active detections</p>
+              )}
+            </div>
+
+            {/* Recent Events */}
+            {diagnostics.recent_events && diagnostics.recent_events.length > 0 && (
+              <div className="border border-gray-700 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-gray-300 mb-3">Recent Events ({diagnostics.recent_events.length})</h4>
+                <div className="space-y-1">
+                  {diagnostics.recent_events.map((evt) => (
+                    <div key={evt.event_id} className="flex items-center justify-between text-xs bg-black/20 rounded px-3 py-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-300 capitalize">{evt.object_type}</span>
+                        <span className="text-gray-500">{evt.confidence}%</span>
+                        <span className="text-gray-500">({formatDuration(evt.duration_sec)})</span>
+                      </div>
+                      <span className="text-gray-500">{formatDuration(evt.ended_ago_sec)} ago</span>
                     </div>
                   ))}
                 </div>
@@ -346,6 +379,19 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                     </span>
                   </div>
                 </div>
+                {diagnostics.frigate.event_mappings && Object.keys(diagnostics.frigate.event_mappings).length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-700">
+                    <h5 className="text-xs font-medium text-gray-400 mb-2">Event Mappings (Frigate → UniFi)</h5>
+                    <div className="space-y-1 text-xs font-mono">
+                      {Object.entries(diagnostics.frigate.event_mappings).map(([fid, uid]) => (
+                        <div key={fid} className="flex justify-between">
+                          <span className="text-gray-500 truncate mr-2">{fid}</span>
+                          <span className="text-gray-300">{String(uid)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {diagnostics.frigate.auto_detected && Object.keys(diagnostics.frigate.auto_detected).length > 0 && (
                   <div className="mt-3 pt-3 border-t border-gray-700">
                     <h5 className="text-xs font-medium text-gray-400 mb-2">Auto-Detected Settings</h5>
