@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import type { CameraConfig, CameraTypeSchemas, FieldSchema } from '../types';
+import type { CameraConfig, CameraTypeSchemas, FieldSchema, GlobalConfig } from '../types';
 
 interface CameraFormProps {
   isOpen: boolean;
@@ -8,6 +8,12 @@ interface CameraFormProps {
   onSave: (config: CameraConfig) => void;
   schemas: CameraTypeSchemas | null;
   editCamera?: CameraConfig | null;
+  globalConfig: GlobalConfig;
+}
+
+function generateMac(): string {
+  const hex = () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0').toUpperCase();
+  return `AABBCC${hex()}${hex()}${hex()}`;
 }
 
 const DEFAULT_CAMERA: CameraConfig = {
@@ -42,7 +48,7 @@ const MQTT_FIELDS = new Set([
   'mqtt-host', 'mqtt-port', 'mqtt-username', 'mqtt-password', 'mqtt-prefix', 'mqtt-ssl',
 ]);
 
-export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamera }: CameraFormProps) {
+export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamera, globalConfig }: CameraFormProps) {
   const [form, setForm] = useState<CameraConfig>({ ...DEFAULT_CAMERA });
   const [rtspTest, setRtspTest] = useState<Record<string, { type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
   const [showCustomMqtt, setShowCustomMqtt] = useState(false);
@@ -134,7 +140,10 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
       setRtspTest((prev) => ({ ...prev, [field.name]: { type: 'loading' } }));
       try {
         const transport = (form.rtsp_transport as string) || 'tcp';
-        const result = await api.testRtsp(url, transport);
+        // Use per-camera RTSP credentials, fall back to global
+        const rtspUser = (form.rtsp_username as string) || globalConfig.rtsp_username || undefined;
+        const rtspPass = (form.rtsp_password as string) || globalConfig.rtsp_password || undefined;
+        const result = await api.testRtsp(url, transport, rtspUser, rtspPass);
         const info = result.streams.map((s) =>
           `${s.type}: ${s.codec}${s.resolution ? ` ${s.resolution}` : ''}${s.fps ? ` @${s.fps}` : ''}`
         ).join(', ');
@@ -228,13 +237,23 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm text-gray-400 mb-1">MAC Address</label>
-                <input
-                  type="text"
-                  value={form.mac}
-                  onChange={(e) => handleChange('mac', e.target.value)}
-                  placeholder="AABBCCDDEEFF"
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={form.mac}
+                    onChange={(e) => handleChange('mac', e.target.value)}
+                    placeholder="AABBCCDDEEFF"
+                    className="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleChange('mac', generateMac())}
+                    className="px-2 py-2 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors whitespace-nowrap"
+                    title="Generate random MAC"
+                  >
+                    Random
+                  </button>
+                </div>
               </div>
               <div>
                 <label className="block text-sm text-gray-400 mb-1">IP Address</label>

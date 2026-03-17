@@ -70,10 +70,10 @@ export const api = {
       body: JSON.stringify({ host, port, username, password, ssl, prefix }),
     }),
 
-  testRtsp: (url: string, transport?: string) =>
+  testRtsp: (url: string, transport?: string, username?: string, password?: string) =>
     request<{ status: string; streams: Array<{ codec: string; type: string; resolution?: string; fps?: string }> }>('/test-rtsp', {
       method: 'POST',
-      body: JSON.stringify({ url, transport: transport || 'tcp' }),
+      body: JSON.stringify({ url, transport: transport || 'tcp', username, password }),
     }),
 
   generateCert: (certPath?: string) =>

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -63,7 +65,9 @@ class CameraManager:
         global_config = self.config.get("global", {})
         args = config_to_args(global_config, instance.config)
 
-        logger.info(f"Starting camera {camera_id}: unifi-cam-proxy {' '.join(args)}")
+        # Mask credentials in logged command
+        masked_args = re.sub(r'://[^@]+@', '://***:***@', ' '.join(args))
+        logger.info(f"Starting camera {camera_id}: unifi-cam-proxy {masked_args}")
 
         try:
             process = await asyncio.create_subprocess_exec(
@@ -71,6 +75,7 @@ class CameraManager:
                 *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},
             )
             instance.process = process
             instance.status = "running"
