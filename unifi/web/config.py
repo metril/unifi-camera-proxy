@@ -47,6 +47,8 @@ DEFAULT_GLOBAL = {
     "mqtt_password": None,
     "mqtt_prefix": "frigate",
     "mqtt_ssl": False,
+    "rtsp_username": None,
+    "rtsp_password": None,
 }
 
 MODEL_CHOICES = [
@@ -168,6 +170,18 @@ def get_camera_type_schemas() -> dict[str, list[dict]]:
     return schemas
 
 
+def inject_rtsp_credentials(url: str, username: str | None, password: str | None) -> str:
+    """Inject credentials into an RTSP URL if not already present."""
+    if not username or not password:
+        return url
+    if "@" in url.split("//", 1)[-1] if "//" in url else url:
+        return url  # Already has credentials
+    if "://" in url:
+        scheme, rest = url.split("://", 1)
+        return f"{scheme}://{username}:{password}@{rest}"
+    return url
+
+
 def config_to_args(global_config: dict, camera_config: dict) -> list[str]:
     """Build a CLI argument list from global + camera config."""
     args = []
@@ -281,5 +295,14 @@ def config_to_args(global_config: dict, camera_config: dict) -> list[str]:
                 args.append(val)
         else:
             args.extend([cli_flag, str(val)])
+
+    # Inject RTSP credentials into video URLs
+    rtsp_user = camera_config.get("rtsp_username") or global_config.get("rtsp_username")
+    rtsp_pass = camera_config.get("rtsp_password") or global_config.get("rtsp_password")
+    if rtsp_user and rtsp_pass:
+        video_flags = {"--video1", "--video2", "--video3", "-s"}
+        for i, arg in enumerate(args):
+            if arg in video_flags and i + 1 < len(args):
+                args[i + 1] = inject_rtsp_credentials(args[i + 1], rtsp_user, rtsp_pass)
 
     return args

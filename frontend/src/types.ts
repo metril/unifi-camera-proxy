@@ -34,6 +34,8 @@ export interface GlobalConfig {
   mqtt_password: string | null;
   mqtt_prefix: string;
   mqtt_ssl: boolean;
+  rtsp_username: string | null;
+  rtsp_password: string | null;
 }
 
 export interface FieldSchema {

@@ -289,6 +289,34 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
             </div>
           </div>
 
+          {/* RTSP Authentication */}
+          <div className="border-t border-gray-700 pt-4">
+            <h4 className="text-sm font-medium text-gray-300 uppercase tracking-wider mb-3">RTSP Authentication</h4>
+            <p className="text-xs text-gray-500 mb-3">
+              Auto-injected into RTSP URLs that don't already contain credentials. Leave empty for unauthenticated streams.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">RTSP Username</label>
+                <input
+                  type="text"
+                  value={form.rtsp_username || ''}
+                  onChange={(e) => handleChange('rtsp_username', e.target.value || null)}
+                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">RTSP Password</label>
+                <input
+                  type="password"
+                  value={form.rtsp_password || ''}
+                  onChange={(e) => handleChange('rtsp_password', e.target.value || null)}
+                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+          </div>
+
           <div className="flex justify-end gap-3 pt-2 border-t border-gray-700">
             <button
               type="button"

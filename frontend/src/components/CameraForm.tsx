@@ -32,6 +32,7 @@ const COMMON_KEYS = new Set([
   'id', 'enabled', 'name', 'mac', 'ip', 'model', 'fw_version', 'type',
   'ffmpeg_args', 'ffmpeg_base_args', 'rtsp_transport',
   'timestamp_modifier', 'loglevel', 'format',
+  'rtsp_username', 'rtsp_password',
 ]);
 
 const RTSP_FIELDS = new Set(['video1', 'video2', 'video3', 'source', 'rtsp']);
@@ -308,6 +309,36 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
               </div>
             </details>
           )}
+
+          {/* Per-camera RTSP auth override */}
+          <details className="border-t border-gray-700 pt-4">
+            <summary className="text-sm font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:text-white">
+              RTSP Authentication
+              <span className="text-xs text-gray-500 font-normal ml-2 normal-case">
+                (uses global credentials if not overridden)
+              </span>
+            </summary>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">RTSP Username</label>
+                <input
+                  type="text"
+                  value={(form.rtsp_username as string) || ''}
+                  onChange={(e) => handleChange('rtsp_username', e.target.value || null)}
+                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">RTSP Password</label>
+                <input
+                  type="password"
+                  value={(form.rtsp_password as string) || ''}
+                  onChange={(e) => handleChange('rtsp_password', e.target.value || null)}
+                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                />
+              </div>
+            </div>
+          </details>
 
           {/* Base ffmpeg fields (collapsible) */}
           {baseFields.length > 0 && (
