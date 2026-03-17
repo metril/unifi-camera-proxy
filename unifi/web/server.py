@@ -16,7 +16,7 @@ from aiohttp import web
 from uiprotect import ProtectApiClient
 
 from unifi.web.camera_manager import CameraManager
-from unifi.web.config import MODEL_CHOICES, get_camera_type_schemas
+from unifi.web.config import MODEL_CHOICES, get_camera_type_schemas, inject_rtsp_credentials
 
 logger = logging.getLogger("WebServer")
 
@@ -235,9 +235,14 @@ async def test_rtsp(request: web.Request) -> web.Response:
 
     url = body.get("url")
     transport = body.get("transport", "tcp")
+    rtsp_username = body.get("username")
+    rtsp_password = body.get("password")
 
     if not url:
         return web.json_response({"error": "RTSP URL is required"}, status=400)
+
+    # Inject credentials if provided
+    url = inject_rtsp_credentials(url, rtsp_username, rtsp_password)
 
     try:
         proc = await asyncio.create_subprocess_exec(
