@@ -100,7 +100,9 @@ class CameraManager:
 
     async def _read_logs(self, instance: CameraInstance) -> None:
         """Read stdout and stderr from the subprocess into the log buffer."""
-        async def read_stream(stream):
+        logger.info(f"Log reader started for camera {instance.id}")
+
+        async def read_stream(stream, label: str):
             try:
                 while True:
                     line = await stream.readline()
@@ -109,15 +111,18 @@ class CameraManager:
                     decoded = line.decode("utf-8", errors="replace").rstrip()
                     if decoded:
                         instance.log_buffer.append(decoded)
+                        # Echo to web server logs so output appears in docker logs
+                        logger.debug(f"[{instance.id}] {decoded}")
             except Exception as e:
-                logger.error(f"Error reading stream for camera {instance.id}: {e}")
+                logger.error(f"Error reading {label} for camera {instance.id}: {e}")
+            logger.debug(f"Stream {label} ended for camera {instance.id}")
 
         if instance.process:
             tasks = []
             if instance.process.stdout:
-                tasks.append(asyncio.create_task(read_stream(instance.process.stdout)))
+                tasks.append(asyncio.create_task(read_stream(instance.process.stdout, "stdout")))
             if instance.process.stderr:
-                tasks.append(asyncio.create_task(read_stream(instance.process.stderr)))
+                tasks.append(asyncio.create_task(read_stream(instance.process.stderr, "stderr")))
             if tasks:
                 await asyncio.gather(*tasks)
 
