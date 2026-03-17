@@ -163,8 +163,9 @@ async def fetch_token(request: web.Request) -> web.Response:
             host, 443, username, password,
             api_key=api_key or None,
             verify_ssl=False,
+            store_sessions=False,
         )
-        await protect.ensure_authenticated()
+        await protect.authenticate()
         response = await protect.api_request("cameras/manage-payload")
         token = response["mgmt"]["token"]
         return web.json_response({"token": token})

@@ -126,8 +126,9 @@ async def generate_token(args, logger):
             args.host, 443, args.nvr_username, args.nvr_password,
             api_key=getattr(args, 'api_key', None),
             verify_ssl=False,
+            store_sessions=False,
         )
-        await protect.ensure_authenticated()
+        await protect.authenticate()
         response = await protect.api_request("cameras/manage-payload")
         return response["mgmt"]["token"]
     except Exception:
