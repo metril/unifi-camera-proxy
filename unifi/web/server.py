@@ -301,9 +301,9 @@ async def generate_cert(request: web.Request) -> web.Response:
     # Accept optional path from request body, fall back to saved config
     try:
         body = await request.json()
-        cert_path = body.get("path") or manager.config.get("global", {}).get("cert", "data/client.pem")
+        cert_path = body.get("path") or manager.config.get("global", {}).get("cert", "/app/data/client.pem")
     except Exception:
-        cert_path = manager.config.get("global", {}).get("cert", "data/client.pem")
+        cert_path = manager.config.get("global", {}).get("cert", "/app/data/client.pem")
 
     # Validate cert_path doesn't escape working directory
     resolved = Path(cert_path).resolve()
@@ -441,8 +441,8 @@ def main():
     parser = argparse.ArgumentParser(description="UniFi Cam Proxy Web UI")
     parser.add_argument(
         "--config",
-        default="data/config.yaml",
-        help="Path to config file (default: data/config.yaml)",
+        default="/app/data/config.yaml",
+        help="Path to config file (default: /app/data/config.yaml)",
     )
     parser.add_argument(
         "--port", type=int, default=8080, help="Web server port (default: 8080)"
