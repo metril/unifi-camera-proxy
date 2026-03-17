@@ -96,10 +96,29 @@ def load_config(path: str) -> dict:
         "global": {**copy.deepcopy(DEFAULT_GLOBAL), **(data.get("global") or {})},
         "cameras": data.get("cameras") or [],
     }
-    # Ensure all cameras have an id
+    # Deduplicate cameras (remove entries with same name+type added multiple times)
+    needs_save = False
+    seen = set()
+    deduped = []
     for cam in config["cameras"]:
-        if "id" not in cam:
+        key = (cam.get("name", ""), cam.get("type", ""), cam.get("mac", ""))
+        if key in seen and key != ("", "", ""):
+            logger.info(f"Removing duplicate camera: {cam.get('name', 'unnamed')}")
+            needs_save = True
+            continue
+        seen.add(key)
+        deduped.append(cam)
+    config["cameras"] = deduped
+
+    # Ensure all cameras have a valid id
+    for cam in config["cameras"]:
+        if not cam.get("id"):
             cam["id"] = str(uuid.uuid4())[:8]
+            needs_save = True
+    # Persist fixes so they're stable across restarts
+    if needs_save:
+        save_config(path, config)
+        logger.info(f"Fixed camera config in {path}")
     return config
 
 
