@@ -78,20 +78,28 @@ function App() {
   };
 
   const handleSaveCamera = async (config: CameraConfig) => {
-    if (editCamera && editCamera.id) {
-      await api.updateCamera(editCamera.id, config);
-    } else {
-      await api.addCamera(config);
+    try {
+      if (editCamera && editCamera.id) {
+        await api.updateCamera(editCamera.id, config);
+      } else {
+        await api.addCamera(config);
+      }
+      setShowForm(false);
+      setEditCamera(null);
+      fetchCameras();
+    } catch (err) {
+      alert(`Failed to save camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-    setShowForm(false);
-    setEditCamera(null);
-    fetchCameras();
   };
 
   const handleSaveGlobal = async (config: GlobalConfig) => {
-    await api.updateGlobal(config);
-    setGlobalConfig(config);
-    setShowSettings(false);
+    try {
+      await api.updateGlobal(config);
+      setGlobalConfig(config);
+      setShowSettings(false);
+    } catch (err) {
+      alert(`Failed to save settings: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   const handleStartAll = async () => {

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import copy
+import logging
 import uuid
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+logger = logging.getLogger("Config")
 
 from unifi.cams import (
     DahuaCam,
@@ -98,9 +101,12 @@ def load_config(path: str) -> dict:
 
 
 def save_config(path: str, config: dict) -> None:
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    resolved = Path(path).resolve()
+    logger.info(f"Saving config to {resolved}")
+    resolved.parent.mkdir(parents=True, exist_ok=True)
+    with open(str(resolved), "w") as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    logger.info(f"Config saved successfully ({resolved.stat().st_size} bytes)")
 
 
 def get_camera_type_schemas() -> dict[str, list[dict]]:
