@@ -35,9 +35,13 @@ async def get_config(request: web.Request) -> web.Response:
 
 async def update_global(request: web.Request) -> web.Response:
     manager = get_manager(request)
-    data = await request.json()
-    result = manager.update_global(data)
-    return web.json_response(result)
+    try:
+        data = await request.json()
+        result = manager.update_global(data)
+        return web.json_response(result)
+    except Exception as e:
+        logger.exception(f"Failed to save global config: {e}")
+        return web.json_response({"error": str(e)}, status=500)
 
 
 async def list_cameras(request: web.Request) -> web.Response:
@@ -47,9 +51,13 @@ async def list_cameras(request: web.Request) -> web.Response:
 
 async def add_camera(request: web.Request) -> web.Response:
     manager = get_manager(request)
-    data = await request.json()
-    result = manager.add_camera(data)
-    return web.json_response(result, status=201)
+    try:
+        data = await request.json()
+        result = manager.add_camera(data)
+        return web.json_response(result, status=201)
+    except Exception as e:
+        logger.exception(f"Failed to add camera: {e}")
+        return web.json_response({"error": str(e)}, status=500)
 
 
 async def get_camera(request: web.Request) -> web.Response:
@@ -388,6 +396,10 @@ async def on_shutdown(app: web.Application) -> None:
 def create_app(config_path: str) -> web.Application:
     app = web.Application()
 
+    resolved_path = Path(config_path).resolve()
+    logger.info(f"Config path: {resolved_path} (exists: {resolved_path.exists()})")
+    logger.info(f"Working directory: {Path.cwd()}")
+
     manager = CameraManager(config_path)
     app["manager"] = manager
 
@@ -448,6 +460,7 @@ def main():
     level = logging.DEBUG if args.verbose else logging.INFO
     coloredlogs.install(level=level, logger=logger)
     coloredlogs.install(level=level, logger=logging.getLogger("CameraManager"))
+    coloredlogs.install(level=level, logger=logging.getLogger("Config"))
 
     app = create_app(args.config)
     logger.info(f"Starting web server on {args.host}:{args.port}")
