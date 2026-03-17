@@ -312,7 +312,7 @@ class FrigateCam(RTSPCam):
         async def fetch_url(url: str, snapshot_type: str) -> Optional[Path]:
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=5.0)) as response:
+                    async with session.get(url, ssl=False, timeout=aiohttp.ClientTimeout(total=5.0)) as response:
                         if response.status == 200:
                             image_data = await response.read()
                             f = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
