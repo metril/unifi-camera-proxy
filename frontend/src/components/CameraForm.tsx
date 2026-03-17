@@ -36,15 +36,24 @@ const COMMON_KEYS = new Set([
 
 const RTSP_FIELDS = new Set(['video1', 'video2', 'video3', 'source', 'rtsp']);
 
+// MQTT fields that are inherited from global settings — hidden per-camera unless overriding
+const MQTT_FIELDS = new Set([
+  'mqtt-host', 'mqtt-port', 'mqtt-username', 'mqtt-password', 'mqtt-prefix', 'mqtt-ssl',
+]);
+
 export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamera }: CameraFormProps) {
   const [form, setForm] = useState<CameraConfig>({ ...DEFAULT_CAMERA });
   const [rtspTest, setRtspTest] = useState<Record<string, { type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
+  const [showCustomMqtt, setShowCustomMqtt] = useState(false);
 
   useEffect(() => {
     if (editCamera) {
       setForm({ ...DEFAULT_CAMERA, ...editCamera });
+      // Show custom MQTT if the camera has per-camera MQTT overrides
+      setShowCustomMqtt(!!editCamera.mqtt_host || !!editCamera.mqtt_port);
     } else {
       setForm({ ...DEFAULT_CAMERA });
+      setShowCustomMqtt(false);
     }
   }, [editCamera, isOpen]);
 
@@ -172,9 +181,10 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
     );
   };
 
-  // Split fields into base (common to all types) and type-specific
+  // Split fields into base (common to all types), MQTT, and type-specific
   const baseFields = typeFields.filter((f) => COMMON_HANDLED.has(f.name));
-  const specificFields = typeFields.filter((f) => !COMMON_HANDLED.has(f.name));
+  const mqttFields = typeFields.filter((f) => MQTT_FIELDS.has(f.name));
+  const specificFields = typeFields.filter((f) => !COMMON_HANDLED.has(f.name) && !MQTT_FIELDS.has(f.name));
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -281,6 +291,22 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
               </h4>
               {specificFields.map(renderField)}
             </div>
+          )}
+
+          {/* Per-camera MQTT override (collapsible, hidden by default) */}
+          {mqttFields.length > 0 && (
+            <details className="border-t border-gray-700 pt-4" open={showCustomMqtt}
+              onToggle={(e) => setShowCustomMqtt((e.target as HTMLDetailsElement).open)}>
+              <summary className="text-sm font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:text-white">
+                Custom MQTT Settings
+                <span className="text-xs text-gray-500 font-normal ml-2 normal-case">
+                  (uses global settings if not overridden)
+                </span>
+              </summary>
+              <div className="mt-4 space-y-4">
+                {mqttFields.map(renderField)}
+              </div>
+            </details>
           )}
 
           {/* Base ffmpeg fields (collapsible) */}
