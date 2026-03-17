@@ -22,7 +22,7 @@ const DEFAULT_CAMERA: CameraConfig = {
   name: '',
   mac: '',
   ip: '',
-  model: 'UVC G3',
+  model: 'UVC G4 Bullet',
   fw_version: 'UVC.S2L.v4.23.8.67.0eba6e3.200526.1046',
   type: 'rtsp',
 };
@@ -42,6 +42,29 @@ const COMMON_KEYS = new Set([
 ]);
 
 const RTSP_FIELDS = new Set(['video1', 'video2', 'video3', 'source', 'rtsp']);
+
+// Camera model resolution tiers for smart sorting
+const MODEL_TIERS: Record<string, string> = {
+  "UVC G6 Bullet": "4K", "UVC G6 Dome": "4K", "UVC G6 Turret": "4K",
+  "UVC G6 PTZ": "4K", "UVC G6 Pro Bullet": "4K", "UVC G6 180": "4K",
+  "UVC G5 Pro": "4K", "UVC G5 PTZ": "4K",
+  "UVC G4 Pro": "4K", "UVC AI Pro": "4K", "UVC AI DSLR": "4K",
+  "UVC G6 Instant": "2K",
+  "UVC G5 Bullet": "2K", "UVC G5 Dome": "2K", "UVC G5 Dome Ultra": "2K",
+  "UVC G5 Turret Ultra": "2K", "UVC G5 Flex": "2K",
+  "UVC G4 Bullet": "2K", "UVC G4 Dome": "2K", "UVC G4 Instant": "2K",
+  "UVC AI 360": "2K", "UVC AI Bullet": "2K",
+  "UVC G3": "1080p", "UVC G3 Flex": "1080p", "UVC G3 Instant": "1080p",
+  "UVC G3 Pro": "1080p", "UVC G3 Dome": "1080p", "UVC G3 Micro": "1080p",
+  "UVC G3 Mini": "1080p", "UVC G3 Battery": "1080p",
+};
+
+function getResolutionTier(width: number): string {
+  if (width >= 3840) return "4K";
+  if (width >= 2560) return "2K";  // 5MP+ (2560x1920, 2688x1520)
+  if (width >= 1920) return "2K";  // 4MP (2560x1440, 1920x1080 borderline)
+  return "1080p";
+}
 
 // MQTT fields that are inherited from global settings — hidden per-camera unless overriding
 const MQTT_FIELDS = new Set([
@@ -275,9 +298,21 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                   onChange={(e) => handleChange('model', e.target.value)}
                   className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                 >
-                  {schemas.models.map((m) => (
-                    <option key={m} value={m}>{m}</option>
-                  ))}
+                  {(() => {
+                    const camWidth = Number(form.camera_width) || 0;
+                    const tier = camWidth ? getResolutionTier(camWidth) : '';
+                    const sorted = [...schemas.models].sort((a, b) => {
+                      if (!tier) return 0;
+                      const aMatch = MODEL_TIERS[a] === tier ? 0 : 1;
+                      const bMatch = MODEL_TIERS[b] === tier ? 0 : 1;
+                      return aMatch - bMatch;
+                    });
+                    return sorted.map((m) => (
+                      <option key={m} value={m}>
+                        {m}{tier && MODEL_TIERS[m] === tier ? ' ✓' : ''}
+                      </option>
+                    ));
+                  })()}
                 </select>
               </div>
               <div>
