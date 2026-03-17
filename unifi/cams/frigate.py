@@ -35,6 +35,7 @@ class FrigateCam(RTSPCam):
         parser.add_argument("--mqtt-port", default=1883, type=int, help="MQTT server")
         parser.add_argument("--mqtt-username", required=False)
         parser.add_argument("--mqtt-password", required=False)
+        parser.add_argument("--mqtt-ssl", action="store_true", help="Enable SSL/TLS for MQTT connection")
         parser.add_argument(
             "--mqtt-prefix", default="frigate", type=str, help="Topic prefix"
         )
@@ -342,11 +343,13 @@ class FrigateCam(RTSPCam):
         async def mqtt_connect():
             nonlocal has_connected
             try:
+                tls_params = aiomqtt.TLSParameters() if getattr(self.args, 'mqtt_ssl', False) else None
                 async with Client(
                     self.args.mqtt_host,
                     port=self.args.mqtt_port,
                     username=self.args.mqtt_username,
                     password=self.args.mqtt_password,
+                    tls_params=tls_params,
                 ) as client:
                     has_connected = True
                     self.logger.info(

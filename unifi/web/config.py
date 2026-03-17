@@ -43,6 +43,7 @@ DEFAULT_GLOBAL = {
     "mqtt_username": None,
     "mqtt_password": None,
     "mqtt_prefix": "frigate",
+    "mqtt_ssl": False,
 }
 
 MODEL_CHOICES = [
@@ -236,6 +237,13 @@ def config_to_args(global_config: dict, camera_config: dict) -> list[str]:
                 val = global_config.get(config_key)
             if val is not None and val != "":
                 args.extend([f"--{cli_name}", str(val)])
+        # Handle mqtt_ssl boolean flag
+        mqtt_ssl = camera_config.get("mqtt_ssl")
+        if mqtt_ssl is None:
+            mqtt_ssl = global_config.get("mqtt_ssl")
+        if mqtt_ssl:
+            args.append("--mqtt-ssl")
+        skip_fields.add("mqtt-ssl")
         # Track which MQTT fields we already handled
         skip_fields.update(mqtt_fields.values())
 

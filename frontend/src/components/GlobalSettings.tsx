@@ -62,12 +62,12 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
         <form onSubmit={handleSubmit} className="flex-1 overflow-auto p-5 space-y-4">
           {/* NVR Settings */}
           <div>
-            <label className="block text-sm text-gray-400 mb-1">NVR Host</label>
+            <label className="block text-sm text-gray-400 mb-1">UniFi Protect Host</label>
             <input
               type="text"
               value={form.host}
               onChange={(e) => handleChange('host', e.target.value)}
-              placeholder="192.168.1.1"
+              placeholder="192.168.1.1 or protect.local"
               className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -183,7 +183,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
                     type="text"
                     value={form.mqtt_host || ''}
                     onChange={(e) => handleChange('mqtt_host', e.target.value)}
-                    placeholder="192.168.1.2"
+                    placeholder="192.168.1.2 or mqtt.local"
                     className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                   />
                 </div>
@@ -220,15 +220,29 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
                   />
                 </div>
               </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Topic Prefix</label>
-                <input
-                  type="text"
-                  value={form.mqtt_prefix || 'frigate'}
-                  onChange={(e) => handleChange('mqtt_prefix', e.target.value)}
-                  placeholder="frigate"
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Topic Prefix</label>
+                  <input
+                    type="text"
+                    value={form.mqtt_prefix || 'frigate'}
+                    onChange={(e) => handleChange('mqtt_prefix', e.target.value)}
+                    placeholder="frigate"
+                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div className="flex items-end pb-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="mqtt_ssl"
+                      checked={form.mqtt_ssl || false}
+                      onChange={(e) => handleChange('mqtt_ssl', e.target.checked)}
+                      className="rounded bg-gray-800 border-gray-600"
+                    />
+                    <label htmlFor="mqtt_ssl" className="text-sm text-gray-400">SSL/TLS</label>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
