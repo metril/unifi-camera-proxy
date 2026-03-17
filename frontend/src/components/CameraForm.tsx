@@ -71,10 +71,16 @@ const MQTT_FIELDS = new Set([
   'mqtt-host', 'mqtt-port', 'mqtt-username', 'mqtt-password', 'mqtt-prefix', 'mqtt-ssl',
 ]);
 
+// Frigate API fields inherited from global settings
+const FRIGATE_API_FIELDS = new Set([
+  'frigate-http-url', 'frigate-username', 'frigate-password',
+]);
+
 export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamera, globalConfig }: CameraFormProps) {
   const [form, setForm] = useState<CameraConfig>({ ...DEFAULT_CAMERA });
   const [rtspTest, setRtspTest] = useState<Record<string, { type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
   const [showCustomMqtt, setShowCustomMqtt] = useState(false);
+  const [autoDetectStatus, setAutoDetectStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
 
   useEffect(() => {
     if (editCamera) {
@@ -214,10 +220,50 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
     );
   };
 
-  // Split fields into base (common to all types), MQTT, and type-specific
+  // Split fields into base (common to all types), MQTT, Frigate API, and type-specific
   const baseFields = typeFields.filter((f) => COMMON_HANDLED.has(f.name));
   const mqttFields = typeFields.filter((f) => MQTT_FIELDS.has(f.name));
-  const specificFields = typeFields.filter((f) => !COMMON_HANDLED.has(f.name) && !MQTT_FIELDS.has(f.name));
+  const frigateApiFields = typeFields.filter((f) => FRIGATE_API_FIELDS.has(f.name));
+  const specificFields = typeFields.filter((f) => !COMMON_HANDLED.has(f.name) && !MQTT_FIELDS.has(f.name) && !FRIGATE_API_FIELDS.has(f.name));
+
+  const handleAutoDetect = async () => {
+    const frigateUrl = (form.frigate_http_url as string) || globalConfig.frigate_http_url;
+    const frigateUser = (form.frigate_username as string) || globalConfig.frigate_username;
+    const frigatePass = (form.frigate_password as string) || globalConfig.frigate_password;
+    const cameraName = form.frigate_camera as string;
+
+    if (!frigateUrl) {
+      setAutoDetectStatus({ type: 'error', message: 'Set Frigate HTTP URL in global settings or per-camera' });
+      return;
+    }
+    if (!cameraName) {
+      setAutoDetectStatus({ type: 'error', message: 'Set the frigate-camera name first' });
+      return;
+    }
+
+    setAutoDetectStatus({ type: 'loading' });
+    try {
+      const result = await api.detectFrigateCamera(frigateUrl, cameraName, frigateUser, frigatePass);
+      // Auto-fill detected values
+      if (result.detect.width) {
+        handleChange('camera_width', result.detect.width);
+        handleChange('frigate_detect_width', result.detect.width);
+      }
+      if (result.detect.height) {
+        handleChange('camera_height', result.detect.height);
+        handleChange('frigate_detect_height', result.detect.height);
+      }
+      if (result.detect.fps) {
+        handleChange('video1_fps', result.detect.fps);
+      }
+
+      const info = `Detect: ${result.detect.width}x${result.detect.height}@${result.detect.fps}fps, ` +
+        `${result.streams.length} stream(s), record: ${result.record_enabled ? 'on' : 'off'}`;
+      setAutoDetectStatus({ type: 'success', message: info });
+    } catch (err) {
+      setAutoDetectStatus({ type: 'error', message: err instanceof Error ? err.message : 'Auto-detect failed' });
+    }
+  };
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
@@ -346,6 +392,41 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
               </h4>
               {specificFields.map(renderField)}
             </div>
+          )}
+
+          {/* Auto-detect from Frigate button (only for frigate type) */}
+          {cameraType === 'frigate' && (
+            <div className="border-t border-gray-700 pt-4 space-y-3">
+              <button
+                type="button"
+                onClick={handleAutoDetect}
+                disabled={autoDetectStatus.type === 'loading'}
+                className="w-full px-3 py-2 text-xs bg-orange-600/20 text-orange-400 border border-orange-600/30 rounded hover:bg-orange-600/30 transition-colors disabled:opacity-50"
+              >
+                {autoDetectStatus.type === 'loading' ? 'Detecting...' : 'Auto-detect from Frigate API'}
+              </button>
+              {autoDetectStatus.type === 'success' && (
+                <p className="text-xs text-green-400">{autoDetectStatus.message}</p>
+              )}
+              {autoDetectStatus.type === 'error' && (
+                <p className="text-xs text-red-400">{autoDetectStatus.message}</p>
+              )}
+            </div>
+          )}
+
+          {/* Per-camera Frigate API override (collapsible) */}
+          {frigateApiFields.length > 0 && (
+            <details className="border-t border-gray-700 pt-4">
+              <summary className="text-sm font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:text-white">
+                Frigate API Override
+                <span className="text-xs text-gray-500 font-normal ml-2 normal-case">
+                  (uses global settings if not overridden)
+                </span>
+              </summary>
+              <div className="mt-4 space-y-4">
+                {frigateApiFields.map(renderField)}
+              </div>
+            </details>
           )}
 
           {/* Per-camera MQTT override (collapsible, hidden by default) */}
