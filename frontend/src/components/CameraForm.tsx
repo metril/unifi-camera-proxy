@@ -224,7 +224,9 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
   const baseFields = typeFields.filter((f) => COMMON_HANDLED.has(f.name));
   const mqttFields = typeFields.filter((f) => MQTT_FIELDS.has(f.name));
   const frigateApiFields = typeFields.filter((f) => FRIGATE_API_FIELDS.has(f.name));
-  const specificFields = typeFields.filter((f) => !COMMON_HANDLED.has(f.name) && !MQTT_FIELDS.has(f.name) && !FRIGATE_API_FIELDS.has(f.name));
+  const specificFields = typeFields.filter((f) =>
+    !COMMON_HANDLED.has(f.name) && !MQTT_FIELDS.has(f.name) && !FRIGATE_API_FIELDS.has(f.name) && f.name !== 'frigate-camera'
+  );
 
   const handleAutoDetect = async () => {
     const frigateUrl = (form.frigate_http_url as string) || globalConfig.frigate_http_url;
@@ -257,9 +259,26 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
         handleChange('video1_fps', result.detect.fps);
       }
 
-      const info = `Detect: ${result.detect.width}x${result.detect.height}@${result.detect.fps}fps, ` +
-        `${result.streams.length} stream(s), record: ${result.record_enabled ? 'on' : 'off'}`;
-      setAutoDetectStatus({ type: 'success', message: info });
+      // Auto-fill video streams from Frigate's ffmpeg inputs
+      for (const stream of result.streams) {
+        if (stream.roles.includes('record') && stream.path) {
+          handleChange('video1', stream.path);
+        }
+        if (stream.roles.includes('detect') && stream.path) {
+          handleChange('video3', stream.path);
+        }
+      }
+      // If no separate detect stream, use record stream for video3 too
+      if (!result.streams.some(s => s.roles.includes('detect'))) {
+        const recordStream = result.streams.find(s => s.roles.includes('record'));
+        if (recordStream) handleChange('video3', recordStream.path);
+      }
+
+      const parts = [`Detect: ${result.detect.width}x${result.detect.height}@${result.detect.fps}fps`];
+      const recordStream = result.streams.find(s => s.roles.includes('record'));
+      if (recordStream) parts.push(`Record stream found`);
+      parts.push(`record: ${result.record_enabled ? 'on' : 'off'}`);
+      setAutoDetectStatus({ type: 'success', message: parts.join(' | ') });
     } catch (err) {
       setAutoDetectStatus({ type: 'error', message: err instanceof Error ? err.message : 'Auto-detect failed' });
     }
@@ -302,6 +321,38 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                 </select>
               </div>
             </div>
+
+            {/* Frigate: camera name + auto-detect (shown early for Frigate cameras) */}
+            {cameraType === 'frigate' && (
+              <div className="space-y-3 border border-orange-600/20 bg-orange-600/5 rounded-lg p-3">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">
+                    Frigate Camera Name<span className="text-red-400 ml-1">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={(form.frigate_camera as string) || ''}
+                    onChange={(e) => handleChange('frigate_camera', e.target.value)}
+                    placeholder="e.g., backyard, front_door"
+                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAutoDetect}
+                  disabled={autoDetectStatus.type === 'loading' || !(form.frigate_camera as string)}
+                  className="w-full px-3 py-2 text-xs bg-orange-600/20 text-orange-400 border border-orange-600/30 rounded hover:bg-orange-600/30 transition-colors disabled:opacity-50"
+                >
+                  {autoDetectStatus.type === 'loading' ? 'Detecting...' : 'Auto-detect from Frigate API'}
+                </button>
+                {autoDetectStatus.type === 'success' && (
+                  <p className="text-xs text-green-400">{autoDetectStatus.message}</p>
+                )}
+                {autoDetectStatus.type === 'error' && (
+                  <p className="text-xs text-red-400">{autoDetectStatus.message}</p>
+                )}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -391,26 +442,6 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                 {cameraType} Settings
               </h4>
               {specificFields.map(renderField)}
-            </div>
-          )}
-
-          {/* Auto-detect from Frigate button (only for frigate type) */}
-          {cameraType === 'frigate' && (
-            <div className="border-t border-gray-700 pt-4 space-y-3">
-              <button
-                type="button"
-                onClick={handleAutoDetect}
-                disabled={autoDetectStatus.type === 'loading'}
-                className="w-full px-3 py-2 text-xs bg-orange-600/20 text-orange-400 border border-orange-600/30 rounded hover:bg-orange-600/30 transition-colors disabled:opacity-50"
-              >
-                {autoDetectStatus.type === 'loading' ? 'Detecting...' : 'Auto-detect from Frigate API'}
-              </button>
-              {autoDetectStatus.type === 'success' && (
-                <p className="text-xs text-green-400">{autoDetectStatus.message}</p>
-              )}
-              {autoDetectStatus.type === 'error' && (
-                <p className="text-xs text-red-400">{autoDetectStatus.message}</p>
-              )}
             </div>
           )}
 
