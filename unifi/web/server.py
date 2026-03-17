@@ -413,8 +413,8 @@ def create_app(config_path: str) -> web.Application:
     if dist:
         app.router.add_static("/assets", dist / "assets")
 
-    # Catch-all: serve index.html for SPA routing
-    app.router.add_get("/{path:.*}", serve_index)
+    # Catch-all: serve index.html for SPA routing (exclude /api/ and /assets/)
+    app.router.add_get("/{path:(?!api/|assets/).*}", serve_index)
 
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)

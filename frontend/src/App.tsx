@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 import CameraGrid from './components/CameraGrid';
 import CameraForm from './components/CameraForm';
 import GlobalSettings from './components/GlobalSettings';
+import Toast, { type ToastMessage } from './components/Toast';
 
 const DEFAULT_GLOBAL: GlobalConfig = {
   host: '',
@@ -31,6 +32,15 @@ function App() {
   const [showForm, setShowForm] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [editCamera, setEditCamera] = useState<CameraConfig | null>(null);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const addToast = useCallback((text: string, type: ToastMessage['type'] = 'error') => {
+    setToasts((prev) => [...prev, { id: Date.now(), text, type }]);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   // Load initial data
   useEffect(() => {
@@ -56,7 +66,7 @@ function App() {
       await api.startCamera(id);
       fetchCameras();
     } catch (err) {
-      alert(`Failed to start camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      addToast(`Failed to start camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -65,7 +75,7 @@ function App() {
       await api.stopCamera(id);
       fetchCameras();
     } catch (err) {
-      alert(`Failed to stop camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      addToast(`Failed to stop camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -74,7 +84,7 @@ function App() {
       await api.restartCamera(id);
       setTimeout(fetchCameras, 1500);
     } catch (err) {
-      alert(`Failed to restart camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      addToast(`Failed to restart camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -102,7 +112,7 @@ function App() {
       setEditCamera(null);
       fetchCameras();
     } catch (err) {
-      alert(`Failed to save camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      addToast(`Failed to save camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -112,7 +122,7 @@ function App() {
       setGlobalConfig(config);
       setShowSettings(false);
     } catch (err) {
-      alert(`Failed to save settings: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      addToast(`Failed to save settings: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -167,6 +177,8 @@ function App() {
         config={globalConfig}
         onSave={handleSaveGlobal}
       />
+
+      <Toast messages={toasts} onDismiss={dismissToast} />
     </Layout>
   );
 }
