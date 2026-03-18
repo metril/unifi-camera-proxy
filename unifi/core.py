@@ -14,6 +14,7 @@ class Core(object):
         self.host = args.host
         self.token = args.token
         self.mac = args.mac
+        self.sysid = getattr(args, 'sysid', None)
         self.logger = logger
         self.cam = camera
 
@@ -26,6 +27,8 @@ class Core(object):
     async def run(self) -> None:
         uri = "wss://{}:7442/camera/1.0/ws?token={}".format(self.host, self.token)
         headers = {"camera-mac": self.mac}
+        if self.sysid:
+            headers["Camera-Model"] = self.sysid
         has_connected = False
 
         @backoff.on_predicate(
