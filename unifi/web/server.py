@@ -663,12 +663,14 @@ def main():
         help="Path to config file (default: /app/data/config.yaml)",
     )
     parser.add_argument(
-        "--port", type=int, default=8080, help="Web server port (default: 8080)"
+        "--port", type=int,
+        default=int(os.environ.get("BIND_PORT", "8080")),
+        help="Web server port (default: 8080, env: BIND_PORT)",
     )
     parser.add_argument(
         "--host",
-        default="0.0.0.0",
-        help="Web server bind address (default: 0.0.0.0)",
+        default=os.environ.get("BIND_ADDRESS", "0.0.0.0"),
+        help="Web server bind address (default: 0.0.0.0, env: BIND_ADDRESS)",
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Enable debug logging"
