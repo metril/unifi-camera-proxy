@@ -315,9 +315,15 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
 
         runner = web.AppRunner(diag_app)
         await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", port)
-        await site.start()
-        self.logger.info(f"Diagnostics server started on port {port}")
+        for attempt in range(10):
+            try:
+                site = web.TCPSite(runner, "0.0.0.0", port + attempt)
+                await site.start()
+                self.logger.info(f"Diagnostics server started on port {port + attempt}")
+                return
+            except OSError:
+                self.logger.warning(f"Diagnostics port {port + attempt} in use, trying next")
+        self.logger.error("Could not start diagnostics server after 10 attempts")
 
     async def notify_diagnostics_changed(self) -> None:
         """Push diagnostics to all connected WebSocket clients."""
