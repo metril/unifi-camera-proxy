@@ -40,6 +40,7 @@ interface Diagnostics {
     motion_active: boolean;
     event_mappings: Record<string, number>;
     auto_detected?: Record<string, unknown>;
+    snapshot_source?: string;
     event_snapshots?: Record<string, string>;
   };
   motion_active?: boolean;
@@ -410,6 +411,10 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                       <span className="text-gray-200 text-xs">{diagnostics.frigate.http_url}</span>
                     </div>
                   )}
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Snapshot Source</span>
+                    <span className="text-gray-200">{diagnostics.frigate.snapshot_source === 'http' ? 'HTTP API' : 'MQTT'}</span>
+                  </div>
                   <div className="flex justify-between">
                     <span className="text-gray-400">Active Frigate Events</span>
                     <span className="text-gray-200">{diagnostics.frigate.active_event_count}</span>
