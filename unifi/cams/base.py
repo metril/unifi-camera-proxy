@@ -285,6 +285,8 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
 
     async def start_diagnostics_server(self) -> None:
         """Start a diagnostics HTTP API server if a port is configured."""
+        if getattr(self, '_diag_server_started', False):
+            return  # Already running from a previous connection
         port = getattr(self.args, 'diagnostics_port', 0)
         if not port:
             return
@@ -319,6 +321,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             try:
                 site = web.TCPSite(runner, "0.0.0.0", port + attempt)
                 await site.start()
+                self._diag_server_started = True
                 self.logger.info(f"Diagnostics server started on port {port + attempt}")
                 return
             except OSError:
