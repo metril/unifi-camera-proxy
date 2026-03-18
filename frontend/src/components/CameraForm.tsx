@@ -117,6 +117,14 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
       .finally(() => setFrigateCamerasLoading(false));
   }, [isOpen, form.type, form.frigate_http_url, globalConfig.frigate_http_url]);
 
+  // Auto-trigger detect when a Frigate camera is selected from dropdown
+  useEffect(() => {
+    if (!isOpen || form.type !== 'frigate' || !form.frigate_camera) return;
+    if (!frigateCameras.includes(form.frigate_camera as string)) return; // Only for dropdown selections
+    handleAutoDetect();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.frigate_camera]);
+
   if (!isOpen || !schemas) return null;
 
   const cameraType = form.type || 'rtsp';
