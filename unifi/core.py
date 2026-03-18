@@ -27,8 +27,6 @@ class Core(object):
     async def run(self) -> None:
         uri = "wss://{}:7442/camera/1.0/ws?token={}".format(self.host, self.token)
         headers = {"camera-mac": self.mac}
-        if self.sysid:
-            headers["camera-model"] = self.sysid
         has_connected = False
 
         @backoff.on_predicate(
