@@ -299,12 +299,12 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
         if (recordStream) handleChange('video3', recordStream.path);
       }
 
-      // Extract camera IP from first stream URL
-      const firstStreamPath = result.streams[0]?.path;
-      if (firstStreamPath && !form.ip) {
+      // Extract camera IP — prefer go2rtc source (has real camera IP) over ffmpeg input (may be restream)
+      const sourceUrl = result.camera_source_url || result.streams[0]?.path;
+      if (sourceUrl && !form.ip) {
         try {
-          const streamUrl = new URL(firstStreamPath);
-          if (streamUrl.hostname) handleChange('ip', streamUrl.hostname);
+          const parsed = new URL(sourceUrl);
+          if (parsed.hostname) handleChange('ip', parsed.hostname);
         } catch { /* non-URL path, skip */ }
       }
 

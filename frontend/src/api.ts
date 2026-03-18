@@ -82,6 +82,7 @@ export const api = {
       camera_name: string;
       detect: { width: number; height: number; fps: number; enabled: boolean };
       streams: Array<{ path: string; roles: string[] }>;
+      camera_source_url?: string;
       record_enabled: boolean;
     }>('/detect-frigate-camera', {
       method: 'POST',
