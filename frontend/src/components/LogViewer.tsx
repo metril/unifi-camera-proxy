@@ -69,6 +69,8 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
   const [autoScroll, setAutoScroll] = useState(true);
   const [tab, setTab] = useState<Tab>('logs');
   const [wsConnected, setWsConnected] = useState(false);
+  const [snapshotKey, setSnapshotKey] = useState(0);
+  const [snapshotError, setSnapshotError] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -111,6 +113,16 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [logs, autoScroll]);
+
+  // Refresh snapshot every 5s when diagnostics tab is active
+  useEffect(() => {
+    if (!isOpen || tab !== 'diagnostics') return;
+    const interval = setInterval(() => {
+      setSnapshotKey((k) => k + 1);
+      setSnapshotError(false);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isOpen, tab]);
 
   const toggleLevel = useCallback((level: string) => {
     setLevels((prev) => {
@@ -259,6 +271,23 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
 
         {tab === 'diagnostics' && (
           <div className="flex-1 overflow-auto p-4 space-y-4">
+            {/* Live Snapshot */}
+            {diagnostics.frigate && (
+              <div className="border border-gray-700 rounded-lg p-4">
+                <h4 className="text-sm font-medium text-gray-300 mb-3">Live Snapshot</h4>
+                {snapshotError ? (
+                  <p className="text-xs text-gray-500">Snapshot unavailable</p>
+                ) : (
+                  <img
+                    src={`/api/cameras/${cameraId}/snapshot?_t=${snapshotKey}`}
+                    alt="Camera snapshot"
+                    className="w-full max-w-md rounded bg-black"
+                    onError={() => setSnapshotError(true)}
+                  />
+                )}
+              </div>
+            )}
+
             {/* Connection Status */}
             <div className="grid grid-cols-2 gap-4">
               <StatusCard

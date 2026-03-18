@@ -154,6 +154,68 @@ async def get_camera_diagnostics(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=404)
 
 
+async def camera_snapshot(request: web.Request) -> web.Response:
+    """Proxy a latest snapshot from Frigate for the given camera."""
+    manager = get_manager(request)
+    camera_id = request.match_info["id"]
+
+    instance = manager.instances.get(camera_id)
+    if not instance:
+        return web.json_response({"error": "Camera not found"}, status=404)
+
+    cam_config = instance.config
+    global_config = manager.config.get("global", {})
+
+    if cam_config.get("type") != "frigate":
+        return web.json_response({"error": "Snapshots only available for Frigate cameras"}, status=400)
+
+    # Resolve Frigate connection with per-camera → global fallback
+    frigate_url = cam_config.get("frigate_http_url") or global_config.get("frigate_http_url")
+    frigate_camera = cam_config.get("frigate_camera")
+    username = cam_config.get("frigate_username") or global_config.get("frigate_username")
+    password = cam_config.get("frigate_password") or global_config.get("frigate_password")
+    verify_ssl = cam_config.get("frigate_verify_ssl")
+    if verify_ssl is None:
+        verify_ssl = global_config.get("frigate_verify_ssl", True)
+
+    if not frigate_url or not frigate_camera:
+        return web.json_response({"error": "Frigate HTTP URL and camera name are required"}, status=400)
+
+    ssl_param = None if verify_ssl else False
+
+    try:
+        async with aiohttp_client.ClientSession() as session:
+            # Authenticate if credentials provided
+            if username and password:
+                async with session.post(
+                    f"{frigate_url}/api/login",
+                    json={"user": username, "password": password},
+                    ssl=ssl_param,
+                    timeout=aiohttp_client.ClientTimeout(total=5),
+                ) as login_resp:
+                    if login_resp.status != 200:
+                        return web.json_response({"error": "Frigate login failed"}, status=502)
+
+            # Fetch snapshot
+            snapshot_url = f"{frigate_url}/api/{frigate_camera}/latest.jpg?height=480&quality=75"
+            async with session.get(
+                snapshot_url,
+                ssl=ssl_param,
+                timeout=aiohttp_client.ClientTimeout(total=5),
+            ) as resp:
+                if resp.status != 200:
+                    return web.json_response({"error": f"Frigate returned {resp.status}"}, status=502)
+                data = await resp.read()
+                return web.Response(
+                    body=data,
+                    content_type="image/jpeg",
+                    headers={"Cache-Control": "no-cache, no-store"},
+                )
+    except Exception as e:
+        logger.debug(f"Snapshot fetch failed for {camera_id}: {e}")
+        return web.json_response({"error": str(e)}, status=502)
+
+
 async def camera_ws(request: web.Request) -> web.WebSocketResponse:
     """WebSocket endpoint for real-time log streaming and diagnostics."""
     manager = get_manager(request)
@@ -550,6 +612,7 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_post("/api/cameras/{id}/restart", restart_camera)
     app.router.add_get("/api/cameras/{id}/logs", get_camera_logs)
     app.router.add_get("/api/cameras/{id}/diagnostics", get_camera_diagnostics)
+    app.router.add_get("/api/cameras/{id}/snapshot", camera_snapshot)
     app.router.add_get("/api/cameras/{id}/ws", camera_ws)
     app.router.add_get("/api/camera-types", get_camera_types)
     app.router.add_post("/api/generate-cert", generate_cert)
