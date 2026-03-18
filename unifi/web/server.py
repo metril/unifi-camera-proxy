@@ -437,6 +437,14 @@ async def detect_frigate_camera(request: web.Request) -> web.Response:
                 "roles": inp.get("roles", []),
             })
 
+        # Look up go2rtc source for real camera IP
+        go2rtc_sources = config.get("go2rtc", {}).get("streams", {}).get(camera_name, [])
+        camera_source_url = None
+        for src in go2rtc_sources:
+            if isinstance(src, str) and not src.startswith("ffmpeg:"):
+                camera_source_url = src
+                break
+
         return web.json_response({
             "status": "ok",
             "camera_name": camera_name,
@@ -447,6 +455,7 @@ async def detect_frigate_camera(request: web.Request) -> web.Response:
                 "enabled": detect.get("enabled", False),
             },
             "streams": streams,
+            "camera_source_url": camera_source_url,
             "record_enabled": camera_config.get("record", {}).get("enabled", False),
         })
     except Exception as e:
