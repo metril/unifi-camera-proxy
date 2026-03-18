@@ -125,10 +125,6 @@ class CameraManager:
             instance._log_task = asyncio.create_task(
                 self._read_logs(instance)
             )
-            # Update name/model in Protect after adoption
-            asyncio.create_task(
-                self._update_protect_device(instance)
-            )
         except Exception as e:
             instance.status = "error"
             instance.error_message = str(e)
@@ -340,6 +336,12 @@ class CameraManager:
     def update_camera(self, camera_id: str, camera_config: dict) -> dict:
         """Update an existing camera's config."""
         camera_config["id"] = camera_id
+        # Check if name changed for Protect API update
+        old_name = None
+        for cam in self.config.get("cameras", []):
+            if cam.get("id") == camera_id:
+                old_name = cam.get("name")
+                break
         for i, cam in enumerate(self.config.get("cameras", [])):
             if cam.get("id") == camera_id:
                 self.config["cameras"][i] = camera_config
@@ -348,7 +350,12 @@ class CameraManager:
             raise ValueError(f"Camera {camera_id} not found in config")
         save_config(self.config_path, self.config)
         if camera_id in self.instances:
-            self.instances[camera_id].config = camera_config
+            instance = self.instances[camera_id]
+            instance.config = camera_config
+            # Update name in Protect if it changed and camera is running
+            new_name = camera_config.get("name")
+            if old_name and new_name and old_name != new_name and instance.status == "running":
+                asyncio.create_task(self._update_protect_device(instance))
         return camera_config
 
     async def delete_camera(self, camera_id: str) -> None:
