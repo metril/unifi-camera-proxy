@@ -125,6 +125,10 @@ class CameraManager:
             instance._log_task = asyncio.create_task(
                 self._read_logs(instance)
             )
+            # Update name in Protect after adoption (Protect 5.x ignores name from adoption payload)
+            asyncio.create_task(
+                self._update_protect_device(instance)
+            )
         except Exception as e:
             instance.status = "error"
             instance.error_message = str(e)
