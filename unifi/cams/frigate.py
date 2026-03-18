@@ -31,8 +31,7 @@ class FrigateCam(RTSPCam):
         self.event_timeout_seconds = 600  # Timeout after 600 seconds (10 minutes) without updates
         self._motion_is_on = False  # Track motion state for deferred analytics stop
         self._auto_detected: dict[str, Any] = {}  # Store auto-detected settings from Frigate API
-        self._event_snapshot_cache: dict[int, bytes] = {}  # UniFi event ID → JPEG snapshot bytes
-        self._label_snapshot_cache: dict[str, bytes] = {}  # label → latest JPEG (for unmatched snapshots)
+        self._label_snapshot_cache: dict[str, bytes] = {}  # label → latest JPEG snapshot bytes
 
     @classmethod
     def add_parser(cls, parser: argparse.ArgumentParser) -> None:
@@ -108,16 +107,11 @@ class FrigateCam(RTSPCam):
             "auto_detected": self._auto_detected,
             "snapshot_source": "http" if getattr(self.args, 'frigate_http_url', '') else "mqtt",
             "event_snapshots": {
-                eid: base64.b64encode(self._event_snapshot_cache[eid]).decode()
-                for eid in [e["event_id"] for e in diag["active_events"] + diag["recent_events"]]
-                if eid in self._event_snapshot_cache
+                e["event_id"]: base64.b64encode(self._label_snapshot_cache[e["object_type"]]).decode()
+                for e in diag["active_events"] + diag["recent_events"]
+                if e["object_type"] in self._label_snapshot_cache
             },
         }
-        # Prune snapshot cache: keep only events still in active or recent lists
-        visible_ids = {e["event_id"] for e in diag["active_events"] + diag["recent_events"]}
-        for eid in list(self._event_snapshot_cache):
-            if eid not in visible_ids:
-                del self._event_snapshot_cache[eid]
         return diag
 
     async def get_feature_flags(self) -> dict[str, Any]:
@@ -271,27 +265,21 @@ class FrigateCam(RTSPCam):
     async def _fetch_snapshots_via_mqtt(
         self, event_id: int, event_type: str
     ) -> tuple[Optional[Path], Optional[Path], Optional[Path]]:
-        """Fetch snapshots from the MQTT snapshot cache."""
-        frigate_event_id = None
-        if event_type == "smart_detect":
-            for fid, uid in self.frigate_to_unifi_event_map.items():
-                if uid == event_id:
-                    frigate_event_id = fid
-                    break
+        """Fetch snapshots from the MQTT label snapshot cache."""
+        # Find the label for this event
+        event_data = self._active_smart_events.get(event_id)
+        if not event_data:
+            self.logger.debug(f"No active event data for {event_id}")
+            return (None, None, None)
 
-        if frigate_event_id and frigate_event_id in self.event_snapshot_ready:
-            try:
-                await asyncio.wait_for(
-                    self.event_snapshot_ready[frigate_event_id].wait(),
-                    timeout=5.0,
-                )
-            except asyncio.TimeoutError:
-                self.logger.warning(f"Timeout waiting for MQTT snapshot for event {event_id}")
-                return (None, None, None)
-
-        snapshot_bytes = self._event_snapshot_cache.get(event_id)
+        label = event_data["object_type"].value
+        snapshot_bytes = self._label_snapshot_cache.get(label)
         if not snapshot_bytes:
-            self.logger.debug(f"No MQTT snapshot cached for event {event_id}")
+            # Wait briefly for a snapshot to arrive
+            await asyncio.sleep(2.0)
+            snapshot_bytes = self._label_snapshot_cache.get(label)
+        if not snapshot_bytes:
+            self.logger.debug(f"No MQTT snapshot cached for label {label}")
             return (None, None, None)
 
         # Write same bytes for crop, fov, and heatmap
@@ -739,11 +727,7 @@ class FrigateCam(RTSPCam):
                     unifi_event_id = await self.trigger_smart_detect_start(object_type, custom_descriptor, frame_time_ms)
                     self.frigate_to_unifi_event_map[event_id] = unifi_event_id
                     self.event_last_update[unifi_event_id] = time.time()
-                    # Check if we have a cached snapshot by label
-                    cached = self._label_snapshot_cache.get(label)
-                    if cached:
-                        self._event_snapshot_cache[unifi_event_id] = cached
-                        self.logger.debug(f"Applied cached {label} snapshot to auto-registered event {unifi_event_id}")
+                    self.logger.debug(f"Auto-registered event {unifi_event_id}, label snapshot cache has {label}: {label in self._label_snapshot_cache}")
                     
             elif event_type == "end":
                 if event_id in self.frigate_to_unifi_event_map:
@@ -851,39 +835,25 @@ class FrigateCam(RTSPCam):
             f"message={message}"
         )
         
-        # Find matching active Frigate event by label
-        # We need to match based on label since snapshots don't include event ID
+        # Always cache by label — decoupled from event timing
+        if not message.retain:
+            self._label_snapshot_cache[snapshot_label] = message.payload
+
+        # Update UniFi Protect motion snapshot if there's an active matching event
         matching_frigate_event_id = None
         for frigate_event_id, unifi_event_id in self.frigate_to_unifi_event_map.items():
-            # Check if this UniFi event is still active and matches the label
             if unifi_event_id in self._active_smart_events:
                 event_data = self._active_smart_events[unifi_event_id]
-                # Match by object type (person -> person, vehicle labels -> vehicle)
-                event_label = event_data["object_type"].value
-                if event_label == snapshot_label and not message.retain:
+                if event_data["object_type"].value == snapshot_label and not message.retain:
                     matching_frigate_event_id = frigate_event_id
                     break
-        
+
         if matching_frigate_event_id:
             f = tempfile.NamedTemporaryFile(delete=False)
             f.write(message.payload)
             f.close()
-            self.logger.debug(
-                f"Updating snapshot for Frigate event {matching_frigate_event_id} ({snapshot_label}) with {f.name}"
-            )
             self.update_motion_snapshot(Path(f.name))
-            unifi_id = self.frigate_to_unifi_event_map.get(matching_frigate_event_id)
-            if unifi_id is not None:
-                self._event_snapshot_cache[unifi_id] = message.payload
             if matching_frigate_event_id in self.event_snapshot_ready:
                 self.event_snapshot_ready[matching_frigate_event_id].set()
-            await self.notify_diagnostics_changed()
-        else:
-            # Cache by label for auto-recovery of missed events
-            if not message.retain:
-                self._label_snapshot_cache[snapshot_label] = message.payload
-            self.logger.debug(
-                f"Cached snapshot by label={snapshot_label} "
-                f"(size={len(message.payload)}, retained={message.retain}). "
-                f"No matching active event yet."
-            )
+
+        await self.notify_diagnostics_changed()
