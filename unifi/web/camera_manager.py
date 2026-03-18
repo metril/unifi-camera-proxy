@@ -125,6 +125,10 @@ class CameraManager:
             instance._log_task = asyncio.create_task(
                 self._read_logs(instance)
             )
+            # Update name/model in Protect after adoption
+            asyncio.create_task(
+                self._update_protect_device(instance)
+            )
         except Exception as e:
             instance.status = "error"
             instance.error_message = str(e)
@@ -177,6 +181,73 @@ class CameraManager:
                         f"Camera {instance.id} exited with code {returncode}. "
                         f"Last output: {error_detail}"
                     )
+
+    async def _update_protect_device(self, instance: CameraInstance) -> None:
+        """Update camera name/model in Protect after adoption."""
+        global_config = self.config.get("global", {})
+        host = global_config.get("host")
+        username = global_config.get("nvr_username")
+        password = global_config.get("nvr_password")
+        if not host or not username or not password:
+            return
+
+        cam_config = instance.config
+        cam_name = cam_config.get("name") or cam_config.get("frigate_camera") or ""
+        cam_mac = cam_config.get("mac", "").upper().replace(":", "")
+        if not cam_name or not cam_mac:
+            return
+
+        # Wait for camera to connect to Protect
+        for _ in range(30):
+            await asyncio.sleep(2)
+            if instance.status != "running":
+                return
+            try:
+                diag = await self.get_diagnostics(instance.id)
+                if diag.get("connected"):
+                    break
+            except Exception:
+                pass
+        else:
+            logger.debug(f"Camera {instance.id} did not connect within 60s, skipping Protect update")
+            return
+
+        # Give Protect a moment to register the device
+        await asyncio.sleep(3)
+
+        try:
+            from uiprotect import ProtectApiClient
+            protect = ProtectApiClient(
+                host, 443, username, password,
+                verify_ssl=False,
+                store_sessions=False,
+            )
+            await protect.authenticate()
+
+            # Find camera by MAC
+            cameras = await protect.api_request("cameras")
+            target = None
+            for cam in cameras:
+                if cam.get("mac", "").upper().replace(":", "") == cam_mac:
+                    target = cam
+                    break
+
+            if not target:
+                logger.debug(f"Camera {instance.id} (MAC {cam_mac}) not found in Protect")
+                return
+
+            # Update name if different
+            protect_id = target["id"]
+            updates = {}
+            if target.get("name") != cam_name:
+                updates["name"] = cam_name
+            if updates:
+                await protect.api_request(f"cameras/{protect_id}", method="patch", data=updates)
+                logger.info(f"Updated Protect device {protect_id}: {updates}")
+
+            await protect.close_session()
+        except Exception as e:
+            logger.debug(f"Failed to update Protect device for {instance.id}: {e}")
 
     async def stop_camera(self, camera_id: str) -> None:
         instance = self.instances.get(camera_id)
