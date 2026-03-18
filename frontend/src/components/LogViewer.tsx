@@ -40,6 +40,7 @@ interface Diagnostics {
     motion_active: boolean;
     event_mappings: Record<string, number>;
     auto_detected?: Record<string, unknown>;
+    event_snapshots?: Record<number, string>;
   };
   motion_active?: boolean;
   status?: string;
@@ -310,22 +311,31 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
               {diagnostics.active_events && diagnostics.active_events.length > 0 ? (
                 <div className="space-y-2">
                   {diagnostics.active_events.map((evt) => (
-                    <div key={evt.event_id} className="bg-black/20 rounded px-3 py-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-medium text-white capitalize">{evt.object_type}</span>
-                          <span className="text-xs text-gray-400">{evt.confidence}%</span>
-                          {evt.stationary && (
-                            <span className="text-xs bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">stationary</span>
-                          )}
-                        </div>
-                        <span className="text-xs text-gray-400">{formatDuration(evt.duration_sec)}</span>
-                      </div>
-                      {evt.bounding_box && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          Box: [{evt.bounding_box.join(', ')}]
-                        </div>
+                    <div key={evt.event_id} className="bg-black/20 rounded px-3 py-2 flex gap-3">
+                      {diagnostics.frigate?.event_snapshots?.[evt.event_id] && (
+                        <img
+                          src={`data:image/jpeg;base64,${diagnostics.frigate.event_snapshots[evt.event_id]}`}
+                          alt={evt.object_type}
+                          className="w-24 h-auto rounded flex-shrink-0"
+                        />
                       )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-medium text-white capitalize">{evt.object_type}</span>
+                            <span className="text-xs text-gray-400">{evt.confidence}%</span>
+                            {evt.stationary && (
+                              <span className="text-xs bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">stationary</span>
+                            )}
+                          </div>
+                          <span className="text-xs text-gray-400">{formatDuration(evt.duration_sec)}</span>
+                        </div>
+                        {evt.bounding_box && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            Box: [{evt.bounding_box.join(', ')}]
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -340,13 +350,22 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                 <h4 className="text-sm font-medium text-gray-300 mb-3">Recent Events ({diagnostics.recent_events.length})</h4>
                 <div className="space-y-1">
                   {diagnostics.recent_events.map((evt) => (
-                    <div key={evt.event_id} className="flex items-center justify-between text-xs bg-black/20 rounded px-3 py-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-gray-300 capitalize">{evt.object_type}</span>
-                        <span className="text-gray-500">{evt.confidence}%</span>
-                        <span className="text-gray-500">({formatDuration(evt.duration_sec)})</span>
+                    <div key={evt.event_id} className="flex items-center gap-2 text-xs bg-black/20 rounded px-3 py-1.5">
+                      {diagnostics.frigate?.event_snapshots?.[evt.event_id] && (
+                        <img
+                          src={`data:image/jpeg;base64,${diagnostics.frigate.event_snapshots[evt.event_id]}`}
+                          alt={evt.object_type}
+                          className="w-12 h-auto rounded flex-shrink-0"
+                        />
+                      )}
+                      <div className="flex items-center justify-between flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-gray-300 capitalize">{evt.object_type}</span>
+                          <span className="text-gray-500">{evt.confidence}%</span>
+                          <span className="text-gray-500">({formatDuration(evt.duration_sec)})</span>
+                        </div>
+                        <span className="text-gray-500">{formatDuration(evt.ended_ago_sec)} ago</span>
                       </div>
-                      <span className="text-gray-500">{formatDuration(evt.ended_ago_sec)} ago</span>
                     </div>
                   ))}
                 </div>
