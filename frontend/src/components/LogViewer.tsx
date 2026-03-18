@@ -70,6 +70,7 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
   const [loggerFilter, setLoggerFilter] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [tab, setTab] = useState<Tab>('logs');
+  const [enlargedSnapshot, setEnlargedSnapshot] = useState<string | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
   const [snapshotKey, setSnapshotKey] = useState(0);
   const [snapshotError, setSnapshotError] = useState(false);
@@ -311,7 +312,8 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                         <img
                           src={`data:image/jpeg;base64,${diagnostics.frigate.event_snapshots[String(evt.event_id)]}`}
                           alt={evt.object_type}
-                          className="w-24 h-auto rounded flex-shrink-0"
+                          className="w-24 h-auto rounded flex-shrink-0 cursor-pointer hover:opacity-80"
+                          onClick={() => setEnlargedSnapshot(diagnostics.frigate!.event_snapshots![String(evt.event_id)])}
                         />
                       )}
                       <div className="flex-1 min-w-0">
@@ -350,7 +352,8 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                         <img
                           src={`data:image/jpeg;base64,${diagnostics.frigate.event_snapshots[String(evt.event_id)]}`}
                           alt={evt.object_type}
-                          className="w-12 h-auto rounded flex-shrink-0"
+                          className="w-12 h-auto rounded flex-shrink-0 cursor-pointer hover:opacity-80"
+                          onClick={() => setEnlargedSnapshot(diagnostics.frigate!.event_snapshots![String(evt.event_id)])}
                         />
                       )}
                       <div className="flex items-center justify-between flex-1 min-w-0">
@@ -463,6 +466,21 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
           </div>
         )}
       </div>
+
+      {/* Snapshot lightbox */}
+      {enlargedSnapshot && (
+        <div
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60] p-8"
+          onClick={() => setEnlargedSnapshot(null)}
+        >
+          <img
+            src={`data:image/jpeg;base64,${enlargedSnapshot}`}
+            alt="Detection snapshot"
+            className="max-w-lg max-h-[70vh] rounded-lg shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

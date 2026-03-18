@@ -243,25 +243,28 @@ async def camera_ws(request: web.Request) -> web.WebSocketResponse:
         diag = await manager.get_diagnostics(camera_id)
         await ws.send_str(json.dumps({"type": "diagnostics", "data": diag}))
 
-        # Stream diagnostics via WebSocket relay from subprocess
+        # Stream diagnostics via WebSocket relay from subprocess (with retry)
         async def push_diagnostics():
             if not instance.diagnostics_port:
                 return
-            try:
-                async with aiohttp_client.ClientSession() as session:
-                    async with session.ws_connect(
-                        f"http://127.0.0.1:{instance.diagnostics_port}/diagnostics/ws"
-                    ) as diag_ws:
-                        async for msg in diag_ws:
-                            if ws.closed:
-                                break
-                            if msg.type == aiohttp_client.WSMsgType.TEXT:
-                                await ws.send_str(json.dumps({
-                                    "type": "diagnostics",
-                                    "data": json.loads(msg.data),
-                                }))
-            except Exception:
-                pass
+            while not ws.closed:
+                try:
+                    async with aiohttp_client.ClientSession() as session:
+                        async with session.ws_connect(
+                            f"http://127.0.0.1:{instance.diagnostics_port}/diagnostics/ws"
+                        ) as diag_ws:
+                            async for msg in diag_ws:
+                                if ws.closed:
+                                    return
+                                if msg.type == aiohttp_client.WSMsgType.TEXT:
+                                    await ws.send_str(json.dumps({
+                                        "type": "diagnostics",
+                                        "data": json.loads(msg.data),
+                                    }))
+                except Exception:
+                    if ws.closed:
+                        return
+                    await asyncio.sleep(2)
 
         diag_task = asyncio.create_task(push_diagnostics())
 
