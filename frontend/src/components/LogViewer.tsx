@@ -40,7 +40,7 @@ interface Diagnostics {
     motion_active: boolean;
     event_mappings: Record<string, number>;
     auto_detected?: Record<string, unknown>;
-    event_snapshots?: Record<number, string>;
+    event_snapshots?: Record<string, string>;
   };
   motion_active?: boolean;
   status?: string;
@@ -312,9 +312,9 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                 <div className="space-y-2">
                   {diagnostics.active_events.map((evt) => (
                     <div key={evt.event_id} className="bg-black/20 rounded px-3 py-2 flex gap-3">
-                      {diagnostics.frigate?.event_snapshots?.[evt.event_id] && (
+                      {diagnostics.frigate?.event_snapshots?.[String(evt.event_id)] && (
                         <img
-                          src={`data:image/jpeg;base64,${diagnostics.frigate.event_snapshots[evt.event_id]}`}
+                          src={`data:image/jpeg;base64,${diagnostics.frigate.event_snapshots[String(evt.event_id)]}`}
                           alt={evt.object_type}
                           className="w-24 h-auto rounded flex-shrink-0"
                         />
@@ -351,9 +351,9 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                 <div className="space-y-1">
                   {diagnostics.recent_events.map((evt) => (
                     <div key={evt.event_id} className="flex items-center gap-2 text-xs bg-black/20 rounded px-3 py-1.5">
-                      {diagnostics.frigate?.event_snapshots?.[evt.event_id] && (
+                      {diagnostics.frigate?.event_snapshots?.[String(evt.event_id)] && (
                         <img
-                          src={`data:image/jpeg;base64,${diagnostics.frigate.event_snapshots[evt.event_id]}`}
+                          src={`data:image/jpeg;base64,${diagnostics.frigate.event_snapshots[String(evt.event_id)]}`}
                           alt={evt.object_type}
                           className="w-12 h-auto rounded flex-shrink-0"
                         />
