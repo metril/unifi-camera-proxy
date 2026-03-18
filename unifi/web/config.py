@@ -256,8 +256,12 @@ def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: i
     args.extend(["--name", str(cam_name)])
     cam_model = camera_config.get("model") or "UVC G4 Bullet"
     args.extend(["--model", str(cam_model)])
-    if camera_config.get("fw_version"):
-        args.extend(["--fw-version", str(camera_config["fw_version"])])
+    # Auto-generate firmware version from model's platform code
+    from unifi.model_db import get_firmware_version, DEFAULT_FW_VERSION
+    fw_version = camera_config.get("fw_version") or ""
+    if not fw_version or fw_version == DEFAULT_FW_VERSION:
+        fw_version = get_firmware_version(cam_model)
+    args.extend(["--fw-version", str(fw_version)])
 
     # Camera type subcommand
     cam_type = camera_config.get("type", "rtsp")

@@ -149,6 +149,10 @@ async def run():
         logger.error("A valid token is required")
         sys.exit(1)
 
+    # Look up sysid from model database for Protect device identification
+    from unifi.model_db import get_sysid_hex
+    args.sysid = get_sysid_hex(args.model)
+
     cam = klass(args, logger)
     c = Core(args, cam, core_logger)
     await c.run()
