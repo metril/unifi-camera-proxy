@@ -105,6 +105,7 @@ class FrigateCam(RTSPCam):
                 fid: uid for fid, uid in self.frigate_to_unifi_event_map.items()
             },
             "auto_detected": self._auto_detected,
+            "snapshot_source": "http" if getattr(self.args, 'frigate_http_url', '') else "mqtt",
             "event_snapshots": {
                 eid: base64.b64encode(self._event_snapshot_cache[eid]).decode()
                 for eid in [e["event_id"] for e in diag["active_events"] + diag["recent_events"]]
@@ -259,119 +260,136 @@ class FrigateCam(RTSPCam):
         
         return descriptor
 
+    def _write_snapshot_to_file(self, data: bytes) -> Path:
+        """Write snapshot bytes to a temp file and return the path."""
+        f = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
+        f.write(data)
+        f.close()
+        return Path(f.name)
+
+    async def _fetch_snapshots_via_mqtt(
+        self, event_id: int, event_type: str
+    ) -> tuple[Optional[Path], Optional[Path], Optional[Path]]:
+        """Fetch snapshots from the MQTT snapshot cache."""
+        frigate_event_id = None
+        if event_type == "smart_detect":
+            for fid, uid in self.frigate_to_unifi_event_map.items():
+                if uid == event_id:
+                    frigate_event_id = fid
+                    break
+
+        if frigate_event_id and frigate_event_id in self.event_snapshot_ready:
+            try:
+                await asyncio.wait_for(
+                    self.event_snapshot_ready[frigate_event_id].wait(),
+                    timeout=5.0,
+                )
+            except asyncio.TimeoutError:
+                self.logger.warning(f"Timeout waiting for MQTT snapshot for event {event_id}")
+                return (None, None, None)
+
+        snapshot_bytes = self._event_snapshot_cache.get(event_id)
+        if not snapshot_bytes:
+            self.logger.debug(f"No MQTT snapshot cached for event {event_id}")
+            return (None, None, None)
+
+        # Write same bytes for crop, fov, and heatmap
+        crop = self._write_snapshot_to_file(snapshot_bytes)
+        fov = self._write_snapshot_to_file(snapshot_bytes)
+        heatmap = self._write_snapshot_to_file(snapshot_bytes)
+        self.logger.info(f"Using MQTT snapshot for event {event_id} ({len(snapshot_bytes)} bytes)")
+        return (crop, fov, heatmap)
+
+    async def _fetch_snapshots_via_http(
+        self, event_id: int, event_type: str
+    ) -> tuple[Optional[Path], Optional[Path], Optional[Path]]:
+        """Fetch snapshots from Frigate HTTP API with authentication."""
+        frigate_event_id = None
+        if event_type == "smart_detect":
+            for fid, uid in self.frigate_to_unifi_event_map.items():
+                if uid == event_id:
+                    frigate_event_id = fid
+                    break
+
+        # Build URLs
+        if frigate_event_id:
+            base_url = f"{self.args.frigate_http_url}/api/events/{frigate_event_id}/snapshot.jpg"
+            full_url = base_url
+            thumbnail_url = f"{base_url}?crop=1&quality=80"
+        else:
+            timestamp = None
+            if event_type == "analytics" and event_id in self._analytics_event_history:
+                start_time = self._analytics_event_history[event_id].get("start_time")
+                if start_time is not None:
+                    timestamp = int(start_time)
+            base_url = f"{self.args.frigate_http_url}/api/{self.args.frigate_camera}/latest.jpg"
+            full_url = f"{base_url}?timestamp={timestamp}" if timestamp else base_url
+            thumbnail_url = f"{base_url}?height=360&quality=80"
+            if timestamp:
+                thumbnail_url = f"{thumbnail_url}&timestamp={timestamp}"
+
+        ssl_val = False if getattr(self.args, 'no_frigate_verify_ssl', False) else None
+
+        async def fetch_url(session: aiohttp.ClientSession, url: str, label: str) -> Optional[Path]:
+            try:
+                async with session.get(url, ssl=ssl_val, timeout=aiohttp.ClientTimeout(total=5.0)) as resp:
+                    if resp.status == 200:
+                        data = await resp.read()
+                        path = self._write_snapshot_to_file(data)
+                        self.logger.debug(f"Fetched {label} snapshot ({len(data)} bytes) -> {path}")
+                        return path
+                    else:
+                        body = await resp.text()
+                        self.logger.warning(f"Failed to fetch {label} snapshot: HTTP {resp.status}, {body[:200]}")
+                        return None
+            except asyncio.TimeoutError:
+                self.logger.warning(f"Timeout fetching {label} snapshot")
+                return None
+            except Exception as e:
+                self.logger.error(f"Error fetching {label} snapshot: {e}")
+                return None
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Authenticate via POST /api/login if credentials are set
+                username = getattr(self.args, 'frigate_username', None)
+                password = getattr(self.args, 'frigate_password', None)
+                if username and password:
+                    async with session.post(
+                        f"{self.args.frigate_http_url}/api/login",
+                        json={"user": username, "password": password},
+                        ssl=ssl_val,
+                        timeout=aiohttp.ClientTimeout(total=5),
+                    ) as login_resp:
+                        if login_resp.status != 200:
+                            self.logger.warning(f"Frigate login failed (HTTP {login_resp.status}), trying without auth")
+
+                results = await asyncio.gather(
+                    fetch_url(session, full_url, "full"),
+                    fetch_url(session, thumbnail_url, "thumbnail"),
+                    return_exceptions=True,
+                )
+                snapshot_fov = results[0] if not isinstance(results[0], Exception) else None
+                snapshot_crop = results[1] if not isinstance(results[1], Exception) else None
+                heatmap = snapshot_fov
+
+                self.logger.info(
+                    f"HTTP snapshots for event {event_id}: "
+                    f"crop={'ok' if snapshot_crop else 'fail'}, "
+                    f"fov={'ok' if snapshot_fov else 'fail'}"
+                )
+                return (snapshot_crop, snapshot_fov, heatmap)
+        except Exception as e:
+            self.logger.error(f"HTTP snapshot session error: {e}")
+            return (None, None, None)
+
     async def fetch_snapshots_for_event(
         self, event_id: int, event_type: str = "analytics"
     ) -> tuple[Optional[Path], Optional[Path], Optional[Path]]:
-        """
-        Fetch and cache all three snapshot types for an event from Frigate.
-        
-        Args:
-            event_id: The event ID (analytics or smart detect)
-            event_type: "analytics" or "smart_detect"
-            
-        Returns:
-            Tuple of (crop_path, fov_path, heatmap_path) - paths to cached snapshot files
-        """
-        if not self.args.frigate_http_url:
-            self.logger.warning("Cannot fetch snapshots: frigate_http_url not configured")
-            return (None, None, None)
-        
-        # For smart detect events, try to find the corresponding Frigate event ID
-        frigate_event_id = None
-        if event_type == "smart_detect":
-            # Look up Frigate event ID by searching the mapping
-            for frig_id, unifi_id in self.frigate_to_unifi_event_map.items():
-                if unifi_id == event_id:
-                    frigate_event_id = frig_id
-                    break
-        
-        # Build URLs based on whether we have a Frigate event ID
-        if frigate_event_id:
-            # Use event-specific snapshot endpoint for smart detect events
-            # https://demo.frigate.video/api/events/:event_id/snapshot.jpg
-            base_url = f"{self.args.frigate_http_url}/api/events/{frigate_event_id}/snapshot.jpg"
-            full_url = base_url
-            thumbnail_url = f"{base_url}?crop=1&quality=80"  # Crop gives bounding box snapshot
-            
-            self.logger.debug(
-                f"Using Frigate event-specific snapshot URLs for event {event_id} "
-                f"(Frigate: {frigate_event_id}): {base_url}"
-            )
-        else:
-            # Fallback to latest.jpg endpoint with timestamp for analytics events
-            timestamp = None
-            if event_type == "analytics" and event_id in self._analytics_event_history:
-                event_data = self._analytics_event_history[event_id]
-                start_time = event_data.get('start_time')
-                if start_time is not None:
-                    timestamp = int(start_time)
-            
-            # Build URLs for snapshots from latest frame endpoint
-            base_url = f"{self.args.frigate_http_url}/api/{self.args.frigate_camera}/latest.jpg"
-            
-            # Full resolution snapshot
-            full_url = base_url
-            if timestamp is not None:
-                full_url = f"{full_url}?timestamp={timestamp}"
-            
-            # Thumbnail snapshot (360p for fast UniFi Protect processing)
-            thumbnail_url = f"{base_url}?height=360&quality=80"
-            if timestamp is not None:
-                thumbnail_url = f"{thumbnail_url}&timestamp={timestamp}"
-        
-        self.logger.debug(f"Fetching snapshots for event {event_id}: full={full_url}, thumbnail={thumbnail_url}")
-        
-        # Fetch both snapshots in parallel
-        async def fetch_url(url: str, snapshot_type: str) -> Optional[Path]:
-            try:
-                async with aiohttp.ClientSession() as session:
-                    ssl_val = False if getattr(self.args, 'no_frigate_verify_ssl', False) else None
-                    async with session.get(url, ssl=ssl_val, timeout=aiohttp.ClientTimeout(total=5.0)) as response:
-                        if response.status == 200:
-                            image_data = await response.read()
-                            f = tempfile.NamedTemporaryFile(delete=False, suffix=".jpg")
-                            f.write(image_data)
-                            f.close()
-                            self.logger.debug(
-                                f"Fetched {snapshot_type} snapshot for event {event_id} "
-                                f"({len(image_data)} bytes) -> {f.name}"
-                            )
-                            return Path(f.name)
-                        else:
-                            error_body = await response.text()
-                            self.logger.warning(
-                                f"Failed to fetch {snapshot_type} snapshot: "
-                                f"HTTP {response.status}, Response: {error_body}"
-                            )
-                            return None
-            except asyncio.TimeoutError:
-                self.logger.warning(f"Timeout fetching {snapshot_type} snapshot")
-                return None
-            except Exception as e:
-                self.logger.error(f"Error fetching {snapshot_type} snapshot: {e}")
-                return None
-        
-        # Fetch both in parallel
-        results = await asyncio.gather(
-            fetch_url(full_url, "full"),
-            fetch_url(thumbnail_url, "thumbnail"),
-            return_exceptions=True
-        )
-        
-        snapshot_fov = results[0] if not isinstance(results[0], Exception) else None
-        snapshot_crop = results[1] if not isinstance(results[1], Exception) else None
-        
-        # Use full snapshot as heatmap
-        heatmap = snapshot_fov
-        
-        self.logger.info(
-            f"Fetched snapshots for event {event_id}: "
-            f"crop={'✓' if snapshot_crop else '✗'}, "
-            f"fov={'✓' if snapshot_fov else '✗'}, "
-            f"heatmap={'✓' if heatmap else '✗'}"
-        )
-        
-        return (snapshot_crop, snapshot_fov, heatmap)
+        """Fetch snapshots for an event. Uses HTTP API if configured, falls back to MQTT cache."""
+        if self.args.frigate_http_url:
+            return await self._fetch_snapshots_via_http(event_id, event_type)
+        return await self._fetch_snapshots_via_mqtt(event_id, event_type)
 
     async def auto_detect_settings(self) -> None:
         """Fetch camera settings from Frigate's HTTP API and override defaults."""
