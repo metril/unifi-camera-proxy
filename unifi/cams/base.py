@@ -289,18 +289,49 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         if not port:
             return
 
+        self._diag_ws_clients: set[web.WebSocketResponse] = set()
+
         diag_app = web.Application()
 
         async def handle_diagnostics(request):
             return web.json_response(self.get_diagnostics())
 
+        async def handle_diagnostics_ws(request):
+            ws = web.WebSocketResponse()
+            await ws.prepare(request)
+            # Send initial diagnostics
+            await ws.send_json(self.get_diagnostics())
+            self._diag_ws_clients.add(ws)
+            try:
+                async for msg in ws:
+                    if msg.type == web.WSMsgType.ERROR:
+                        break
+            finally:
+                self._diag_ws_clients.discard(ws)
+            return ws
+
         diag_app.router.add_get("/diagnostics", handle_diagnostics)
+        diag_app.router.add_get("/diagnostics/ws", handle_diagnostics_ws)
 
         runner = web.AppRunner(diag_app)
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
         self.logger.info(f"Diagnostics server started on port {port}")
+
+    async def notify_diagnostics_changed(self) -> None:
+        """Push diagnostics to all connected WebSocket clients."""
+        clients = getattr(self, '_diag_ws_clients', None)
+        if not clients:
+            return
+        diag = self.get_diagnostics()
+        dead = set()
+        for ws in clients:
+            try:
+                await ws.send_json(diag)
+            except Exception:
+                dead.add(ws)
+        clients -= dead
 
     async def get_video_settings(self) -> dict[str, Any]:
         return {}
@@ -735,7 +766,8 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         self._motion_event_ts = current_time
         self._motion_object_type = object_type
         self._motion_last_descriptor = custom_descriptor
-        
+
+        await self.notify_diagnostics_changed()
         return event_id
 
     async def trigger_smart_detect_update(
@@ -818,6 +850,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         await self.send(
             self.gen_response("EventSmartDetect", payload=payload)
         )
+        await self.notify_diagnostics_changed()
 
     async def trigger_smart_detect_stop(
         self,
@@ -1033,6 +1066,8 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             # Only clear motion_event_ts if no analytics event is active
             if self._active_analytics_event_id is None:
                 self._motion_event_ts = None
+
+        await self.notify_diagnostics_changed()
 
     # API for subclasses - Analytics (Motion) Events
     async def _send_analytics_start_event(

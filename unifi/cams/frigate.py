@@ -490,6 +490,7 @@ class FrigateCam(RTSPCam):
             self.logger.debug("Frigate motion event: ON")
             self._motion_is_on = True
             await self.trigger_analytics_start()
+            await self.notify_diagnostics_changed()
         elif msg == "OFF":
             self._motion_is_on = False
             # Don't stop analytics if smart detect events are still active
@@ -501,6 +502,7 @@ class FrigateCam(RTSPCam):
                     f"Frigate motion event: OFF (deferring analytics stop, "
                     f"{len(self.frigate_to_unifi_event_map)} smart events active)"
                 )
+            await self.notify_diagnostics_changed()
 
     async def monitor_event_timeouts(self) -> None:
         """Monitor active events and end those that haven't received updates in 600 seconds"""
@@ -845,6 +847,7 @@ class FrigateCam(RTSPCam):
                 self._event_snapshot_cache[unifi_id] = message.payload
             if matching_frigate_event_id in self.event_snapshot_ready:
                 self.event_snapshot_ready[matching_frigate_event_id].set()
+            await self.notify_diagnostics_changed()
         else:
             self.logger.debug(
                 f"Discarding snapshot for label={snapshot_label} "

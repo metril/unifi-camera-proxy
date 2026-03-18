@@ -98,6 +98,8 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
           });
         } else if (msg.type === 'diagnostics') {
           setDiagnostics(msg.data);
+          setSnapshotKey((k) => k + 1);
+          setSnapshotError(false);
         }
       } catch {}
     };
@@ -115,15 +117,7 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
     }
   }, [logs, autoScroll]);
 
-  // Refresh snapshot every 5s when diagnostics tab is active
-  useEffect(() => {
-    if (!isOpen || tab !== 'diagnostics') return;
-    const interval = setInterval(() => {
-      setSnapshotKey((k) => k + 1);
-      setSnapshotError(false);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [isOpen, tab]);
+
 
   const toggleLevel = useCallback((level: string) => {
     setLevels((prev) => {
