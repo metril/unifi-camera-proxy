@@ -7,6 +7,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from urllib.parse import urlparse
 
 import aiohttp as aiohttp_client
 import aiomqtt
@@ -242,17 +243,25 @@ async def camera_ws(request: web.Request) -> web.WebSocketResponse:
         diag = await manager.get_diagnostics(camera_id)
         await ws.send_str(json.dumps({"type": "diagnostics", "data": diag}))
 
-        # Periodically push diagnostics updates
+        # Stream diagnostics via WebSocket relay from subprocess
         async def push_diagnostics():
-            while not ws.closed:
-                await asyncio.sleep(5)
-                if ws.closed:
-                    break
-                try:
-                    diag = await manager.get_diagnostics(camera_id)
-                    await ws.send_str(json.dumps({"type": "diagnostics", "data": diag}))
-                except Exception:
-                    break
+            if not instance.diagnostics_port:
+                return
+            try:
+                async with aiohttp_client.ClientSession() as session:
+                    async with session.ws_connect(
+                        f"http://127.0.0.1:{instance.diagnostics_port}/diagnostics/ws"
+                    ) as diag_ws:
+                        async for msg in diag_ws:
+                            if ws.closed:
+                                break
+                            if msg.type == aiohttp_client.WSMsgType.TEXT:
+                                await ws.send_str(json.dumps({
+                                    "type": "diagnostics",
+                                    "data": json.loads(msg.data),
+                                }))
+            except Exception:
+                pass
 
         diag_task = asyncio.create_task(push_diagnostics())
 
@@ -411,10 +420,17 @@ async def detect_frigate_camera(request: web.Request) -> web.Response:
         detect = camera_config.get("detect", {})
         inputs = camera_config.get("ffmpeg", {}).get("inputs", [])
 
+        # Rewrite localhost/internal addresses with the Frigate host
+        frigate_host = urlparse(url).hostname
         streams = []
         for inp in inputs:
+            path = inp.get("path", "")
+            if frigate_host:
+                for local in ["127.0.0.1", "localhost", "0.0.0.0"]:
+                    if local in path:
+                        path = path.replace(local, frigate_host)
             streams.append({
-                "path": inp.get("path", ""),
+                "path": path,
                 "roles": inp.get("roles", []),
             })
 
