@@ -81,6 +81,8 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
   const [rtspTest, setRtspTest] = useState<Record<string, { type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
   const [showCustomMqtt, setShowCustomMqtt] = useState(false);
   const [autoDetectStatus, setAutoDetectStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
+  const [frigateCameras, setFrigateCameras] = useState<string[]>([]);
+  const [frigateCamerasLoading, setFrigateCamerasLoading] = useState(false);
 
   useEffect(() => {
     if (editCamera) {
@@ -92,6 +94,28 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
       setShowCustomMqtt(false);
     }
   }, [editCamera, isOpen]);
+
+  // Fetch Frigate camera list when type is frigate and URL is available
+  useEffect(() => {
+    if (!isOpen || form.type !== 'frigate') {
+      setFrigateCameras([]);
+      return;
+    }
+    const frigateUrl = (form.frigate_http_url as string) || globalConfig.frigate_http_url;
+    if (!frigateUrl) {
+      setFrigateCameras([]);
+      return;
+    }
+    const frigateUser = (form.frigate_username as string) || globalConfig.frigate_username;
+    const frigatePass = (form.frigate_password as string) || globalConfig.frigate_password;
+    const verifySsl = globalConfig.frigate_verify_ssl ?? true;
+
+    setFrigateCamerasLoading(true);
+    api.testFrigate(frigateUrl, frigateUser, frigatePass, verifySsl)
+      .then((result) => setFrigateCameras(result.cameras || []))
+      .catch(() => setFrigateCameras([]))
+      .finally(() => setFrigateCamerasLoading(false));
+  }, [isOpen, form.type, form.frigate_http_url, globalConfig.frigate_http_url]);
 
   if (!isOpen || !schemas) return null;
 
@@ -330,13 +354,32 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                   <label className="block text-sm text-gray-400 mb-1">
                     Frigate Camera Name<span className="text-red-400 ml-1">*</span>
                   </label>
-                  <input
-                    type="text"
-                    value={(form.frigate_camera as string) || ''}
-                    onChange={(e) => handleChange('frigate_camera', e.target.value)}
-                    placeholder="e.g., backyard, front_door"
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                  />
+                  {frigateCameras.length > 0 ? (
+                    <select
+                      value={(form.frigate_camera as string) || ''}
+                      onChange={(e) => {
+                        handleChange('frigate_camera', e.target.value);
+                        // Auto-populate name if empty
+                        if (!form.name && e.target.value) {
+                          handleChange('name', e.target.value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
+                        }
+                      }}
+                      className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="">Select a camera...</option>
+                      {frigateCameras.map((cam) => (
+                        <option key={cam} value={cam}>{cam}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={(form.frigate_camera as string) || ''}
+                      onChange={(e) => handleChange('frigate_camera', e.target.value)}
+                      placeholder={frigateCamerasLoading ? 'Loading cameras...' : 'e.g., backyard, front_door'}
+                      className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                    />
+                  )}
                 </div>
                 <button
                   type="button"
