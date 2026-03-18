@@ -320,26 +320,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         self.logger.info(f"Diagnostics server started on port {port}")
 
     async def notify_diagnostics_changed(self) -> None:
-        """Push diagnostics to all connected WebSocket clients (debounced)."""
-        clients = getattr(self, '_diag_ws_clients', None)
-        if not clients:
-            return
-        now = time.time()
-        last = getattr(self, '_diag_last_push', 0.0)
-        if now - last < 0.5:
-            # Schedule a deferred push if not already pending
-            if not getattr(self, '_diag_push_pending', False):
-                self._diag_push_pending = True
-                asyncio.get_event_loop().call_later(
-                    0.5, lambda: asyncio.ensure_future(self._do_diagnostics_push())
-                )
-            return
-        await self._do_diagnostics_push()
-
-    async def _do_diagnostics_push(self) -> None:
-        """Actually push diagnostics to WebSocket clients."""
-        self._diag_push_pending = False
-        self._diag_last_push = time.time()
+        """Push diagnostics to all connected WebSocket clients."""
         clients = getattr(self, '_diag_ws_clients', None)
         if not clients:
             return
