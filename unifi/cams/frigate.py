@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import base64
 import json
 import logging
 import tempfile
@@ -30,6 +31,7 @@ class FrigateCam(RTSPCam):
         self.event_timeout_seconds = 600  # Timeout after 600 seconds (10 minutes) without updates
         self._motion_is_on = False  # Track motion state for deferred analytics stop
         self._auto_detected: dict[str, Any] = {}  # Store auto-detected settings from Frigate API
+        self._event_snapshots: dict[str, bytes] = {}  # Frigate event ID → JPEG snapshot bytes
 
     @classmethod
     def add_parser(cls, parser: argparse.ArgumentParser) -> None:
@@ -103,6 +105,11 @@ class FrigateCam(RTSPCam):
                 fid: uid for fid, uid in self.frigate_to_unifi_event_map.items()
             },
             "auto_detected": self._auto_detected,
+            "event_snapshots": {
+                uid: base64.b64encode(self._event_snapshots[fid]).decode()
+                for fid, uid in self.frigate_to_unifi_event_map.items()
+                if fid in self._event_snapshots
+            },
         }
         return diag
 
@@ -540,6 +547,8 @@ class FrigateCam(RTSPCam):
                         del self.frigate_to_unifi_event_map[frigate_event_id]
                     if frigate_event_id and frigate_event_id in self.event_snapshot_ready:
                         del self.event_snapshot_ready[frigate_event_id]
+                    if frigate_event_id and frigate_event_id in self._event_snapshots:
+                        del self._event_snapshots[frigate_event_id]
                     if unifi_event_id in self.event_last_update:
                         del self.event_last_update[unifi_event_id]
 
@@ -714,6 +723,7 @@ class FrigateCam(RTSPCam):
                         del self.frigate_to_unifi_event_map[event_id]
                         if event_id in self.event_snapshot_ready:
                             del self.event_snapshot_ready[event_id]
+                        self._event_snapshots.pop(event_id, None)
                         return
                     
                     event_data = self._active_smart_events.get(unifi_event_id)
@@ -724,6 +734,7 @@ class FrigateCam(RTSPCam):
                         del self.frigate_to_unifi_event_map[event_id]
                         if event_id in self.event_snapshot_ready:
                             del self.event_snapshot_ready[event_id]
+                        self._event_snapshots.pop(event_id, None)
                         return
                     
                     # Build final descriptor from end event data
@@ -756,6 +767,7 @@ class FrigateCam(RTSPCam):
                     del self.frigate_to_unifi_event_map[event_id]
                     if event_id in self.event_snapshot_ready:
                         del self.event_snapshot_ready[event_id]
+                    self._event_snapshots.pop(event_id, None)
                     if unifi_event_id in self.event_last_update:
                         del self.event_last_update[unifi_event_id]
                     
@@ -826,6 +838,7 @@ class FrigateCam(RTSPCam):
                 f"Updating snapshot for Frigate event {matching_frigate_event_id} ({snapshot_label}) with {f.name}"
             )
             self.update_motion_snapshot(Path(f.name))
+            self._event_snapshots[matching_frigate_event_id] = message.payload
             if matching_frigate_event_id in self.event_snapshot_ready:
                 self.event_snapshot_ready[matching_frigate_event_id].set()
         else:
