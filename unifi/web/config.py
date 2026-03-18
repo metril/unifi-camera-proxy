@@ -252,10 +252,10 @@ def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: i
         args.extend(["--mac", str(camera_config["mac"])])
     if camera_config.get("ip"):
         args.extend(["--ip", str(camera_config["ip"])])
-    if camera_config.get("name"):
-        args.extend(["--name", str(camera_config["name"])])
-    if camera_config.get("model"):
-        args.extend(["--model", str(camera_config["model"])])
+    cam_name = camera_config.get("name") or camera_config.get("frigate_camera") or "unifi-cam-proxy"
+    args.extend(["--name", str(cam_name)])
+    cam_model = camera_config.get("model") or "UVC G4 Bullet"
+    args.extend(["--model", str(cam_model)])
     if camera_config.get("fw_version"):
         args.extend(["--fw-version", str(camera_config["fw_version"])])
 
