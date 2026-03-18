@@ -299,6 +299,18 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
         if (recordStream) handleChange('video3', recordStream.path);
       }
 
+      // Extract camera IP from first stream URL
+      const firstStreamPath = result.streams[0]?.path;
+      if (firstStreamPath && !form.ip) {
+        try {
+          const streamUrl = new URL(firstStreamPath);
+          if (streamUrl.hostname) handleChange('ip', streamUrl.hostname);
+        } catch { /* non-URL path, skip */ }
+      }
+
+      // Auto-generate MAC if empty
+      if (!form.mac) handleChange('mac', generateMac());
+
       const parts = [`Detect: ${result.detect.width}x${result.detect.height}@${result.detect.fps}fps`];
       const recordStream = result.streams.find(s => s.roles.includes('record'));
       if (recordStream) parts.push(`Record stream found`);
