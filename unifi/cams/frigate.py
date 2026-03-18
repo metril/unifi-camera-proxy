@@ -126,6 +126,14 @@ class FrigateCam(RTSPCam):
             },
         }
 
+    async def process_smart_motion_settings(self, msg):
+        """Frigate handles motion detection — don't let the NVR disable it."""
+        payload = msg.get("payload", {})
+        if "enable" in payload and not payload["enable"]:
+            self.logger.info("Ignoring NVR motion disable — Frigate handles motion detection")
+        self.motionEvents = True
+        return self.gen_response("ChangeSmartMotionSettings", response_to=msg["messageId"])
+
     @classmethod
     def label_to_object_type(cls, label: str) -> Optional[SmartDetectObjectType]:
         if label == "person":
