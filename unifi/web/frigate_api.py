@@ -59,9 +59,7 @@ async def frigate_request(
     """Make an authenticated request to the Frigate HTTP API.
 
     Authenticates via POST /api/login to get a JWT session cookie,
-    then uses it for the actual request. If verify_ssl is False and
-    an HTTPS connection fails with SSL errors, automatically retries
-    with HTTP.
+    then uses it for the actual request.
     """
     ssl_param = None if verify_ssl else False
 
@@ -69,15 +67,7 @@ async def frigate_request(
         try:
             return await _do_request(session, base_url, path, username, password, ssl_param, timeout)
         except (aiohttp.ClientConnectorCertificateError, aiohttp.ClientConnectorSSLError, aiohttp.ClientOSError) as e:
-            # If SSL failed and URL is https, try http
-            if base_url.startswith("https://"):
-                http_url = "http://" + base_url[len("https://"):]
-                logger.warning(
-                    f"HTTPS connection failed ({e}), retrying with HTTP: {http_url}"
-                )
-                async with aiohttp.ClientSession() as http_session:
-                    return await _do_request(http_session, http_url, path, username, password, None, timeout)
             raise Exception(
-                f"SSL connection failed: {e}. "
-                f"If Frigate has TLS disabled, use http:// instead of https:// in the URL."
+                f"SSL connection to {base_url} failed: {e}. "
+                f"If Frigate does not have TLS enabled, change the URL to http:// in your camera settings."
             ) from e
