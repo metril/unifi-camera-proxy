@@ -612,7 +612,9 @@ async def auth_login(request: web.Request) -> web.Response:
     manager.pending_auths = {k: v for k, v in manager.pending_auths.items() if now - v.created_at < 300}
     state = secrets.token_hex(16)
     code_verifier, code_challenge = generate_pkce()
-    redirect_uri = f"{request.scheme}://{request.host}/api/auth/callback"
+    scheme = request.headers.get("X-Forwarded-Proto") or request.scheme
+    host = request.headers.get("X-Forwarded-Host") or request.host
+    redirect_uri = f"{scheme}://{host}/api/auth/callback"
     manager.pending_auths[state] = PendingAuth(code_verifier=code_verifier, redirect_uri=redirect_uri, created_at=now)
     auth_url = await provider.authorization_url(state, code_challenge, redirect_uri)
     raise web.HTTPFound(auth_url)
