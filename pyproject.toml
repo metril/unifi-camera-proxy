@@ -8,7 +8,7 @@ name = "unifi-cam-proxy"
 description = "Enable non-Ubiquiti cameras to work with Unifi NVR"
 requires-python = ">=3.11"
 authors = [
-    { name = "Keshav Varma", email = "keshavdv@gmail.com" },
+    { name = "metril" },
 ]
 license = { text = "MIT" }
 dynamic = ["dependencies", "readme", "version"]
@@ -25,10 +25,9 @@ keywords = [
 
 
 [project.urls]
-"Homepage" = "https://github.com/keshavdv/unifi-cam-proxy"
-"Bug Tracker" = "https://github.com/keshavdv/unifi-cam-proxy/issues"
-"Source Code" = "https://github.com/keshavdv/unifi-cam-proxy"
-"Documentation" = "https://unifi-cam-proxy.com/"
+"Homepage" = "https://github.com/metril/unifi-camera-proxy"
+"Bug Tracker" = "https://github.com/metril/unifi-camera-proxy/issues"
+"Source Code" = "https://github.com/metril/unifi-camera-proxy"
 
 
 [project.optional-dependencies]

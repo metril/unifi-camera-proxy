@@ -13,16 +13,16 @@
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/NorthernMan54/unifi-cam-proxy.git"
+        "url": "git+https://github.com/metril/unifi-camera-proxy.git"
     },
     "keywords": [],
-    "author": "",
+    "author": "metril",
     "license": "ISC",
     "type": "commonjs",
     "bugs": {
-        "url": "https://github.com/NorthernMan54/unifi-cam-proxy/issues"
+        "url": "https://github.com/metril/unifi-camera-proxy/issues"
     },
-    "homepage": "https://github.com/NorthernMan54/unifi-cam-proxy#readme",
+    "homepage": "https://github.com/metril/unifi-camera-proxy#readme",
     "dependencies": {
         "mqtt": "^5.14.1"
     }

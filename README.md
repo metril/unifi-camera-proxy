@@ -72,6 +72,3 @@ environment:
   - BIND_ADDRESS=127.0.0.1   # only reachable via reverse proxy
 ```
 
-## Donations
-
-If you would like to make a donation to support development, please use [Github Sponsors](https://github.com/sponsors/keshavdv).

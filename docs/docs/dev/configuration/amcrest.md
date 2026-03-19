@@ -47,7 +47,7 @@ optional arguments:
     - If desired, ensure motion detection is enabled with the desired anti-dither and detection area.
   - The `-bsf:v` parameter is needed to make live video work.
     The first `tick_rate` value should be `fps * 2000`.
-    See [this comment](https://github.com/keshavdv/unifi-cam-proxy/issues/31#issuecomment-841914363).
+    See the upstream issue comment for details on the `-bsf:v` parameter.
 
 ```sh
 unifi-cam-proxy --mac '{unique MAC}' -H {NVR IP} -i {camera IP} -c /client.pem -t {Adoption token} \
