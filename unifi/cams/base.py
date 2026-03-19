@@ -220,6 +220,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 msg = await ws.recv()
             except websockets.exceptions.ConnectionClosedError:
                 self.logger.info(f"Connection to {self.args.host} was closed.")
+                self._session = None
                 raise RetryableError()
 
             if msg is not None:
