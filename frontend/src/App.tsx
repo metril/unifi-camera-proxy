@@ -6,6 +6,7 @@ import CameraGrid from './components/CameraGrid';
 import CameraForm from './components/CameraForm';
 import GlobalSettings from './components/GlobalSettings';
 import Toast, { type ToastMessage } from './components/Toast';
+import LoginPage from './components/LoginPage';
 
 const DEFAULT_GLOBAL: GlobalConfig = {
   host: '',
@@ -37,6 +38,7 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [editCamera, setEditCamera] = useState<CameraConfig | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   const addToast = useCallback((text: string, type: ToastMessage['type'] = 'error') => {
     setToasts((prev) => [...prev, { id: Date.now(), text, type }]);
@@ -64,7 +66,7 @@ function App() {
       setGlobalConfig(data.global);
     }).catch((err) => {
       if (err instanceof Error && err.message === 'Unauthorized') {
-        window.location.href = '/api/auth/login';
+        setNeedsLogin(true);
       }
     });
     api.getCameraTypes().then(setSchemas).catch(() => {});
@@ -176,6 +178,8 @@ function App() {
   };
 
   const runningCount = cameras.filter((c) => c.status === 'running').length;
+
+  if (needsLogin) return <LoginPage />;
 
   return (
     <Layout
