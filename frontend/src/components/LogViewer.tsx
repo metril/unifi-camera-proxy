@@ -84,7 +84,9 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
     if (!isOpen || !cameraId) return;
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/api/cameras/${cameraId}/ws`);
+    const token = localStorage.getItem('ui_token');
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/api/cameras/${cameraId}/ws${tokenParam}`);
     wsRef.current = ws;
 
     ws.onopen = () => setWsConnected(true);
