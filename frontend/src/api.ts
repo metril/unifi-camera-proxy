@@ -109,7 +109,12 @@ export const api = {
     }),
 
   logout: () => {
+    const token = getToken();
     localStorage.removeItem('ui_token');
-    return request<{ status: string }>('/auth/logout', { method: 'POST' }).catch(() => {});
+    if (!token) return Promise.resolve();
+    return fetch(`${BASE}/auth/logout`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
   },
 };
