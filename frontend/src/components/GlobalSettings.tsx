@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { GlobalConfig } from '../types';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
 
 interface GlobalSettingsProps {
   isOpen: boolean;
@@ -23,8 +29,6 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
     setMqttStatus({ type: 'idle' });
     setFrigateStatus({ type: 'idle' });
   }, [config, isOpen]);
-
-  if (!isOpen) return null;
 
   const handleChange = (field: keyof GlobalConfig, value: unknown) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -88,344 +92,319 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-lg w-full max-w-lg max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
-          <h3 className="text-white font-medium text-lg">Global Settings</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
-        </div>
-        <form onSubmit={handleSubmit} className="flex-1 overflow-auto p-5 space-y-4">
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        className="max-w-lg max-h-[90vh] flex flex-col p-0 gap-0"
+        onInteractOutside={(e) => e.preventDefault()}
+      >
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
+          <DialogTitle>Global Settings</DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
           {/* NVR Settings */}
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">UniFi Protect Host</label>
-            <input
-              type="text"
+          <div className="space-y-1.5">
+            <Label htmlFor="host">UniFi Protect Host</Label>
+            <Input
+              id="host"
               value={form.host}
               onChange={(e) => handleChange('host', e.target.value)}
               placeholder="192.168.1.1 or protect.local"
-              className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
             />
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Certificate Path</label>
+          <div className="space-y-1.5">
+            <Label htmlFor="cert">Certificate Path</Label>
             <div className="flex gap-2">
-              <input
-                type="text"
+              <Input
+                id="cert"
                 value={form.cert}
                 onChange={(e) => handleChange('cert', e.target.value)}
                 placeholder="data/client.pem"
-                className="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                className="flex-1"
               />
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={handleGenerateCert}
                 disabled={certStatus.type === 'loading'}
-                className="px-3 py-2 text-xs bg-green-600/20 text-green-400 border border-green-600/30 rounded hover:bg-green-600/30 transition-colors whitespace-nowrap disabled:opacity-50"
+                className="text-green-400 border-green-600/30 hover:bg-green-600/10 hover:text-green-300 whitespace-nowrap"
               >
-                {certStatus.type === 'loading' ? 'Generating...' : 'Generate Cert'}
-              </button>
+                {certStatus.type === 'loading' ? 'Generating…' : 'Generate Cert'}
+              </Button>
             </div>
-            {certStatus.type === 'success' && (
-              <p className="text-xs text-green-400 mt-1">{certStatus.message}</p>
-            )}
-            {certStatus.type === 'error' && (
-              <p className="text-xs text-red-400 mt-1">{certStatus.message}</p>
-            )}
+            {certStatus.type === 'success' && <p className="text-xs text-green-400">{certStatus.message}</p>}
+            {certStatus.type === 'error' && <p className="text-xs text-red-400">{certStatus.message}</p>}
           </div>
 
-          {/* NVR Credentials - before token so users set these first */}
           <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">NVR Username</label>
-              <input
-                type="text"
+            <div className="space-y-1.5">
+              <Label htmlFor="nvr_username">NVR Username</Label>
+              <Input
+                id="nvr_username"
                 value={form.nvr_username || ''}
                 onChange={(e) => handleChange('nvr_username', e.target.value || null)}
-                className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
               />
             </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-1">NVR Password</label>
-              <input
+            <div className="space-y-1.5">
+              <Label htmlFor="nvr_password">NVR Password</Label>
+              <Input
+                id="nvr_password"
                 type="password"
                 value={form.nvr_password || ''}
                 onChange={(e) => handleChange('nvr_password', e.target.value || null)}
-                className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
               />
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">API Key</label>
-            <input
+          <div className="space-y-1.5">
+            <Label htmlFor="api_key">API Key</Label>
+            <Input
+              id="api_key"
               type="password"
               value={form.api_key || ''}
               onChange={(e) => handleChange('api_key', e.target.value || null)}
               placeholder="Optional — used by cameras at runtime"
-              className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
             />
           </div>
 
-          <div>
-            <label className="block text-sm text-gray-400 mb-1">Adoption Token</label>
+          <div className="space-y-1.5">
+            <Label htmlFor="token">Adoption Token</Label>
             <div className="flex gap-2">
-              <input
-                type="text"
+              <Input
+                id="token"
                 value={form.token}
                 onChange={(e) => handleChange('token', e.target.value)}
-                className="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                className="flex-1"
               />
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="sm"
                 onClick={handleFetchToken}
                 disabled={tokenStatus.type === 'loading' || !form.host || !form.nvr_username || !form.nvr_password}
-                className="px-3 py-2 text-xs bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded hover:bg-blue-600/30 transition-colors whitespace-nowrap disabled:opacity-50"
+                className="text-blue-400 border-blue-600/30 hover:bg-blue-600/10 hover:text-blue-300 whitespace-nowrap"
               >
-                {tokenStatus.type === 'loading' ? 'Fetching...' : 'Fetch Token'}
-              </button>
+                {tokenStatus.type === 'loading' ? 'Fetching…' : 'Fetch Token'}
+              </Button>
             </div>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-muted-foreground">
               Requires username/password above. Leave empty to auto-fetch on camera start. Tokens expire after 60 minutes.
             </p>
-            {tokenStatus.type === 'success' && (
-              <p className="text-xs text-green-400 mt-1">{tokenStatus.message}</p>
-            )}
-            {tokenStatus.type === 'error' && (
-              <p className="text-xs text-red-400 mt-1">{tokenStatus.message}</p>
-            )}
+            {tokenStatus.type === 'success' && <p className="text-xs text-green-400">{tokenStatus.message}</p>}
+            {tokenStatus.type === 'error' && <p className="text-xs text-red-400">{tokenStatus.message}</p>}
           </div>
 
           <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
+            <Switch
               id="verbose"
               checked={form.verbose}
-              onChange={(e) => handleChange('verbose', e.target.checked)}
-              className="rounded bg-gray-800 border-gray-600"
+              onCheckedChange={(v) => handleChange('verbose', v)}
             />
-            <label htmlFor="verbose" className="text-sm text-gray-400">Verbose logging</label>
+            <Label htmlFor="verbose">Verbose logging</Label>
           </div>
+
+          <Separator />
 
           {/* MQTT Settings */}
-          <div className="border-t border-gray-700 pt-4">
-            <h4 className="text-sm font-medium text-gray-300 uppercase tracking-wider mb-3">MQTT Settings (Frigate)</h4>
-            <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <label className="block text-sm text-gray-400 mb-1">MQTT Host</label>
-                  <input
-                    type="text"
-                    value={form.mqtt_host || ''}
-                    onChange={(e) => handleChange('mqtt_host', e.target.value)}
-                    placeholder="192.168.1.2 or mqtt.local"
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Port</label>
-                  <input
-                    type="number"
-                    value={form.mqtt_port || 1883}
-                    onChange={(e) => {
-                      const n = parseInt(e.target.value, 10);
-                      handleChange('mqtt_port', Number.isNaN(n) ? 1883 : Math.max(1, Math.min(65535, n)));
-                    }}
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                  />
-                </div>
+          <div className="space-y-3">
+            <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">MQTT Settings (Frigate)</h4>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-2 space-y-1.5">
+                <Label htmlFor="mqtt_host">MQTT Host</Label>
+                <Input
+                  id="mqtt_host"
+                  value={form.mqtt_host || ''}
+                  onChange={(e) => handleChange('mqtt_host', e.target.value)}
+                  placeholder="192.168.1.2 or mqtt.local"
+                />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">MQTT Username</label>
-                  <input
-                    type="text"
-                    value={form.mqtt_username || ''}
-                    onChange={(e) => handleChange('mqtt_username', e.target.value || null)}
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">MQTT Password</label>
-                  <input
-                    type="password"
-                    value={form.mqtt_password || ''}
-                    onChange={(e) => handleChange('mqtt_password', e.target.value || null)}
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                  />
-                </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="mqtt_port">Port</Label>
+                <Input
+                  id="mqtt_port"
+                  type="number"
+                  value={form.mqtt_port || 1883}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    handleChange('mqtt_port', Number.isNaN(n) ? 1883 : Math.max(1, Math.min(65535, n)));
+                  }}
+                />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Topic Prefix</label>
-                  <input
-                    type="text"
-                    value={form.mqtt_prefix || 'frigate'}
-                    onChange={(e) => handleChange('mqtt_prefix', e.target.value)}
-                    placeholder="frigate"
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div className="flex items-end pb-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="mqtt_ssl"
-                      checked={form.mqtt_ssl || false}
-                      onChange={(e) => handleChange('mqtt_ssl', e.target.checked)}
-                      className="rounded bg-gray-800 border-gray-600"
-                    />
-                    <label htmlFor="mqtt_ssl" className="text-sm text-gray-400">SSL/TLS</label>
-                  </div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleTestMqtt}
-                disabled={mqttStatus.type === 'loading' || !form.mqtt_host}
-                className="w-full px-3 py-2 text-xs bg-purple-600/20 text-purple-400 border border-purple-600/30 rounded hover:bg-purple-600/30 transition-colors disabled:opacity-50"
-              >
-                {mqttStatus.type === 'loading' ? 'Discovering topics...' : 'Test MQTT & Discover Topics'}
-              </button>
-              {mqttStatus.type === 'success' && (
-                <div>
-                  <p className="text-xs text-green-400">{mqttStatus.message}</p>
-                  {mqttStatus.topics && mqttStatus.topics.length > 0 && (
-                    <div className="mt-2 max-h-32 overflow-auto bg-black/30 rounded p-2">
-                      {mqttStatus.topics.map((t) => (
-                        <div key={t} className="text-xs text-gray-300 font-mono py-0.5">{t}</div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {mqttStatus.type === 'error' && (
-                <p className="text-xs text-red-400">{mqttStatus.message}</p>
-              )}
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="mqtt_username">MQTT Username</Label>
+                <Input
+                  id="mqtt_username"
+                  value={form.mqtt_username || ''}
+                  onChange={(e) => handleChange('mqtt_username', e.target.value || null)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="mqtt_password">MQTT Password</Label>
+                <Input
+                  id="mqtt_password"
+                  type="password"
+                  value={form.mqtt_password || ''}
+                  onChange={(e) => handleChange('mqtt_password', e.target.value || null)}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="mqtt_prefix">Topic Prefix</Label>
+                <Input
+                  id="mqtt_prefix"
+                  value={form.mqtt_prefix || 'frigate'}
+                  onChange={(e) => handleChange('mqtt_prefix', e.target.value)}
+                  placeholder="frigate"
+                />
+              </div>
+              <div className="flex items-end pb-2">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="mqtt_ssl"
+                    checked={form.mqtt_ssl || false}
+                    onCheckedChange={(v) => handleChange('mqtt_ssl', v)}
+                  />
+                  <Label htmlFor="mqtt_ssl">SSL/TLS</Label>
+                </div>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full text-purple-400 border-purple-600/30 hover:bg-purple-600/10 hover:text-purple-300"
+              onClick={handleTestMqtt}
+              disabled={mqttStatus.type === 'loading' || !form.mqtt_host}
+            >
+              {mqttStatus.type === 'loading' ? 'Discovering topics…' : 'Test MQTT & Discover Topics'}
+            </Button>
+            {mqttStatus.type === 'success' && (
+              <div>
+                <p className="text-xs text-green-400">{mqttStatus.message}</p>
+                {mqttStatus.topics && mqttStatus.topics.length > 0 && (
+                  <div className="mt-2 max-h-32 overflow-auto bg-black/30 rounded p-2">
+                    {mqttStatus.topics.map((t) => (
+                      <div key={t} className="text-xs text-muted-foreground font-mono py-0.5">{t}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {mqttStatus.type === 'error' && <p className="text-xs text-red-400">{mqttStatus.message}</p>}
           </div>
+
+          <Separator />
 
           {/* Frigate Settings */}
-          <div className="border-t border-gray-700 pt-4">
-            <h4 className="text-sm font-medium text-gray-300 uppercase tracking-wider mb-3">Frigate Settings</h4>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Frigate HTTP URL</label>
-                <input
-                  type="text"
-                  value={form.frigate_http_url || ''}
-                  onChange={(e) => handleChange('frigate_http_url', e.target.value)}
-                  placeholder="http://frigate:5000"
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Used for snapshots and auto-detecting stream resolution/FPS/bitrate
-                </p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Frigate Username</label>
-                  <input
-                    type="text"
-                    value={form.frigate_username || ''}
-                    onChange={(e) => handleChange('frigate_username', e.target.value || null)}
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">Frigate Password</label>
-                  <input
-                    type="password"
-                    value={form.frigate_password || ''}
-                    onChange={(e) => handleChange('frigate_password', e.target.value || null)}
-                    className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="frigate_verify_ssl"
-                  checked={form.frigate_verify_ssl}
-                  onChange={(e) => handleChange('frigate_verify_ssl', e.target.checked)}
-                  className="rounded bg-gray-800 border-gray-600"
-                />
-                <label htmlFor="frigate_verify_ssl" className="text-sm text-gray-400">
-                  Verify SSL certificates
-                  <span className="text-xs text-gray-500 ml-1">(uncheck for self-signed certs)</span>
-                </label>
-              </div>
-              <button
-                type="button"
-                onClick={handleTestFrigate}
-                disabled={frigateStatus.type === 'loading' || !form.frigate_http_url}
-                className="w-full px-3 py-2 text-xs bg-orange-600/20 text-orange-400 border border-orange-600/30 rounded hover:bg-orange-600/30 transition-colors disabled:opacity-50"
-              >
-                {frigateStatus.type === 'loading' ? 'Testing...' : 'Test Frigate Connection'}
-              </button>
-              {frigateStatus.type === 'success' && (
-                <div>
-                  <p className="text-xs text-green-400">{frigateStatus.message}</p>
-                  {frigateStatus.cameras && frigateStatus.cameras.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-1">
-                      {frigateStatus.cameras.map((c) => (
-                        <span key={c} className="text-xs bg-gray-800 text-gray-300 px-2 py-0.5 rounded">{c}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-              {frigateStatus.type === 'error' && (
-                <p className="text-xs text-red-400">{frigateStatus.message}</p>
-              )}
+          <div className="space-y-3">
+            <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">Frigate Settings</h4>
+            <div className="space-y-1.5">
+              <Label htmlFor="frigate_http_url">Frigate HTTP URL</Label>
+              <Input
+                id="frigate_http_url"
+                value={form.frigate_http_url || ''}
+                onChange={(e) => handleChange('frigate_http_url', e.target.value)}
+                placeholder="http://frigate:5000"
+              />
+              <p className="text-xs text-muted-foreground">
+                Used for snapshots and auto-detecting stream resolution/FPS/bitrate
+              </p>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="frigate_username">Frigate Username</Label>
+                <Input
+                  id="frigate_username"
+                  value={form.frigate_username || ''}
+                  onChange={(e) => handleChange('frigate_username', e.target.value || null)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="frigate_password">Frigate Password</Label>
+                <Input
+                  id="frigate_password"
+                  type="password"
+                  value={form.frigate_password || ''}
+                  onChange={(e) => handleChange('frigate_password', e.target.value || null)}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="frigate_verify_ssl"
+                checked={form.frigate_verify_ssl}
+                onCheckedChange={(v) => handleChange('frigate_verify_ssl', v)}
+              />
+              <Label htmlFor="frigate_verify_ssl">
+                Verify SSL certificates
+                <span className="text-xs text-muted-foreground ml-1">(uncheck for self-signed certs)</span>
+              </Label>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full text-orange-400 border-orange-600/30 hover:bg-orange-600/10 hover:text-orange-300"
+              onClick={handleTestFrigate}
+              disabled={frigateStatus.type === 'loading' || !form.frigate_http_url}
+            >
+              {frigateStatus.type === 'loading' ? 'Testing…' : 'Test Frigate Connection'}
+            </Button>
+            {frigateStatus.type === 'success' && (
+              <div>
+                <p className="text-xs text-green-400">{frigateStatus.message}</p>
+                {frigateStatus.cameras && frigateStatus.cameras.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {frigateStatus.cameras.map((c) => (
+                      <span key={c} className="text-xs bg-secondary text-secondary-foreground px-2 py-0.5 rounded">{c}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {frigateStatus.type === 'error' && <p className="text-xs text-red-400">{frigateStatus.message}</p>}
           </div>
 
+          <Separator />
+
           {/* RTSP Authentication */}
-          <div className="border-t border-gray-700 pt-4">
-            <h4 className="text-sm font-medium text-gray-300 uppercase tracking-wider mb-3">RTSP Authentication</h4>
-            <p className="text-xs text-gray-500 mb-3">
+          <div className="space-y-3">
+            <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">RTSP Authentication</h4>
+            <p className="text-xs text-muted-foreground">
               Auto-injected into RTSP URLs that don't already contain credentials. Leave empty for unauthenticated streams.
             </p>
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">RTSP Username</label>
-                <input
-                  type="text"
+              <div className="space-y-1.5">
+                <Label htmlFor="rtsp_username">RTSP Username</Label>
+                <Input
+                  id="rtsp_username"
                   value={form.rtsp_username || ''}
                   onChange={(e) => handleChange('rtsp_username', e.target.value || null)}
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">RTSP Password</label>
-                <input
+              <div className="space-y-1.5">
+                <Label htmlFor="rtsp_password">RTSP Password</Label>
+                <Input
+                  id="rtsp_password"
                   type="password"
                   value={form.rtsp_password || ''}
                   onChange={(e) => handleChange('rtsp_password', e.target.value || null)}
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 pt-2 border-t border-gray-700">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-400 hover:text-white rounded border border-gray-600 hover:border-gray-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded"
-            >
-              Save
-            </button>
+          <div className="flex justify-end gap-3 pt-2 border-t border-border">
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit">Save</Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

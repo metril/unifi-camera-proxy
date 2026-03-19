@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LogEntry } from '../types';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 interface LogViewerProps {
   cameraId: string;
@@ -119,8 +122,6 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
     }
   }, [logs, autoScroll]);
 
-
-
   const toggleLevel = useCallback((level: string) => {
     setLevels((prev) => {
       const next = new Set(prev);
@@ -152,38 +153,40 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
     navigator.clipboard.writeText(text);
   }, [filteredLogs]);
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-lg w-full max-w-5xl max-h-[85vh] flex flex-col">
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-700">
-          <div className="flex items-center gap-4">
-            <h3 className="text-white font-medium">{cameraName}</h3>
-            <div className="flex gap-1">
-              <button
-                onClick={() => setTab('logs')}
-                className={`px-3 py-1 text-xs rounded ${tab === 'logs' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
-              >
-                Logs
-              </button>
-              <button
-                onClick={() => setTab('diagnostics')}
-                className={`px-3 py-1 text-xs rounded ${tab === 'diagnostics' ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
-              >
-                Diagnostics
-              </button>
-            </div>
-            <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-400' : 'bg-red-400'}`} title={wsConnected ? 'Live' : 'Disconnected'} />
+        <div className="flex items-center gap-4 px-4 py-3 border-b border-border pr-12">
+          <DialogTitle className="text-foreground font-medium">{cameraName}</DialogTitle>
+          <div className="flex gap-1">
+            <Button
+              variant={tab === 'logs' ? 'default' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs px-3"
+              onClick={() => setTab('logs')}
+            >
+              Logs
+            </Button>
+            <Button
+              variant={tab === 'diagnostics' ? 'default' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs px-3"
+              onClick={() => setTab('diagnostics')}
+            >
+              Diagnostics
+            </Button>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
+          <div
+            className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-400' : 'bg-red-400'}`}
+            title={wsConnected ? 'Live' : 'Disconnected'}
+          />
         </div>
 
         {tab === 'logs' && (
           <>
             {/* Filter bar */}
-            <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-800 flex-wrap">
+            <div className="flex items-center gap-3 px-4 py-2 border-b border-border flex-wrap">
               <div className="flex gap-1">
                 {(['DEBUG', 'INFO', 'WARNING', 'ERROR'] as const).map((level) => (
                   <button
@@ -192,7 +195,7 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                     className={`px-2 py-0.5 text-xs rounded border transition-colors ${
                       levels.has(level)
                         ? `${LEVEL_COLORS[level]} border-current opacity-100`
-                        : 'text-gray-600 border-gray-700 opacity-50'
+                        : 'text-muted-foreground border-border opacity-50'
                     }`}
                   >
                     {level}
@@ -204,7 +207,7 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                 <select
                   value={loggerFilter}
                   onChange={(e) => setLoggerFilter(e.target.value)}
-                  className="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded px-2 py-1"
+                  className="bg-background border border-input text-muted-foreground text-xs rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-ring"
                 >
                   <option value="">All sources</option>
                   {loggers.map((l) => (
@@ -213,32 +216,31 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                 </select>
               )}
 
-              <input
-                type="text"
+              <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search logs..."
-                className="flex-1 min-w-[150px] bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+                className="flex-1 min-w-[150px] h-7 text-xs"
               />
 
               <div className="flex gap-1">
                 <button
                   onClick={() => setAutoScroll((v) => !v)}
                   className={`px-2 py-1 text-xs rounded border ${
-                    autoScroll ? 'border-green-600 text-green-400' : 'border-gray-700 text-gray-500'
+                    autoScroll ? 'border-green-600 text-green-400' : 'border-border text-muted-foreground'
                   }`}
                 >
                   {autoScroll ? 'Auto-scroll' : 'Scroll paused'}
                 </button>
                 <button
                   onClick={handleCopy}
-                  className="px-2 py-1 text-xs rounded border border-gray-700 text-gray-400 hover:text-white"
+                  className="px-2 py-1 text-xs rounded border border-border text-muted-foreground hover:text-foreground"
                 >
                   Copy
                 </button>
               </div>
 
-              <span className="text-xs text-gray-500">
+              <span className="text-xs text-muted-foreground">
                 {filteredLogs.length}/{logs.length}
               </span>
             </div>
@@ -246,16 +248,16 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
             {/* Log content */}
             <div className="flex-1 overflow-auto p-2 font-mono text-xs bg-black/30">
               {filteredLogs.length === 0 ? (
-                <p className="text-gray-500 italic p-2">
+                <p className="text-muted-foreground italic p-2">
                   {logs.length === 0 ? 'No logs available' : 'No logs match current filters'}
                 </p>
               ) : (
                 filteredLogs.map((log, i) => (
-                  <div key={i} className={`${LEVEL_BG[log.level] || ''} px-2 py-0.5 hover:bg-gray-800/50 whitespace-pre-wrap break-all leading-relaxed`}>
-                    {log.timestamp && <span className="text-gray-600 mr-2">{log.timestamp}</span>}
+                  <div key={i} className={`${LEVEL_BG[log.level] || ''} px-2 py-0.5 hover:bg-muted/20 whitespace-pre-wrap break-all leading-relaxed`}>
+                    {log.timestamp && <span className="text-muted-foreground mr-2">{log.timestamp}</span>}
                     {log.logger && <span className="text-purple-400 mr-2">{log.logger}</span>}
-                    <span className={`${LEVEL_COLORS[log.level] || 'text-gray-300'} font-bold mr-2`}>{log.level.padEnd(7)}</span>
-                    <span className="text-gray-200">
+                    <span className={`${LEVEL_COLORS[log.level] || 'text-foreground'} font-bold mr-2`}>{log.level.padEnd(7)}</span>
+                    <span className="text-foreground">
                       {search ? highlightSearch(log.message, search) : log.message}
                     </span>
                   </div>
@@ -270,10 +272,10 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
           <div className="flex-1 overflow-auto p-4 space-y-4">
             {/* Live Snapshot */}
             {diagnostics.frigate && (
-              <div className="border border-gray-700 rounded-lg p-4">
-                <h4 className="text-sm font-medium text-gray-300 mb-3">Live Snapshot</h4>
+              <div className="border border-border rounded-lg p-4">
+                <h4 className="text-sm font-medium text-foreground mb-3">Live Snapshot</h4>
                 {snapshotError ? (
-                  <p className="text-xs text-gray-500">Snapshot unavailable</p>
+                  <p className="text-xs text-muted-foreground">Snapshot unavailable</p>
                 ) : (
                   <img
                     src={`/api/cameras/${cameraId}/snapshot?_t=${snapshotKey}`}
@@ -300,8 +302,8 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
             </div>
 
             {/* Active Events */}
-            <div className={`border rounded-lg p-4 ${diagnostics.active_events && diagnostics.active_events.length > 0 ? 'border-green-600/30 bg-green-600/5' : 'border-gray-700'}`}>
-              <h4 className={`text-sm font-medium mb-3 ${diagnostics.active_events && diagnostics.active_events.length > 0 ? 'text-green-400' : 'text-gray-300'}`}>
+            <div className={`border rounded-lg p-4 ${diagnostics.active_events && diagnostics.active_events.length > 0 ? 'border-green-600/30 bg-green-600/5' : 'border-border'}`}>
+              <h4 className={`text-sm font-medium mb-3 ${diagnostics.active_events && diagnostics.active_events.length > 0 ? 'text-green-400' : 'text-foreground'}`}>
                 Active Detections {diagnostics.active_events ? `(${diagnostics.active_events.length})` : ''}
               </h4>
               {diagnostics.active_events && diagnostics.active_events.length > 0 ? (
@@ -319,16 +321,16 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-3">
-                            <span className="text-sm font-medium text-white capitalize">{evt.object_type}</span>
-                            <span className="text-xs text-gray-400">{evt.confidence}%</span>
+                            <span className="text-sm font-medium text-foreground capitalize">{evt.object_type}</span>
+                            <span className="text-xs text-muted-foreground">{evt.confidence}%</span>
                             {evt.stationary && (
                               <span className="text-xs bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded">stationary</span>
                             )}
                           </div>
-                          <span className="text-xs text-gray-400">{formatDuration(evt.duration_sec)}</span>
+                          <span className="text-xs text-muted-foreground">{formatDuration(evt.duration_sec)}</span>
                         </div>
                         {evt.bounding_box && (
-                          <div className="text-xs text-gray-500 mt-1">
+                          <div className="text-xs text-muted-foreground mt-1">
                             Box: [{evt.bounding_box.join(', ')}]
                           </div>
                         )}
@@ -337,14 +339,14 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-500 italic">No active detections</p>
+                <p className="text-sm text-muted-foreground italic">No active detections</p>
               )}
             </div>
 
             {/* Recent Events */}
             {diagnostics.recent_events && diagnostics.recent_events.length > 0 && (
-              <div className="border border-gray-700 rounded-lg p-4">
-                <h4 className="text-sm font-medium text-gray-300 mb-3">Recent Events ({diagnostics.recent_events.length})</h4>
+              <div className="border border-border rounded-lg p-4">
+                <h4 className="text-sm font-medium text-foreground mb-3">Recent Events ({diagnostics.recent_events.length})</h4>
                 <div className="space-y-1">
                   {diagnostics.recent_events.map((evt) => (
                     <div key={evt.event_id} className="flex items-center gap-2 text-xs bg-black/20 rounded px-3 py-1.5">
@@ -358,11 +360,11 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                       )}
                       <div className="flex items-center justify-between flex-1 min-w-0">
                         <div className="flex items-center gap-2">
-                          <span className="text-gray-300 capitalize">{evt.object_type}</span>
-                          <span className="text-gray-500">{evt.confidence}%</span>
-                          <span className="text-gray-500">({formatDuration(evt.duration_sec)})</span>
+                          <span className="text-foreground capitalize">{evt.object_type}</span>
+                          <span className="text-muted-foreground">{evt.confidence}%</span>
+                          <span className="text-muted-foreground">({formatDuration(evt.duration_sec)})</span>
                         </div>
-                        <span className="text-gray-500">{formatDuration(evt.ended_ago_sec)} ago</span>
+                        <span className="text-muted-foreground">{formatDuration(evt.ended_ago_sec)} ago</span>
                       </div>
                     </div>
                   ))}
@@ -371,10 +373,10 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
             )}
 
             {/* Event Counters */}
-            <div className="border border-gray-700 rounded-lg p-4">
-              <h4 className="text-sm font-medium text-gray-300 mb-3">Event Counters</h4>
+            <div className="border border-border rounded-lg p-4">
+              <h4 className="text-sm font-medium text-foreground mb-3">Event Counters</h4>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <Counter label="Motion Active" value={diagnostics.motion_active ? 'YES' : 'NO'} color={diagnostics.motion_active ? 'text-green-400' : 'text-gray-500'} />
+                <Counter label="Motion Active" value={diagnostics.motion_active ? 'YES' : 'NO'} color={diagnostics.motion_active ? 'text-green-400' : 'text-muted-foreground'} />
                 <Counter label="Analytics Events" value={diagnostics.event_counts?.analytics_total ?? 0} />
                 <Counter label="Active Detections" value={diagnostics.event_counts?.smart_detect_active ?? 0} color="text-green-400" />
                 <Counter label="Total Detections" value={diagnostics.event_counts?.smart_detect_total ?? 0} color="text-blue-400" />
@@ -383,16 +385,16 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
 
             {/* Stream Health */}
             {diagnostics.streams && (
-              <div className="border border-gray-700 rounded-lg p-4">
-                <h4 className="text-sm font-medium text-gray-300 mb-3">Stream Health</h4>
+              <div className="border border-border rounded-lg p-4">
+                <h4 className="text-sm font-medium text-foreground mb-3">Stream Health</h4>
                 <div className="grid grid-cols-3 gap-3">
                   {Object.entries(diagnostics.streams).map(([name, stream]) => (
                     <div key={name} className="bg-black/20 rounded px-3 py-2">
                       <div className="flex items-center gap-2 mb-1">
-                        <div className={`w-2 h-2 rounded-full ${stream.ffmpeg_running ? 'bg-green-400' : 'bg-gray-600'}`} />
-                        <span className="text-sm text-gray-300 font-medium">{name}</span>
+                        <div className={`w-2 h-2 rounded-full ${stream.ffmpeg_running ? 'bg-green-400' : 'bg-muted-foreground'}`} />
+                        <span className="text-sm text-foreground font-medium">{name}</span>
                       </div>
-                      <span className="text-xs text-gray-500">{stream.resolution}</span>
+                      <span className="text-xs text-muted-foreground">{stream.resolution}</span>
                     </div>
                   ))}
                 </div>
@@ -401,55 +403,55 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
 
             {/* Frigate-specific */}
             {diagnostics.frigate && (
-              <div className="border border-gray-700 rounded-lg p-4">
-                <h4 className="text-sm font-medium text-gray-300 mb-3">Frigate</h4>
+              <div className="border border-border rounded-lg p-4">
+                <h4 className="text-sm font-medium text-foreground mb-3">Frigate</h4>
                 <div className="space-y-1 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-400">Camera</span>
-                    <span className="text-gray-200">{diagnostics.frigate.camera}</span>
+                    <span className="text-muted-foreground">Camera</span>
+                    <span className="text-foreground">{diagnostics.frigate.camera}</span>
                   </div>
                   {diagnostics.frigate.http_url && (
                     <div className="flex justify-between">
-                      <span className="text-gray-400">HTTP API</span>
-                      <span className="text-gray-200 text-xs">{diagnostics.frigate.http_url}</span>
+                      <span className="text-muted-foreground">HTTP API</span>
+                      <span className="text-foreground text-xs">{diagnostics.frigate.http_url}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span className="text-gray-400">Snapshot Source</span>
-                    <span className="text-gray-200">{diagnostics.frigate.snapshot_source === 'http' ? 'HTTP API' : 'MQTT'}</span>
+                    <span className="text-muted-foreground">Snapshot Source</span>
+                    <span className="text-foreground">{diagnostics.frigate.snapshot_source === 'http' ? 'HTTP API' : 'MQTT'}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-400">Active Frigate Events</span>
-                    <span className="text-gray-200">{diagnostics.frigate.active_event_count}</span>
+                    <span className="text-muted-foreground">Active Frigate Events</span>
+                    <span className="text-foreground">{diagnostics.frigate.active_event_count}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-400">Motion</span>
-                    <span className={diagnostics.frigate.motion_active ? 'text-green-400' : 'text-gray-500'}>
+                    <span className="text-muted-foreground">Motion</span>
+                    <span className={diagnostics.frigate.motion_active ? 'text-green-400' : 'text-muted-foreground'}>
                       {diagnostics.frigate.motion_active ? 'Active' : 'Inactive'}
                     </span>
                   </div>
                 </div>
                 {diagnostics.frigate.event_mappings && Object.keys(diagnostics.frigate.event_mappings).length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-gray-700">
-                    <h5 className="text-xs font-medium text-gray-400 mb-2">Event Mappings (Frigate → UniFi)</h5>
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <h5 className="text-xs font-medium text-muted-foreground mb-2">Event Mappings (Frigate → UniFi)</h5>
                     <div className="space-y-1 text-xs font-mono">
                       {Object.entries(diagnostics.frigate.event_mappings).map(([fid, uid]) => (
                         <div key={fid} className="flex justify-between">
-                          <span className="text-gray-500 truncate mr-2">{fid}</span>
-                          <span className="text-gray-300">{String(uid)}</span>
+                          <span className="text-muted-foreground truncate mr-2">{fid}</span>
+                          <span className="text-foreground">{String(uid)}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
                 {diagnostics.frigate.auto_detected && Object.keys(diagnostics.frigate.auto_detected).length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-gray-700">
-                    <h5 className="text-xs font-medium text-gray-400 mb-2">Auto-Detected Settings</h5>
+                  <div className="mt-3 pt-3 border-t border-border">
+                    <h5 className="text-xs font-medium text-muted-foreground mb-2">Auto-Detected Settings</h5>
                     <div className="space-y-1 text-xs">
                       {Object.entries(diagnostics.frigate.auto_detected).map(([key, val]) => (
                         <div key={key} className="flex justify-between">
-                          <span className="text-gray-500">{key.replace(/_/g, ' ')}</span>
-                          <span className="text-gray-300">{String(val)}</span>
+                          <span className="text-muted-foreground">{key.replace(/_/g, ' ')}</span>
+                          <span className="text-foreground">{String(val)}</span>
                         </div>
                       ))}
                     </div>
@@ -465,7 +467,7 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
             )}
           </div>
         )}
-      </div>
+      </DialogContent>
 
       {/* Snapshot lightbox */}
       {enlargedSnapshot && (
@@ -481,30 +483,30 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
           />
         </div>
       )}
-    </div>
+    </Dialog>
   );
 }
 
 function StatusCard({ title, connected, detail }: { title: string; connected: boolean; detail?: string }) {
   return (
-    <div className={`border rounded-lg p-4 ${connected ? 'border-green-600/50 bg-green-600/5' : 'border-gray-700'}`}>
+    <div className={`border rounded-lg p-4 ${connected ? 'border-green-600/50 bg-green-600/5' : 'border-border'}`}>
       <div className="flex items-center gap-2 mb-1">
-        <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-gray-600'}`} />
-        <h4 className="text-sm font-medium text-gray-300">{title}</h4>
+        <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-muted-foreground'}`} />
+        <h4 className="text-sm font-medium text-foreground">{title}</h4>
       </div>
-      <p className={`text-xs ${connected ? 'text-green-400' : 'text-gray-500'}`}>
+      <p className={`text-xs ${connected ? 'text-green-400' : 'text-muted-foreground'}`}>
         {connected ? 'Connected' : 'Not connected'}
       </p>
-      {detail && <p className="text-xs text-gray-500 mt-1">{detail}</p>}
+      {detail && <p className="text-xs text-muted-foreground mt-1">{detail}</p>}
     </div>
   );
 }
 
-function Counter({ label, value, color = 'text-gray-200' }: { label: string; value: number | string; color?: string }) {
+function Counter({ label, value, color = 'text-foreground' }: { label: string; value: number | string; color?: string }) {
   return (
     <div className="text-center">
       <div className={`text-2xl font-bold ${color}`}>{value}</div>
-      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   );
 }

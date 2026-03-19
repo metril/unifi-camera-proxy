@@ -131,13 +131,22 @@ function App() {
   };
 
   const handleStartAll = async () => {
-    await api.startAll();
-    setTimeout(fetchCameras, 1000);
+    try {
+      await api.startAll();
+      setTimeout(fetchCameras, 1000);
+      addToast('Starting all cameras…', 'success');
+    } catch (err) {
+      addToast(`Failed to start all: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   const handleStopAll = async () => {
-    await api.stopAll();
-    fetchCameras();
+    try {
+      await api.stopAll();
+      fetchCameras();
+    } catch (err) {
+      addToast(`Failed to stop all: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
   };
 
   const handleAddCamera = () => {

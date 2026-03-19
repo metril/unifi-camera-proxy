@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { CameraConfig, CameraTypeSchemas, FieldSchema, GlobalConfig } from '../types';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 
 interface CameraFormProps {
   isOpen: boolean;
@@ -76,6 +81,8 @@ const FRIGATE_API_FIELDS = new Set([
   'frigate-http-url', 'frigate-username', 'frigate-password',
 ]);
 
+const SELECT_CLASS = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+
 export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamera, globalConfig }: CameraFormProps) {
   const [form, setForm] = useState<CameraConfig>({ ...DEFAULT_CAMERA });
   const [rtspTest, setRtspTest] = useState<Record<string, { type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
@@ -125,7 +132,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.frigate_camera]);
 
-  if (!isOpen || !schemas) return null;
+  if (!schemas) return null;
 
   const cameraType = form.type || 'rtsp';
   const typeFields = schemas.types[cameraType] || [];
@@ -160,14 +167,12 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
     if (field.type === 'boolean') {
       return (
         <div key={field.name} className="flex items-center gap-2">
-          <input
-            type="checkbox"
+          <Switch
             id={field.name}
             checked={!!value}
-            onChange={(e) => handleChange(configKey, e.target.checked)}
-            className="rounded bg-gray-800 border-gray-600"
+            onCheckedChange={(checked) => handleChange(configKey, checked)}
           />
-          <label htmlFor={field.name} className="text-sm text-gray-400">{field.help || field.name}</label>
+          <Label htmlFor={field.name}>{field.help || field.name}</Label>
         </div>
       );
     }
@@ -175,19 +180,19 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
     if (field.choices) {
       return (
         <div key={field.name}>
-          <label className="block text-sm text-gray-400 mb-1">
-            {field.name}{field.required && <span className="text-red-400 ml-1">*</span>}
-          </label>
+          <Label className="block mb-1.5">
+            {field.name}{field.required && <span className="text-destructive ml-1">*</span>}
+          </Label>
           <select
             value={(value as string) || field.default as string || ''}
             onChange={(e) => handleChange(configKey, e.target.value)}
-            className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+            className={SELECT_CLASS}
           >
             {field.choices.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
-          {field.help && <p className="text-xs text-gray-500 mt-1">{field.help}</p>}
+          {field.help && <p className="text-xs text-muted-foreground mt-1">{field.help}</p>}
         </div>
       );
     }
@@ -216,11 +221,11 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
 
     return (
       <div key={field.name}>
-        <label className="block text-sm text-gray-400 mb-1">
-          {field.name}{field.required && <span className="text-red-400 ml-1">*</span>}
-        </label>
+        <Label className="block mb-1.5">
+          {field.name}{field.required && <span className="text-destructive ml-1">*</span>}
+        </Label>
         <div className={isRtspField ? 'flex gap-2' : ''}>
-          <input
+          <Input
             type={field.type === 'number' ? 'number' : 'text'}
             value={value != null ? String(value) : ''}
             onChange={(e) => {
@@ -228,20 +233,22 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
               handleChange(configKey, v);
             }}
             placeholder={field.default != null ? String(field.default) : ''}
-            className={`${isRtspField ? 'flex-1' : 'w-full'} bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500`}
+            className={isRtspField ? 'flex-1' : ''}
           />
           {isRtspField && (
-            <button
+            <Button
               type="button"
+              variant="outline"
+              size="sm"
               onClick={handleTestRtsp}
               disabled={!value || testState?.type === 'loading'}
-              className="px-3 py-2 text-xs bg-cyan-600/20 text-cyan-400 border border-cyan-600/30 rounded hover:bg-cyan-600/30 transition-colors whitespace-nowrap disabled:opacity-50"
+              className="text-cyan-400 border-cyan-600/30 hover:bg-cyan-600/10 hover:text-cyan-300 whitespace-nowrap"
             >
-              {testState?.type === 'loading' ? 'Testing...' : 'Test'}
-            </button>
+              {testState?.type === 'loading' ? 'Testing…' : 'Test'}
+            </Button>
           )}
         </div>
-        {field.help && <p className="text-xs text-gray-500 mt-1">{field.help}</p>}
+        {field.help && <p className="text-xs text-muted-foreground mt-1">{field.help}</p>}
         {testState?.type === 'success' && (
           <p className="text-xs text-green-400 mt-1">{testState.message}</p>
         )}
@@ -330,35 +337,35 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-gray-900 border border-gray-700 rounded-lg w-full max-w-2xl max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-700">
-          <h3 className="text-white font-medium text-lg">
-            {editCamera ? 'Edit Camera' : 'Add Camera'}
-          </h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">&times;</button>
-        </div>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0"
+        onInteractOutside={(e) => e.preventDefault()}
+      >
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
+          <DialogTitle>{editCamera ? 'Edit Camera' : 'Add Camera'}</DialogTitle>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-auto p-5 space-y-4">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
           {/* Common fields */}
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Camera Name<span className="text-red-400 ml-1">*</span></label>
-                <input
-                  type="text"
+              <div className="space-y-1.5">
+                <Label htmlFor="cam-name">Camera Name<span className="text-destructive ml-1">*</span></Label>
+                <Input
+                  id="cam-name"
                   value={form.name}
                   onChange={(e) => handleChange('name', e.target.value)}
                   required
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Camera Type</label>
+              <div className="space-y-1.5">
+                <Label htmlFor="cam-type">Camera Type</Label>
                 <select
+                  id="cam-type"
                   value={form.type}
                   onChange={(e) => handleChange('type', e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  className={SELECT_CLASS}
                 >
                   {Object.keys(schemas.types).map((t) => (
                     <option key={t} value={t}>{t}</option>
@@ -370,10 +377,10 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
             {/* Frigate: camera name + auto-detect (shown early for Frigate cameras) */}
             {cameraType === 'frigate' && (
               <div className="space-y-3 border border-orange-600/20 bg-orange-600/5 rounded-lg p-3">
-                <div>
-                  <label className="block text-sm text-gray-400 mb-1">
-                    Frigate Camera Name<span className="text-red-400 ml-1">*</span>
-                  </label>
+                <div className="space-y-1.5">
+                  <Label>
+                    Frigate Camera Name<span className="text-destructive ml-1">*</span>
+                  </Label>
                   {frigateCameras.length > 0 ? (
                     <select
                       value={(form.frigate_camera as string) || ''}
@@ -384,7 +391,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                           handleChange('name', e.target.value.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
                         }
                       }}
-                      className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                      className={SELECT_CLASS}
                     >
                       <option value="">Select a camera...</option>
                       {frigateCameras.map((cam) => (
@@ -392,23 +399,23 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                       ))}
                     </select>
                   ) : (
-                    <input
-                      type="text"
+                    <Input
                       value={(form.frigate_camera as string) || ''}
                       onChange={(e) => handleChange('frigate_camera', e.target.value)}
                       placeholder={frigateCamerasLoading ? 'Loading cameras...' : 'e.g., backyard, front_door'}
-                      className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                     />
                   )}
                 </div>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-full text-orange-400 border-orange-600/30 hover:bg-orange-600/10 hover:text-orange-300"
                   onClick={handleAutoDetect}
                   disabled={autoDetectStatus.type === 'loading' || !(form.frigate_camera as string)}
-                  className="w-full px-3 py-2 text-xs bg-orange-600/20 text-orange-400 border border-orange-600/30 rounded hover:bg-orange-600/30 transition-colors disabled:opacity-50"
                 >
-                  {autoDetectStatus.type === 'loading' ? 'Detecting...' : 'Auto-detect from Frigate API'}
-                </button>
+                  {autoDetectStatus.type === 'loading' ? 'Detecting…' : 'Auto-detect from Frigate API'}
+                </Button>
                 {autoDetectStatus.type === 'success' && (
                   <p className="text-xs text-green-400">{autoDetectStatus.message}</p>
                 )}
@@ -419,45 +426,46 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
             )}
 
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">MAC Address</label>
+              <div className="space-y-1.5">
+                <Label htmlFor="cam-mac">MAC Address</Label>
                 <div className="flex gap-2">
-                  <input
-                    type="text"
+                  <Input
+                    id="cam-mac"
                     value={form.mac}
                     onChange={(e) => handleChange('mac', e.target.value)}
                     placeholder="AABBCCDDEEFF"
-                    className="flex-1 bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                    className="flex-1"
                   />
-                  <button
+                  <Button
                     type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={() => handleChange('mac', generateMac())}
-                    className="px-2 py-2 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors whitespace-nowrap"
                     title="Generate random MAC"
                   >
                     Random
-                  </button>
+                  </Button>
                 </div>
               </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">IP Address</label>
-                <input
-                  type="text"
+              <div className="space-y-1.5">
+                <Label htmlFor="cam-ip">IP Address</Label>
+                <Input
+                  id="cam-ip"
                   value={form.ip}
                   onChange={(e) => handleChange('ip', e.target.value)}
                   placeholder="192.168.1.10"
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Model</label>
+              <div className="space-y-1.5">
+                <Label htmlFor="cam-model">Model</Label>
                 <select
+                  id="cam-model"
                   value={form.model}
                   onChange={(e) => handleChange('model', e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  className={SELECT_CLASS}
                 >
                   {(() => {
                     const camWidth = Number(form.camera_width) || 0;
@@ -476,33 +484,30 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                   })()}
                 </select>
               </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">Firmware Version</label>
-                <input
-                  type="text"
+              <div className="space-y-1.5">
+                <Label htmlFor="cam-fw">Firmware Version</Label>
+                <Input
+                  id="cam-fw"
                   value={form.fw_version}
                   onChange={(e) => handleChange('fw_version', e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
             </div>
 
             <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="enabled"
+              <Switch
+                id="cam-enabled"
                 checked={form.enabled}
-                onChange={(e) => handleChange('enabled', e.target.checked)}
-                className="rounded bg-gray-800 border-gray-600"
+                onCheckedChange={(v) => handleChange('enabled', v)}
               />
-              <label htmlFor="enabled" className="text-sm text-gray-400">Enabled (auto-start on server launch)</label>
+              <Label htmlFor="cam-enabled">Enabled (auto-start on server launch)</Label>
             </div>
           </div>
 
           {/* Type-specific fields */}
           {specificFields.length > 0 && (
-            <div className="border-t border-gray-700 pt-4 space-y-4">
-              <h4 className="text-sm font-medium text-gray-300 uppercase tracking-wider">
+            <div className="border-t border-border pt-4 space-y-4">
+              <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">
                 {cameraType} Settings
               </h4>
               {specificFields.map(renderField)}
@@ -511,10 +516,10 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
 
           {/* Per-camera Frigate API override (collapsible) */}
           {frigateApiFields.length > 0 && (
-            <details className="border-t border-gray-700 pt-4">
-              <summary className="text-sm font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:text-white">
+            <details className="border-t border-border pt-4">
+              <summary className="text-sm font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
                 Frigate API Override
-                <span className="text-xs text-gray-500 font-normal ml-2 normal-case">
+                <span className="text-xs text-muted-foreground font-normal ml-2 normal-case">
                   (uses global settings if not overridden)
                 </span>
               </summary>
@@ -526,11 +531,11 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
 
           {/* Per-camera MQTT override (collapsible, hidden by default) */}
           {mqttFields.length > 0 && (
-            <details className="border-t border-gray-700 pt-4" open={showCustomMqtt}
+            <details className="border-t border-border pt-4" open={showCustomMqtt}
               onToggle={(e) => setShowCustomMqtt((e.target as HTMLDetailsElement).open)}>
-              <summary className="text-sm font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:text-white">
+              <summary className="text-sm font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
                 Custom MQTT Settings
-                <span className="text-xs text-gray-500 font-normal ml-2 normal-case">
+                <span className="text-xs text-muted-foreground font-normal ml-2 normal-case">
                   (uses global settings if not overridden)
                 </span>
               </summary>
@@ -541,30 +546,29 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
           )}
 
           {/* Per-camera RTSP auth override */}
-          <details className="border-t border-gray-700 pt-4">
-            <summary className="text-sm font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:text-white">
+          <details className="border-t border-border pt-4">
+            <summary className="text-sm font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
               RTSP Authentication
-              <span className="text-xs text-gray-500 font-normal ml-2 normal-case">
+              <span className="text-xs text-muted-foreground font-normal ml-2 normal-case">
                 (uses global credentials if not overridden)
               </span>
             </summary>
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">RTSP Username</label>
-                <input
-                  type="text"
+              <div className="space-y-1.5">
+                <Label htmlFor="rtsp-user">RTSP Username</Label>
+                <Input
+                  id="rtsp-user"
                   value={(form.rtsp_username as string) || ''}
                   onChange={(e) => handleChange('rtsp_username', e.target.value || null)}
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-1">RTSP Password</label>
-                <input
+              <div className="space-y-1.5">
+                <Label htmlFor="rtsp-pass">RTSP Password</Label>
+                <Input
+                  id="rtsp-pass"
                   type="password"
                   value={(form.rtsp_password as string) || ''}
                   onChange={(e) => handleChange('rtsp_password', e.target.value || null)}
-                  className="w-full bg-gray-800 border border-gray-600 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
                 />
               </div>
             </div>
@@ -572,8 +576,8 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
 
           {/* Base ffmpeg fields (collapsible) */}
           {baseFields.length > 0 && (
-            <details className="border-t border-gray-700 pt-4">
-              <summary className="text-sm font-medium text-gray-300 uppercase tracking-wider cursor-pointer hover:text-white">
+            <details className="border-t border-border pt-4">
+              <summary className="text-sm font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
                 Advanced FFmpeg Settings
               </summary>
               <div className="mt-4 space-y-4">
@@ -582,23 +586,12 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
             </details>
           )}
 
-          <div className="flex justify-end gap-3 pt-2 border-t border-gray-700">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-400 hover:text-white rounded border border-gray-600 hover:border-gray-500"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded"
-            >
-              {editCamera ? 'Update' : 'Add Camera'}
-            </button>
+          <div className="flex justify-end gap-3 pt-2 border-t border-border">
+            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button type="submit">{editCamera ? 'Update' : 'Add Camera'}</Button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
