@@ -78,5 +78,9 @@ class Core(object):
                 return True
             finally:
                 await self.cam.close()
+                try:
+                    await ws.close()
+                except Exception:
+                    pass
 
         await connect()
