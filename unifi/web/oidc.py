@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import aiohttp
 import jwt
-from jwt import PyJWKClient
+from jwt import PyJWKSet, get_unverified_header
 
 
 @dataclass
@@ -21,7 +21,6 @@ class OIDCProvider:
     def __init__(self, config: OIDCConfig):
         self.config = config
         self._discovery: dict | None = None
-        self._jwks_client: PyJWKClient | None = None
 
     async def discover(self) -> dict:
         if self._discovery:
@@ -65,15 +64,17 @@ class OIDCProvider:
                 return await r.json()
 
     async def validate_id_token(self, id_token: str) -> dict:
-        import asyncio
-
         d = await self.discover()
-        if not self._jwks_client:
-            self._jwks_client = PyJWKClient(d["jwks_uri"])
-        loop = asyncio.get_event_loop()
-        signing_key = await loop.run_in_executor(
-            None, self._jwks_client.get_signing_key_from_jwt, id_token
-        )
+        async with aiohttp.ClientSession() as s:
+            async with s.get(d["jwks_uri"]) as r:
+                r.raise_for_status()
+                jwks_data = await r.json(content_type=None)
+        jwk_set = PyJWKSet.from_dict(jwks_data)
+        kid = get_unverified_header(id_token).get("kid")
+        try:
+            signing_key = jwk_set[kid]
+        except KeyError:
+            raise ValueError(f"No signing key found for kid={kid!r}")
         return jwt.decode(
             id_token,
             signing_key.key,
