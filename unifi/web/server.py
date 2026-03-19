@@ -622,21 +622,22 @@ async def auth_login(request: web.Request) -> web.Response:
 
 async def auth_callback(request: web.Request) -> web.Response:
     manager = get_manager(request)
+    provider = manager.oidc_provider
     code = request.rel_url.query.get("code")
     state = request.rel_url.query.get("state")
     pending = manager.pending_auths.pop(state, None) if state else None
-    if not pending or not code:
+    if not pending or not code or not provider:
         raise web.HTTPFound("/#auth_error=invalid_state")
     try:
-        tokens = await manager.oidc_provider.exchange_code(code, pending.code_verifier, pending.redirect_uri)
-        await manager.oidc_provider.validate_id_token(tokens["id_token"])
+        tokens = await provider.exchange_code(code, pending.code_verifier, pending.redirect_uri)
+        await provider.validate_id_token(tokens["id_token"])
         session_token = secrets.token_hex(32)
         manager.valid_tokens.add(session_token)
         raise web.HTTPFound(f"/#token={session_token}")
     except web.HTTPFound:
         raise
     except Exception as e:
-        logger.exception(f"OIDC callback error: {e}")
+        logger.exception("OIDC callback error: %s: %s", type(e).__name__, e)
         raise web.HTTPFound("/#auth_error=callback_failed")
 
 

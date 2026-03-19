@@ -65,10 +65,15 @@ class OIDCProvider:
                 return await r.json()
 
     async def validate_id_token(self, id_token: str) -> dict:
+        import asyncio
+
         d = await self.discover()
         if not self._jwks_client:
             self._jwks_client = PyJWKClient(d["jwks_uri"])
-        signing_key = self._jwks_client.get_signing_key_from_jwt(id_token)
+        loop = asyncio.get_event_loop()
+        signing_key = await loop.run_in_executor(
+            None, self._jwks_client.get_signing_key_from_jwt, id_token
+        )
         return jwt.decode(
             id_token,
             signing_key.key,
