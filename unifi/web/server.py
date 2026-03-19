@@ -597,6 +597,8 @@ async def auth_middleware(request: web.Request, handler):
 
     auth_header = request.headers.get("Authorization", "")
     token = auth_header[7:] if auth_header.startswith("Bearer ") else None
+    if not token:
+        token = request.rel_url.query.get("token")  # WebSocket fallback
     if token and token in manager.valid_tokens:
         return await handler(request)
 
@@ -648,6 +650,25 @@ async def auth_logout(request: web.Request) -> web.Response:
     if token:
         manager.valid_tokens.discard(token)
     return web.json_response({"status": "logged_out"})
+
+
+async def auth_end_session(request: web.Request) -> web.Response:
+    """Invalidate session token and redirect to OIDC provider end-session."""
+    from urllib.parse import urlencode
+    manager = get_manager(request)
+    token = request.rel_url.query.get("token")
+    if token:
+        manager.valid_tokens.discard(token)
+    provider = manager.oidc_provider
+    if provider:
+        d = await provider.discover()
+        end_session = d.get("end_session_endpoint")
+        if end_session:
+            scheme = request.headers.get("X-Forwarded-Proto") or request.scheme
+            host = request.headers.get("X-Forwarded-Host") or request.host
+            redirect_uri = f"{scheme}://{host}/"
+            raise web.HTTPFound(f"{end_session}?{urlencode({'post_logout_redirect_uri': redirect_uri})}")
+    raise web.HTTPFound("/")
 
 
 # --- Static file serving ---
@@ -705,6 +726,7 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_get("/api/auth/login", auth_login)
     app.router.add_get("/api/auth/callback", auth_callback)
     app.router.add_post("/api/auth/logout", auth_logout)
+    app.router.add_get("/api/auth/end-session", auth_end_session)
 
     # API routes
     app.router.add_get("/api/config", get_config)

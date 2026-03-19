@@ -172,9 +172,11 @@ function App() {
     setShowForm(true);
   };
 
-  const handleLogout = async () => {
-    await api.logout();
-    window.location.href = '/api/auth/login';
+  const handleLogout = () => {
+    const token = localStorage.getItem('ui_token');
+    localStorage.removeItem('ui_token');
+    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+    window.location.href = `/api/auth/end-session${tokenParam}`;
   };
 
   const runningCount = cameras.filter((c) => c.status === 'running').length;
