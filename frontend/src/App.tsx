@@ -46,11 +46,27 @@ function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // Extract OIDC session token from URL hash after login redirect
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.startsWith('#token=')) {
+      localStorage.setItem('ui_token', hash.slice(7));
+      window.history.replaceState(null, '', window.location.pathname);
+    } else if (hash.startsWith('#auth_error=')) {
+      addToast(`Authentication error: ${hash.slice(12)}`);
+      window.history.replaceState(null, '', window.location.pathname);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load initial data
   useEffect(() => {
     api.getConfig().then((data) => {
       setGlobalConfig(data.global);
-    }).catch(() => {});
+    }).catch((err) => {
+      if (err instanceof Error && err.message === 'Unauthorized') {
+        window.location.href = '/api/auth/login';
+      }
+    });
     api.getCameraTypes().then(setSchemas).catch(() => {});
   }, []);
 
@@ -154,6 +170,11 @@ function App() {
     setShowForm(true);
   };
 
+  const handleLogout = async () => {
+    await api.logout();
+    window.location.href = '/api/auth/login';
+  };
+
   const runningCount = cameras.filter((c) => c.status === 'running').length;
 
   return (
@@ -164,6 +185,8 @@ function App() {
       onAddCamera={handleAddCamera}
       cameraCount={cameras.length}
       runningCount={runningCount}
+      hasOidc={globalConfig.has_oidc ?? false}
+      onLogout={handleLogout}
     >
       <CameraGrid
         cameras={cameras}
