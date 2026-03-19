@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from unifi.web.config import config_to_args, load_config, save_config
+from unifi.web.oidc import OIDCConfig, OIDCProvider
 
 logger = logging.getLogger("CameraManager")
 
@@ -40,6 +41,13 @@ def parse_log_line(line: str) -> dict:
 
 
 @dataclass
+class PendingAuth:
+    code_verifier: str
+    redirect_uri: str
+    created_at: float
+
+
+@dataclass
 class CameraInstance:
     id: str
     config: dict
@@ -62,6 +70,9 @@ class CameraManager:
         self.config = load_config(config_path)
         self.instances: dict[str, CameraInstance] = {}
         self._monitor_task: Optional[asyncio.Task] = None
+        self.valid_tokens: set[str] = set()
+        self.pending_auths: dict[str, PendingAuth] = {}
+        self._oidc_cache: tuple[str, str, OIDCProvider] | None = None  # (issuer, client_id, provider)
 
         # Initialize instances from config
         for cam_config in self.config.get("cameras", []):
@@ -316,6 +327,14 @@ class CameraManager:
                     await self.start_camera(cam_id)
                     await asyncio.sleep(1.5)  # Stagger startup
 
+    async def start_all(self) -> None:
+        """Start all cameras regardless of enabled flag (manual trigger)."""
+        for cam_config in self.config.get("cameras", []):
+            cam_id = cam_config["id"]
+            if cam_id in self.instances and self.instances[cam_id].status != "running":
+                await self.start_camera(cam_id)
+                await asyncio.sleep(1.5)
+
     async def stop_all(self) -> None:
         tasks = []
         for cam_id, instance in self.instances.items():
@@ -369,7 +388,36 @@ class CameraManager:
         save_config(self.config_path, self.config)
         self.instances.pop(camera_id, None)
 
+    @property
+    def oidc_provider(self) -> OIDCProvider | None:
+        g = self.config.get("global", {})
+        issuer = g.get("oidc_issuer") or ""
+        client_id = g.get("oidc_client_id") or ""
+        client_secret = g.get("oidc_client_secret") or ""
+        if not issuer or not client_id or not client_secret:
+            return None
+        if self._oidc_cache and self._oidc_cache[0] == issuer and self._oidc_cache[1] == client_id:
+            return self._oidc_cache[2]
+        provider = OIDCProvider(OIDCConfig(issuer=issuer, client_id=client_id, client_secret=client_secret))
+        self._oidc_cache = (issuer, client_id, provider)
+        return provider
+
     def update_global(self, global_config: dict) -> dict:
+        existing = self.config.get("global", {})
+
+        # Preserve existing OIDC secret if not supplied
+        if not global_config.get("oidc_client_secret"):
+            global_config["oidc_client_secret"] = existing.get("oidc_client_secret", "")
+
+        # Invalidate OIDC cache and sessions when OIDC settings change
+        oidc_changed = any(
+            global_config.get(k) != existing.get(k)
+            for k in ("oidc_issuer", "oidc_client_id", "oidc_client_secret")
+        )
+        if oidc_changed:
+            self._oidc_cache = None
+            self.valid_tokens.clear()
+
         self.config["global"] = global_config
         save_config(self.config_path, self.config)
         return global_config
