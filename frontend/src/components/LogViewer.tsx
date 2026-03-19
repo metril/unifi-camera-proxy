@@ -280,7 +280,7 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                   <p className="text-xs text-muted-foreground">Snapshot unavailable</p>
                 ) : (
                   <img
-                    src={`/api/cameras/${cameraId}/snapshot?_t=${snapshotKey}`}
+                    src={`/api/cameras/${cameraId}/snapshot?_t=${snapshotKey}${localStorage.getItem('ui_token') ? `&token=${encodeURIComponent(localStorage.getItem('ui_token')!)}` : ''}`}
                     alt="Camera snapshot"
                     className="w-full max-w-md rounded bg-black"
                     onError={() => setSnapshotError(true)}
