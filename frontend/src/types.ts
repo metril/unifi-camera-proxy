@@ -40,6 +40,10 @@ export interface GlobalConfig {
   frigate_username: string | null;
   frigate_password: string | null;
   frigate_verify_ssl: boolean;
+  oidc_issuer?: string;
+  oidc_client_id?: string;
+  oidc_client_secret?: string | null;  // write-only: sent when changing, never returned
+  has_oidc?: boolean;                   // read-only: returned from server
 }
 
 export interface FieldSchema {

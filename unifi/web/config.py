@@ -54,6 +54,9 @@ DEFAULT_GLOBAL = {
     "frigate_username": None,
     "frigate_password": None,
     "frigate_verify_ssl": True,
+    "oidc_issuer": "",
+    "oidc_client_id": "",
+    "oidc_client_secret": "",
 }
 
 MODEL_CHOICES = [

@@ -102,6 +102,46 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
+          {/* OIDC Authentication */}
+          <div className="space-y-3">
+            <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">OIDC Authentication</h4>
+            <p className="text-xs text-muted-foreground">
+              Configure Authentik (or any OIDC provider). Leave all fields empty to disable authentication.
+            </p>
+            <div className="space-y-1.5">
+              <Label htmlFor="oidc_issuer">Issuer URL</Label>
+              <Input
+                id="oidc_issuer"
+                value={form.oidc_issuer || ''}
+                onChange={(e) => handleChange('oidc_issuer', e.target.value)}
+                placeholder="https://auth.example.com/application/o/unifi-cam-proxy/"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="oidc_client_id">Client ID</Label>
+                <Input
+                  id="oidc_client_id"
+                  value={form.oidc_client_id || ''}
+                  onChange={(e) => handleChange('oidc_client_id', e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="oidc_client_secret">Client Secret</Label>
+                <Input
+                  id="oidc_client_secret"
+                  type="password"
+                  value={form.oidc_client_secret || ''}
+                  onChange={(e) => handleChange('oidc_client_secret', e.target.value || null)}
+                  placeholder={config.has_oidc ? 'Leave blank to keep existing' : ''}
+                  autoComplete="new-password"
+                />
+              </div>
+            </div>
+          </div>
+
+          <Separator />
+
           {/* NVR Settings */}
           <div className="space-y-1.5">
             <Label htmlFor="host">UniFi Protect Host</Label>

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import copy
 import logging
 import os
+import secrets
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -16,9 +19,10 @@ from aiohttp import web
 
 from uiprotect import ProtectApiClient
 
-from unifi.web.camera_manager import CameraManager
+from unifi.web.camera_manager import CameraManager, PendingAuth
 from unifi.web.config import MODEL_CHOICES, get_camera_type_schemas, inject_rtsp_credentials
 from unifi.web.frigate_api import frigate_request
+from unifi.web.oidc import generate_pkce
 
 logger = logging.getLogger("WebServer")
 
@@ -32,7 +36,12 @@ def get_manager(request: web.Request) -> CameraManager:
 
 async def get_config(request: web.Request) -> web.Response:
     manager = get_manager(request)
-    return web.json_response(manager.config)
+    config = copy.deepcopy(manager.config)
+    g = config.get("global", {})
+    has_oidc = bool(g.get("oidc_issuer") and g.get("oidc_client_id") and g.get("oidc_client_secret"))
+    g.pop("oidc_client_secret", None)
+    g["has_oidc"] = has_oidc
+    return web.json_response(config)
 
 
 async def update_global(request: web.Request) -> web.Response:
@@ -125,7 +134,7 @@ async def restart_camera(request: web.Request) -> web.Response:
 
 async def start_all(request: web.Request) -> web.Response:
     manager = get_manager(request)
-    asyncio.create_task(manager.start_all_enabled())
+    asyncio.create_task(manager.start_all())
     return web.json_response({"status": "starting"})
 
 
@@ -574,6 +583,70 @@ async def generate_cert(request: web.Request) -> web.Response:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+# --- OIDC Auth ---
+
+
+@web.middleware
+async def auth_middleware(request: web.Request, handler):
+    if request.path.startswith("/api/auth/") or not request.path.startswith("/api/"):
+        return await handler(request)
+
+    manager: CameraManager | None = request.app.get("manager")
+    if not manager or not manager.oidc_provider:
+        return await handler(request)
+
+    auth_header = request.headers.get("Authorization", "")
+    token = auth_header[7:] if auth_header.startswith("Bearer ") else None
+    if token and token in manager.valid_tokens:
+        return await handler(request)
+
+    return web.json_response({"error": "Unauthorized"}, status=401)
+
+
+async def auth_login(request: web.Request) -> web.Response:
+    manager = get_manager(request)
+    provider = manager.oidc_provider
+    if not provider:
+        raise web.HTTPNotFound()
+    now = time.time()
+    manager.pending_auths = {k: v for k, v in manager.pending_auths.items() if now - v.created_at < 300}
+    state = secrets.token_hex(16)
+    code_verifier, code_challenge = generate_pkce()
+    redirect_uri = f"{request.scheme}://{request.host}/api/auth/callback"
+    manager.pending_auths[state] = PendingAuth(code_verifier=code_verifier, redirect_uri=redirect_uri, created_at=now)
+    auth_url = await provider.authorization_url(state, code_challenge, redirect_uri)
+    raise web.HTTPFound(auth_url)
+
+
+async def auth_callback(request: web.Request) -> web.Response:
+    manager = get_manager(request)
+    code = request.rel_url.query.get("code")
+    state = request.rel_url.query.get("state")
+    pending = manager.pending_auths.pop(state, None) if state else None
+    if not pending or not code:
+        raise web.HTTPFound("/#auth_error=invalid_state")
+    try:
+        tokens = await manager.oidc_provider.exchange_code(code, pending.code_verifier, pending.redirect_uri)
+        await manager.oidc_provider.validate_id_token(tokens["id_token"])
+        session_token = secrets.token_hex(32)
+        manager.valid_tokens.add(session_token)
+        raise web.HTTPFound(f"/#token={session_token}")
+    except web.HTTPFound:
+        raise
+    except Exception as e:
+        logger.exception(f"OIDC callback error: {e}")
+        raise web.HTTPFound("/#auth_error=callback_failed")
+
+
+async def auth_logout(request: web.Request) -> web.Response:
+    manager = get_manager(request)
+    auth_header = request.headers.get("Authorization", "")
+    token = auth_header[7:] if auth_header.startswith("Bearer ") else None
+    if token:
+        manager.valid_tokens.discard(token)
+    return web.json_response({"status": "logged_out"})
+
+
 # --- Static file serving ---
 
 
@@ -616,7 +689,7 @@ async def on_shutdown(app: web.Application) -> None:
 
 
 def create_app(config_path: str) -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[auth_middleware])
 
     resolved_path = Path(config_path).resolve()
     logger.info(f"Config path: {resolved_path} (exists: {resolved_path.exists()})")
@@ -624,6 +697,11 @@ def create_app(config_path: str) -> web.Application:
 
     manager = CameraManager(config_path)
     app["manager"] = manager
+
+    # Auth routes (must come before catch-all)
+    app.router.add_get("/api/auth/login", auth_login)
+    app.router.add_get("/api/auth/callback", auth_callback)
+    app.router.add_post("/api/auth/logout", auth_logout)
 
     # API routes
     app.router.add_get("/api/config", get_config)

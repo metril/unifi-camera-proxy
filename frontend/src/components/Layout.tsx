@@ -11,6 +11,8 @@ interface LayoutProps {
   onAddCamera: () => void;
   cameraCount: number;
   runningCount: number;
+  hasOidc?: boolean;
+  onLogout?: () => void;
 }
 
 export default function Layout({
@@ -21,6 +23,8 @@ export default function Layout({
   onAddCamera,
   cameraCount,
   runningCount,
+  hasOidc,
+  onLogout,
 }: LayoutProps) {
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -68,6 +72,17 @@ export default function Layout({
               <Button size="sm" className="h-8 text-xs" onClick={onAddCamera}>
                 + Add Camera
               </Button>
+              {hasOidc && onLogout && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 text-xs text-muted-foreground hover:text-foreground"
+                  onClick={onLogout}
+                  title="Logout"
+                >
+                  Logout
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="icon"
