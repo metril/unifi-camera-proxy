@@ -95,18 +95,19 @@ class CameraManager:
         diag_port = CameraManager._next_diag_port
         CameraManager._next_diag_port += 1
         instance.diagnostics_port = diag_port
-        args = config_to_args(global_config, instance.config, diagnostics_port=diag_port)
-
-        # Mask credentials in logged command
-        sensitive_flags = {'--token', '--nvr-password', '--api-key', '--mqtt-password'}
-        masked = list(args)
-        for i, arg in enumerate(masked):
-            if arg in sensitive_flags and i + 1 < len(masked):
-                masked[i + 1] = '***'
-        masked_str = re.sub(r'://[^@]+@', '://***:***@', ' '.join(masked))
-        logger.info(f"Starting camera {camera_id}: unifi-cam-proxy {masked_str}")
 
         try:
+            args = config_to_args(global_config, instance.config, diagnostics_port=diag_port)
+
+            # Mask credentials in logged command
+            sensitive_flags = {'--token', '--nvr-password', '--api-key', '--mqtt-password'}
+            masked = list(args)
+            for i, arg in enumerate(masked):
+                if arg in sensitive_flags and i + 1 < len(masked):
+                    masked[i + 1] = '***'
+            masked_str = re.sub(r'://[^@]+@', '://***:***@', ' '.join(masked))
+            logger.info(f"Starting camera {camera_id}: unifi-cam-proxy {masked_str}")
+
             process = await asyncio.create_subprocess_exec(
                 "unifi-cam-proxy",
                 *args,

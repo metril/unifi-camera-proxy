@@ -1,19 +1,20 @@
+import { Badge } from '@/components/ui/badge';
+
 interface StatusBadgeProps {
-  status: 'stopped' | 'running' | 'error';
+  status: string;
 }
 
-const statusConfig = {
-  running: { color: 'bg-green-500', label: 'Running' },
-  stopped: { color: 'bg-gray-500', label: 'Stopped' },
-  error: { color: 'bg-red-500', label: 'Error' },
+const STATUS_MAP: Record<string, { label: string; className: string }> = {
+  running: { label: 'Running', className: 'bg-green-500/15 text-green-400 border-green-500/30 hover:bg-green-500/15' },
+  stopped: { label: 'Stopped', className: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30 hover:bg-zinc-500/15' },
+  error:   { label: 'Error',   className: 'bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/15' },
 };
 
 export default function StatusBadge({ status }: StatusBadgeProps) {
-  const config = statusConfig[status] || statusConfig.stopped;
+  const { label, className } = STATUS_MAP[status] ?? STATUS_MAP.stopped;
   return (
-    <span className="inline-flex items-center gap-1.5 text-sm">
-      <span className={`inline-block w-2.5 h-2.5 rounded-full ${config.color}`} />
-      <span className="text-gray-300">{config.label}</span>
-    </span>
+    <Badge variant="outline" className={className}>
+      {label}
+    </Badge>
   );
 }
