@@ -336,7 +336,6 @@ async def fetch_token(request: web.Request) -> web.Response:
     host = body.get("host")
     username = body.get("username", "")
     password = body.get("password", "")
-    api_key = body.get("api_key")
 
     if not host:
         return web.json_response({"error": "UniFi Protect host is required"}, status=400)
