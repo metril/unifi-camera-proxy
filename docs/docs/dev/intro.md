@@ -39,7 +39,7 @@ In order to add a camera to Protect, you must first generate an adoption token.
 The token is only valid for 60 minutes.
 You will need to re-generate a new one if it expires during your initial setup.
 
-Open `https://<NVR IP>/proxy/protect/api/cameras/manage-payload` and copy the token field.
+Open `https://NVR_IP/proxy/protect/api/cameras/manage-payload` and copy the token field.
 
 ## Docker
 
@@ -64,7 +64,7 @@ To use multiple cameras, start an instance of the proxy for each, with a unique 
 Using docker-compose, your setup might look like the following:
 
 ***Note: This conforms to MAC randomization rules, so should not cause issues with real devices.***
-***See here for more details: <https://www.mist.com/get-to-know-mac-address-randomization-in-2020/>***
+***[See here for more details](https://www.mist.com/get-to-know-mac-address-randomization-in-2020/)***
 
 ```yaml
 version: "3.5"
