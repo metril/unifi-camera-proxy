@@ -38,3 +38,5 @@ optional arguments:
 unifi-cam-proxy --mac '{unique MAC}' -H {NVR IP} -i {camera IP} -c /client.pem -t {Adoption token} \
     hikvision -u {username} -p {password}
 ```
+
+For common arguments shared by all camera types, see [Common Arguments](common).

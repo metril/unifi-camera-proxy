@@ -140,6 +140,12 @@ class FrigateCam(RTSPCam):
             return SmartDetectObjectType.PERSON
         elif label in {"vehicle", "car", "motorcycle", "bus"}:
             return SmartDetectObjectType.VEHICLE
+        elif label in {"animal", "dog", "cat", "bird"}:
+            return SmartDetectObjectType.ANIMAL
+        elif label == "package":
+            return SmartDetectObjectType.PACKAGE
+        elif label == "license_plate":
+            return SmartDetectObjectType.LICENSEPLATE
 
     def build_descriptor_from_frigate_msg(
         self, frigate_msg: dict[str, Any], object_type: SmartDetectObjectType
