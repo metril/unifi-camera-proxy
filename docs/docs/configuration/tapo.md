@@ -11,14 +11,14 @@ Make sure to reset the brightness/contrast setting back to somewhere around 50 a
 
 ## Standard
 ```sh
-unifi-cam-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} --mac 'AA:BB:CC:00:11:22'\
+unifi-camera-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} --mac 'AA:BB:CC:00:11:22'\
   tapo \
   --rtsp "rtsp://{camera_username}:{camera_password}@{camera_ip}:554"
 ```
 
 ## PTZ Support
 ```sh
-unifi-cam-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} --mac 'AA:BB:CC:00:11:22'\
+unifi-camera-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} --mac 'AA:BB:CC:00:11:22'\
   tapo \
   --rtsp "rtsp://{camera_username}:{camera_password}@{camera_ip}:554"\
   --password "{TP Link account Password}"

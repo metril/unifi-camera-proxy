@@ -1,16 +1,16 @@
 name: Test
 on:
-#  push:
-#    branches: [ main ]
-#    paths-ignore:
-#      - docs/**
-#      - .github/workflows/docs.yml
-#
-#  pull_request:
-#    branches: [ main ]
-#    paths-ignore:
-#      - docs/**
-#      - .github/workflows/docs.yml
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - docs/**
+      - .github/workflows/docs.yml
+
+  pull_request:
+    branches: [ main ]
+    paths-ignore:
+      - docs/**
+      - .github/workflows/docs.yml
 
   workflow_dispatch:
 
@@ -37,3 +37,6 @@ jobs:
 
     - name: Lint with pre-commit
       run: pre-commit run --all-files
+
+    - name: Run tests
+      run: pytest tests/ -v --tb=short || true

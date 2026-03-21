@@ -59,7 +59,7 @@ def parse_args():
     parser.add_argument(
         "--name",
         "-n",
-        default="unifi-cam-proxy",
+        default="unifi-camera-proxy",
         help="Name of camera (only works for UFV)",
     )
     parser.add_argument(
@@ -115,7 +115,7 @@ async def generate_token(args, logger):
     except Exception:
         logger.exception(
             "Could not automatically fetch token, please see docs at"
-            " https://unifi-cam-proxy.com/"
+            " https://unifi-camera-proxy.com/"
         )
         return None
     finally:

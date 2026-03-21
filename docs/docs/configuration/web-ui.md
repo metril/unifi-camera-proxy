@@ -6,7 +6,7 @@ sidebar_position: 1
 
 ## Overview
 
-The Web UI (`unifi-cam-proxy-web`) is the recommended way to run unifi-cam-proxy. It provides a browser-based interface to manage multiple cameras from a single container. Configuration is persisted to a YAML file, and cameras are started as managed subprocesses.
+The Web UI (`unifi-camera-proxy-web`) is the recommended way to run unifi-camera-proxy. It provides a browser-based interface to manage multiple cameras from a single container. Configuration is persisted to a YAML file, and cameras are started as managed subprocesses.
 
 Key features:
 
@@ -20,7 +20,7 @@ Key features:
 
 ```yaml
 services:
-  unifi-cam-proxy:
+  unifi-camera-proxy:
     image: ghcr.io/metril/unifi-camera-proxy:latest
     restart: unless-stopped
     ports:
@@ -41,7 +41,7 @@ Open `http://<host>:8080` to access the web UI. Configure your UniFi Protect hos
 | `BIND_PORT` | `8080` | Port the web server listens on |
 | `BIND_ADDRESS` | `0.0.0.0` | IP address the web server binds to |
 
-These can also be passed as CLI arguments `--port` and `--host` to `unifi-cam-proxy-web`.
+These can also be passed as CLI arguments `--port` and `--host` to `unifi-camera-proxy-web`.
 
 ## CLI Arguments
 
@@ -111,7 +111,7 @@ Required fields:
 
 | Field | Description |
 |---|---|
-| `oidc_issuer` | OpenID Connect issuer URL (e.g., `https://auth.example.com/application/o/unifi-cam-proxy/`) |
+| `oidc_issuer` | OpenID Connect issuer URL (e.g., `https://auth.example.com/application/o/unifi-camera-proxy/`) |
 | `oidc_client_id` | OAuth2 client ID |
 | `oidc_client_secret` | OAuth2 client secret |
 

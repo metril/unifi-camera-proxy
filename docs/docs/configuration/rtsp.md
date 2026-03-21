@@ -9,7 +9,7 @@ Depending on your camera, you might need specific flags to make live-streaming s
 Check for your specific camera model in the docs before trying this.
 
 ```sh
-unifi-cam-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} \
+unifi-camera-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} \
   rtsp \
   -s {rtsp stream}
 ```
@@ -42,13 +42,13 @@ optional arguments:
 
 ```yaml
 services:
-  unifi-cam-proxy:
+  unifi-camera-proxy:
     image: ghcr.io/metril/unifi-camera-proxy:latest
     restart: unless-stopped
     volumes:
       - "./client.pem:/client.pem"
     command: >-
-        unifi-cam-proxy
+        unifi-camera-proxy
         --host {NVR IP}
         --cert /client.pem
         --token {Adoption token}
@@ -61,7 +61,7 @@ services:
 ## Hardware Acceleration
 
 ```sh
-unifi-cam-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} \
+unifi-camera-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} \
   rtsp \
   -s {rtsp stream} \
   --ffmpeg-args='-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format yuv420p'

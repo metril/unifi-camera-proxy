@@ -14,8 +14,8 @@ Things that work:
 
 ```yaml
 services:
-  unifi-cam-proxy:
-    image: ghcr.io/metril/unifi-cam-proxy:latest
+  unifi-camera-proxy:
+    image: ghcr.io/metril/unifi-camera-proxy:latest
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -30,14 +30,14 @@ Open `http://<host>:8080` to access the web UI. Configure your UniFi Protect hos
 
 ## Environment Variables
 
-### Web UI (`unifi-cam-proxy-web`)
+### Web UI (`unifi-camera-proxy-web`)
 
 | Variable | Default | Description |
 |---|---|---|
 | `BIND_PORT` | `8080` | Port the web server listens on |
 | `BIND_ADDRESS` | `0.0.0.0` | IP address the web server binds to. Set to a specific interface IP to restrict access (e.g. `127.0.0.1` when behind a reverse proxy). |
 
-### Legacy single-camera mode (`unifi-cam-proxy`)
+### Legacy single-camera mode (`unifi-camera-proxy`)
 
 These variables are used by the entrypoint when running a single RTSP camera without the web UI (the old per-container approach). **The web UI is recommended instead.**
 
@@ -46,7 +46,7 @@ These variables are used by the entrypoint when running a single RTSP camera wit
 | `HOST` | — | Yes | UniFi Protect host IP or hostname |
 | `TOKEN` | — | Yes | Adoption token from Protect |
 | `RTSP_URL` | — | Yes | RTSP stream URL for the camera |
-| `NAME` | `unifi-cam-proxy` | No | Display name shown in Protect |
+| `NAME` | `unifi-camera-proxy` | No | Display name shown in Protect |
 | `MAC` | `AA:BB:CC:00:11:22` | No | MAC address assigned to the virtual camera. Must be unique per camera. |
 
 > **Note:** All three of `HOST`, `TOKEN`, and `RTSP_URL` must be set for legacy mode to activate. If any is missing the container falls through to `exec "$@"`.

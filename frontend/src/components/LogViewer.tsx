@@ -83,36 +83,59 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
   useEffect(() => {
     if (!isOpen || !cameraId) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const token = localStorage.getItem('ui_token');
-    const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/api/cameras/${cameraId}/ws${tokenParam}`);
-    wsRef.current = ws;
+    let reconnectDelay = 1000;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let intentionalClose = false;
 
-    ws.onopen = () => setWsConnected(true);
-    ws.onclose = () => setWsConnected(false);
-    ws.onerror = () => setWsConnected(false);
+    function connect() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const token = localStorage.getItem('ui_token');
+      const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/api/cameras/${cameraId}/ws${tokenParam}`);
+      wsRef.current = ws;
 
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data);
-        if (msg.type === 'logs_batch') {
-          setLogs(msg.data);
-        } else if (msg.type === 'log') {
-          setLogs((prev) => {
-            const next = [...prev, msg.data];
-            return next.length > 500 ? next.slice(-500) : next;
-          });
-        } else if (msg.type === 'diagnostics') {
-          setDiagnostics(msg.data);
-          setSnapshotKey((k) => k + 1);
-          setSnapshotError(false);
+      ws.onopen = () => {
+        setWsConnected(true);
+        reconnectDelay = 1000; // Reset backoff on successful connection
+      };
+
+      ws.onclose = () => {
+        setWsConnected(false);
+        if (!intentionalClose) {
+          reconnectTimer = setTimeout(() => {
+            reconnectDelay = Math.min(reconnectDelay * 2, 30000); // Max 30s backoff
+            connect();
+          }, reconnectDelay);
         }
-      } catch {}
-    };
+      };
+
+      ws.onerror = () => setWsConnected(false);
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'logs_batch') {
+            setLogs(msg.data);
+          } else if (msg.type === 'log') {
+            setLogs((prev) => {
+              const next = [...prev, msg.data];
+              return next.length > 500 ? next.slice(-500) : next;
+            });
+          } else if (msg.type === 'diagnostics') {
+            setDiagnostics(msg.data);
+            setSnapshotKey((k) => k + 1);
+            setSnapshotError(false);
+          }
+        } catch {}
+      };
+    }
+
+    connect();
 
     return () => {
-      ws.close();
+      intentionalClose = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      wsRef.current?.close();
       wsRef.current = null;
       setWsConnected(false);
     };

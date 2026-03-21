@@ -107,7 +107,10 @@ async def get_camera(request: web.Request) -> web.Response:
 async def update_camera(request: web.Request) -> web.Response:
     manager = get_manager(request)
     camera_id = request.match_info["id"]
-    data = await request.json()
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
     errors = _validate_camera_config(data)
     if errors:
         return web.json_response({"errors": errors}, status=400)
@@ -265,7 +268,8 @@ async def camera_ws(request: web.Request) -> web.WebSocketResponse:
     await ws.prepare(request)
 
     # Register this client
-    instance.ws_clients.add(ws)
+    async with instance._ws_lock:
+        instance.ws_clients.add(ws)
     logger.debug(f"WebSocket client connected for camera {camera_id}")
 
     try:
@@ -310,7 +314,8 @@ async def camera_ws(request: web.Request) -> web.WebSocketResponse:
 
         diag_task.cancel()
     finally:
-        instance.ws_clients.discard(ws)
+        async with instance._ws_lock:
+            instance.ws_clients.discard(ws)
         logger.debug(f"WebSocket client disconnected for camera {camera_id}")
 
     return ws
@@ -648,6 +653,28 @@ async def readiness_check(request: web.Request) -> web.Response:
     return web.json_response({"status": "ready"})
 
 
+# --- Rate Limiting ---
+
+_rate_limit_store: dict[str, list[float]] = {}
+RATE_LIMIT_MAX = 20  # requests per window
+RATE_LIMIT_WINDOW = 60  # seconds
+
+
+@web.middleware
+async def rate_limit_middleware(request: web.Request, handler):
+    if not request.path.startswith("/api/auth/"):
+        return await handler(request)
+    ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote or "unknown"
+    now = time.time()
+    timestamps = _rate_limit_store.get(ip, [])
+    timestamps = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW]
+    if len(timestamps) >= RATE_LIMIT_MAX:
+        return web.json_response({"error": "rate_limited"}, status=429)
+    timestamps.append(now)
+    _rate_limit_store[ip] = timestamps
+    return await handler(request)
+
+
 # --- OIDC Auth ---
 
 
@@ -782,7 +809,7 @@ async def on_shutdown(app: web.Application) -> None:
 
 
 def create_app(config_path: str) -> web.Application:
-    app = web.Application(middlewares=[security_headers_middleware, auth_middleware])
+    app = web.Application(middlewares=[security_headers_middleware, rate_limit_middleware, auth_middleware])
 
     resolved_path = Path(config_path).resolve()
     logger.info(f"Config path: {resolved_path} (exists: {resolved_path.exists()})")
