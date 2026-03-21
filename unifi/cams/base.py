@@ -1474,7 +1474,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
 
     async def init_adoption(self) -> None:
         self.logger.info(
-            f"Adopting with token [{self.args.token}] and mac [{self.args.mac}]"
+            f"Adopting with mac [{self.args.mac}]"
         )
         
         # Probe video resolutions only for streams that are actually configured

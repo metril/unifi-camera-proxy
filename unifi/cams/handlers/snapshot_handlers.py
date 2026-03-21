@@ -79,7 +79,8 @@ class SnapshotHandlers:
             if use_frigate:
                 # Fetch from Frigate latest.jpg endpoint
                 snapshot_url = self._build_frigate_fallback_url(snapshot_type)
-                self.logger.info(f"Fetching {snapshot_type} from Frigate (no cached): {snapshot_url}")
+                from unifi.utils import mask_url
+                self.logger.info(f"Fetching {snapshot_type} from Frigate (no cached): {mask_url(snapshot_url)}")
                 await self._fetch_and_upload_snapshot(
                     snapshot_url,
                     msg["payload"]["uri"],

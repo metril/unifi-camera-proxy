@@ -39,7 +39,8 @@ class Core(object):
         )
         async def connect():
             nonlocal has_connected
-            self.logger.info(f"Creating ws connection to {uri}")
+            from unifi.utils import mask_url
+            self.logger.info(f"Creating ws connection to {mask_url(uri)}")
             try:
                 ws = await websockets.connect(
                     uri,
@@ -51,8 +52,7 @@ class Core(object):
             except websockets.exceptions.InvalidStatusCode as e:
                 if e.status_code == 403:
                     self.logger.error(
-                        f"The token '{self.token}'"
-                        " is invalid. Please generate a new one and try again."
+                        "The token is invalid. Please generate a new one and try again."
                     )
                 # Hitting rate-limiting
                 elif e.status_code == 429:
