@@ -144,6 +144,49 @@ class VideoStreamHandlers:
                 restart_timestamps=prev_restart_timestamps,
             )
 
+    async def start_mjpeg_stream(
+        self, stream_name: str, destination: tuple[str, int]
+    ):
+        """Start an MJPEG stream to provide thumbnails to Protect."""
+        stream_index = "mjpg"
+        has_spawned = stream_index in self._ffmpeg_handles
+        is_dead = has_spawned and self._ffmpeg_handles[stream_index].process.poll() is not None
+
+        if not has_spawned or is_dead:
+            source = await self.get_stream_source(stream_index)
+            cmd = (
+                f"AV_LOG_FORCE_NOCOLOR=1 ffmpeg -nostdin -loglevel level+{self.args.loglevel} -y"
+                f" {self.get_base_ffmpeg_args(stream_index)} -rtsp_transport"
+                f' {self.args.rtsp_transport} -i "{source}"'
+                f" -r 2 -f mjpeg -q:v 5 -"
+                f" | nc {destination[0]} {destination[1]}"
+            )
+
+            prev_restart_count = 0
+            prev_restart_timestamps = deque(maxlen=5)
+            if is_dead:
+                prev_state = self._ffmpeg_handles[stream_index]
+                prev_restart_count = prev_state.restart_count
+                prev_restart_timestamps = prev_state.restart_timestamps
+                exit_code = prev_state.process.poll()
+                self.logger.warning(f"Previous MJPEG process died with exit code {exit_code}.")
+
+            self.logger.info(f"Spawning MJPEG stream ({stream_name}): {cmd}")
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                shell=True,
+                preexec_fn=os.setsid,
+            )
+            self._ffmpeg_handles[stream_index] = StreamState(
+                process=proc,
+                stream_name=stream_name,
+                destination=destination,
+                restart_count=prev_restart_count,
+                restart_timestamps=prev_restart_timestamps,
+            )
+
     def stop_video_stream(self, stream_index: str):
         if stream_index in self._ffmpeg_handles:
             self.logger.info(f"Stopping stream {stream_index}")
