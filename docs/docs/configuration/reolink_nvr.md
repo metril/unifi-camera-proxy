@@ -30,7 +30,7 @@ optional arguments:
   - Camera/channel IDs are zero-based
 
 ```sh
-unifi-cam-proxy --mac '{unique MAC}' -H {Protect IP} -i {Reolink NVR IP} -c /client.pem -t {Adoption token} \
+unifi-camera-proxy --mac '{unique MAC}' -H {Protect IP} -i {Reolink NVR IP} -c /client.pem -t {Adoption token} \
     reolink_nvr \
     -u {username} \
     -p {password} \

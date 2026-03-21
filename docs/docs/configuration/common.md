@@ -4,11 +4,11 @@ sidebar_position: 2
 
 # Common Arguments
 
-These arguments are shared by all camera types when using the legacy CLI mode (`unifi-cam-proxy`). In Web UI mode, the equivalent settings are configured through the global settings and per-camera configuration pages.
+These arguments are shared by all camera types when using the legacy CLI mode (`unifi-camera-proxy`). In Web UI mode, the equivalent settings are configured through the global settings and per-camera configuration pages.
 
 ## Global Arguments
 
-These are parsed by the main `unifi-cam-proxy` command, before the camera type subcommand.
+These are parsed by the main `unifi-camera-proxy` command, before the camera type subcommand.
 
 | Argument | Short | Default | Required | Description |
 |---|---|---|---|---|
@@ -17,7 +17,7 @@ These are parsed by the main `unifi-cam-proxy` command, before the camera type s
 | `--token` | `-t` | -- | No | Adoption token (auto-fetched if NVR credentials are provided) |
 | `--mac` | `-m` | `AABBCCDDEEFF` | No | MAC address for the virtual camera. Must be unique per camera. |
 | `--ip` | `-i` | `192.168.1.10` | No | IP address of camera (displayed in UI, used by Tapo/Hikvision) |
-| `--name` | `-n` | `unifi-cam-proxy` | No | Camera name shown in Protect |
+| `--name` | `-n` | `unifi-camera-proxy` | No | Camera name shown in Protect |
 | `--model` | -- | `UVC G4 Bullet` | No | Hardware model to identify as (see supported models below) |
 | `--fw-version` | `-f` | `UVC.S2L.v4.23.8.67...` | No | Firmware version string |
 | `--nvr-username` | -- | -- | No | NVR username (for automatic token fetch) |
@@ -27,7 +27,7 @@ These are parsed by the main `unifi-cam-proxy` command, before the camera type s
 
 ## Camera Type Arguments
 
-These arguments are available on all camera type subcommands (e.g., `unifi-cam-proxy ... rtsp <args>`, `unifi-cam-proxy ... frigate <args>`).
+These arguments are available on all camera type subcommands (e.g., `unifi-camera-proxy ... rtsp <args>`, `unifi-camera-proxy ... frigate <args>`).
 
 ### FFmpeg and Streaming
 

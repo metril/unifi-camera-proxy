@@ -11,7 +11,7 @@ If your camera model is not listed specifically below, try the following:
 - [x] Supports smart detection
 
 ```sh
-unifi-cam-proxy --mac '{unique MAC}' -H {NVR IP} -i {camera IP} -c /client.pem -t {Adoption token} \
+unifi-camera-proxy --mac '{unique MAC}' -H {NVR IP} -i {camera IP} -c /client.pem -t {Adoption token} \
     frigate \
     -s {rtsp source} \
     --mqtt-host {mqtt host} \
@@ -72,13 +72,13 @@ When `--frigate-http-url` is set, camera settings such as detect dimensions, FPS
 
 ```yaml
 services:
-  unifi-cam-proxy:
+  unifi-camera-proxy:
     image: ghcr.io/metril/unifi-camera-proxy:latest
     restart: unless-stopped
     volumes:
       - "./client.pem:/client.pem"
     command: >-
-        unifi-cam-proxy
+        unifi-camera-proxy
         --host {NVR IP}
         --mac '{unique MAC}'
         --cert /client.pem

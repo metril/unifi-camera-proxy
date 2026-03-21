@@ -1,4 +1,4 @@
-"""Shared utilities for unifi-cam-proxy."""
+"""Shared utilities for unifi-camera-proxy."""
 
 import re
 

@@ -44,7 +44,7 @@ optional arguments:
     See the upstream issue comment for details on the `-bsf:v` parameter.
 
 ```sh
-unifi-cam-proxy --mac '{unique MAC}' -H {NVR IP} -i {camera IP} -c /client.pem -t {Adoption token} \
+unifi-camera-proxy --mac '{unique MAC}' -H {NVR IP} -i {camera IP} -c /client.pem -t {Adoption token} \
     amcrest \
     -u {username} \
     -p {password} \

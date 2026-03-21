@@ -1,7 +1,7 @@
 services:
   # Web UI - manages all cameras from a single container
-  unifi-cam-proxy-web:
-    container_name: unifi-cam-proxy-web
+  unifi-camera-proxy-web:
+    container_name: unifi-camera-proxy-web
     restart: unless-stopped
     build: .
     ports:
@@ -26,7 +26,7 @@ services:
       - "./client.pem:/client.pem"
       - "./unifi:/app/unifi"
     command: >-
-      unifi-cam-proxy
+      unifi-camera-proxy
       --verbose
       --host 192.168.1.1
       --mac 'AA:BB:CC:33:44:66'
@@ -52,7 +52,7 @@ services:
       - "./client.pem:/client.pem"
       - "./unifi:/app/unifi"
     command: >-
-      unifi-cam-proxy
+      unifi-camera-proxy
       --verbose
       --host 192.168.1.1
       --mac 'AA:BB:CC:33:44:77'
@@ -78,7 +78,7 @@ services:
       - "./client.pem:/client.pem"
       - "./unifi:/app/unifi"
     command: >-
-      unifi-cam-proxy
+      unifi-camera-proxy
       --verbose
       --host 192.168.1.1
       --mac 'AA:BB:CC:33:44:CC'
@@ -110,7 +110,7 @@ services:
       - "./client.pem:/client.pem"
       - "./unifi:/app/unifi"
     command: >-
-      unifi-cam-proxy
+      unifi-camera-proxy
       --verbose
       --host 192.168.1.1
       --mac 'AA:BB:CC:33:44:99'
@@ -140,7 +140,7 @@ services:
       - "./client.pem:/client.pem"
       - "./unifi:/app/unifi"
     command: >-
-      unifi-cam-proxy
+      unifi-camera-proxy
       --verbose
       --host 192.168.1.1
       --mac 'AA:BB:CC:33:44:AA'
@@ -169,7 +169,7 @@ services:
       - "./client.pem:/client.pem"
       - "./unifi:/app/unifi"
     command: >-
-      unifi-cam-proxy
+      unifi-camera-proxy
       --verbose
       --host 192.168.1.1
       --mac 'AA:BB:CC:33:44:BB'

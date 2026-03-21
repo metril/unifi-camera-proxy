@@ -60,6 +60,7 @@ class CameraInstance:
     _log_task: Optional[asyncio.Task] = None
     diagnostics_port: int = 0
     ws_clients: set = field(default_factory=set)
+    _ws_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class CameraManager:
@@ -118,10 +119,10 @@ class CameraManager:
                 if arg in sensitive_flags and i + 1 < len(masked):
                     masked[i + 1] = '***'
             masked_str = mask_url(' '.join(masked))
-            logger.info(f"Starting camera {camera_id}: unifi-cam-proxy {masked_str}")
+            logger.info(f"Starting camera {camera_id}: unifi-camera-proxy {masked_str}")
 
             process = await asyncio.create_subprocess_exec(
-                "unifi-cam-proxy",
+                "unifi-camera-proxy",
                 *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -469,10 +470,11 @@ class CameraManager:
             return
         import json
         msg = json.dumps({"type": "log", "data": entry})
-        dead = set()
-        for ws in instance.ws_clients:
-            try:
-                await ws.send_str(msg)
-            except Exception:
-                dead.add(ws)
-        instance.ws_clients -= dead
+        async with instance._ws_lock:
+            dead = set()
+            for ws in instance.ws_clients:
+                try:
+                    await ws.send_str(msg)
+                except Exception:
+                    dead.add(ws)
+            instance.ws_clients -= dead

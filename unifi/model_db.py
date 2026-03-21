@@ -2,7 +2,7 @@
 
 The platform code determines the firmware version string format.
 The sysid is sent as the Camera-Model WebSocket header during adoption.
-Data sourced from redalert11/unifi-cam-proxy CameraModelDatabase.
+Data sourced from redalert11/unifi-camera-proxy CameraModelDatabase.
 """
 
 # (platform_code, sysid_hex)

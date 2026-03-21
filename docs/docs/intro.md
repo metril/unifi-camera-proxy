@@ -17,14 +17,14 @@ Open `https://NVR_IP/proxy/protect/api/cameras/manage-payload` and copy the toke
 
 ## Web UI Mode (Recommended)
 
-The recommended way to run unifi-cam-proxy is via the **Web UI** (`unifi-cam-proxy-web`).
+The recommended way to run unifi-camera-proxy is via the **Web UI** (`unifi-camera-proxy-web`).
 The Web UI lets you manage multiple cameras from a single interface, configure camera settings through a browser, and persist configuration to a YAML file.
 
 ### Docker Compose
 
 ```yaml
 services:
-  unifi-cam-proxy:
+  unifi-camera-proxy:
     image: ghcr.io/metril/unifi-camera-proxy:latest
     restart: unless-stopped
     ports:
@@ -69,12 +69,12 @@ Note, the generated certificate must be in the same directory as the `docker-com
 
 ```yaml
 services:
-  unifi-cam-proxy:
+  unifi-camera-proxy:
     image: ghcr.io/metril/unifi-camera-proxy:latest
     restart: unless-stopped
     volumes:
       - "./client.pem:/client.pem"
-    command: unifi-cam-proxy --host {NVR IP} --cert /client.pem --token {Adoption token} rtsp -s rtsp://192.168.201.15:8554/cam
+    command: unifi-camera-proxy --host {NVR IP} --cert /client.pem --token {Adoption token} rtsp -s rtsp://192.168.201.15:8554/cam
 ```
 
 ### Multiple cameras (CLI mode)
@@ -93,7 +93,7 @@ services:
     volumes:
       - "./client.pem:/client.pem"
     command: >-
-        unifi-cam-proxy
+        unifi-camera-proxy
         --host {NVR IP}
         --mac 'AA:BB:CC:00:11:22'
         --cert /client.pem
@@ -105,7 +105,7 @@ services:
     volumes:
       - "./client.pem:/client.pem"
     command: >-
-        unifi-cam-proxy
+        unifi-camera-proxy
         --host {NVR IP}
         --mac 'AA:BB:CC:33:44:55'
         --cert /client.pem
@@ -121,6 +121,6 @@ If you cannot use Docker, you may install the proxy on most Linux distros, but s
 
 ```sh
 apt install ffmpeg netcat python3 python3-pip
-pip3 install unifi-cam-proxy
-unifi-cam-proxy --host {NVR IP} --cert /client.pem --token {Adoption token} rtsp -s rtsp://192.168.201.15:8554/cam
+pip3 install unifi-camera-proxy
+unifi-camera-proxy --host {NVR IP} --cert /client.pem --token {Adoption token} rtsp -s rtsp://192.168.201.15:8554/cam
 ```
