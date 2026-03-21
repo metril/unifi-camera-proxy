@@ -208,6 +208,15 @@ class SnapshotHandlers:
         try:
             async with aiohttp.ClientSession() as session:
                 ssl_val = False if getattr(self.args, 'no_frigate_verify_ssl', False) else None
+
+                # Authenticate with Frigate if credentials are configured
+                username = getattr(self.args, 'frigate_username', None)
+                password = getattr(self.args, 'frigate_password', None)
+                if username and password:
+                    from unifi.web.frigate_api import frigate_login
+                    base_url = getattr(self.args, 'frigate_http_url', '')
+                    await frigate_login(session, base_url, username, password, ssl_val)
+
                 async with session.get(snapshot_url, ssl=ssl_val, timeout=aiohttp.ClientTimeout(total=5.0)) as response:
                     if response.status != 200:
                         error_body = await response.text()

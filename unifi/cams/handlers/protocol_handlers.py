@@ -297,7 +297,6 @@ class ProtocolHandlers:
     ) -> "AVClientResponse":
         """Process video settings change request."""
         vid_dst = {
-            "mjpg": ["file:///tmp/snap.jpeg", "file:///tmp/snap_av.jpg"],
             "video1": ["file:///dev/null"],
             "video2": ["file:///dev/null"],
             "video3": ["file:///dev/null"],
@@ -322,14 +321,9 @@ class ProtocolHandlers:
                                 host, port = urlparse(
                                     v["avSerializer"]["destinations"][0]
                                 ).netloc.split(":")
-                                if k == "mjpg":
-                                    await self.start_mjpeg_stream(
-                                        stream, destination=(host, int(port))
-                                    )
-                                else:
-                                    await self.start_video_stream(
-                                        k, stream, destination=(host, int(port))
-                                    )
+                                await self.start_video_stream(
+                                    k, stream, destination=(host, int(port))
+                                )
                             except ValueError:
                                 pass
 
@@ -357,7 +351,10 @@ class ProtocolHandlers:
                     "videoMode": "default",
                     "mjpg": {
                         "avSerializer": {
-                            "destinations": vid_dst["mjpg"],
+                            "destinations": [
+                                "file:///tmp/snap.jpeg",
+                                "file:///tmp/snap_av.jpg",
+                            ],
                             "parameters": {
                                 "audioId": 1000,
                                 "enableTimestampsOverlapAvoidance": False,
