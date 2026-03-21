@@ -9,6 +9,36 @@ import aiohttp
 logger = logging.getLogger("FrigateAPI")
 
 
+async def frigate_login(
+    session: aiohttp.ClientSession,
+    base_url: str,
+    username: str | None,
+    password: str | None,
+    ssl_param: bool | None = None,
+    timeout: int = 5,
+) -> bool:
+    """Authenticate with Frigate via POST /api/login.
+
+    Sets a JWT session cookie on the session for subsequent requests.
+    Returns True if login succeeded or no credentials were provided.
+    """
+    if not username or not password:
+        return True
+    login_url = f"{base_url}/api/login"
+    async with session.post(
+        login_url,
+        json={"user": username, "password": password},
+        ssl=ssl_param,
+        timeout=aiohttp.ClientTimeout(total=timeout),
+    ) as login_resp:
+        if login_resp.status != 200:
+            text = await login_resp.text()
+            logger.warning(f"Frigate login failed (HTTP {login_resp.status}): {text[:200]}")
+            return False
+        logger.debug("Frigate login successful")
+        return True
+
+
 async def _do_request(
     session: aiohttp.ClientSession,
     base_url: str,
@@ -19,20 +49,8 @@ async def _do_request(
     timeout: int,
 ) -> dict[str, Any]:
     """Execute login + request with given SSL setting."""
-    if username and password:
-        login_url = f"{base_url}/api/login"
-        async with session.post(
-            login_url,
-            json={"user": username, "password": password},
-            ssl=ssl_param,
-            timeout=aiohttp.ClientTimeout(total=timeout),
-        ) as login_resp:
-            if login_resp.status != 200:
-                text = await login_resp.text()
-                raise Exception(
-                    f"Frigate login failed (HTTP {login_resp.status}): {text[:200]}"
-                )
-            logger.debug("Frigate login successful")
+    if not await frigate_login(session, base_url, username, password, ssl_param, timeout):
+        raise Exception("Frigate login failed")
 
     request_url = f"{base_url}{path}"
     async with session.get(

@@ -347,19 +347,14 @@ class FrigateCam(RTSPCam):
                 return None
 
         try:
+            from unifi.web.frigate_api import frigate_login
             async with aiohttp.ClientSession() as session:
-                # Authenticate via POST /api/login if credentials are set
                 username = getattr(self.args, 'frigate_username', None)
                 password = getattr(self.args, 'frigate_password', None)
-                if username and password:
-                    async with session.post(
-                        f"{self.args.frigate_http_url}/api/login",
-                        json={"user": username, "password": password},
-                        ssl=ssl_val,
-                        timeout=aiohttp.ClientTimeout(total=5),
-                    ) as login_resp:
-                        if login_resp.status != 200:
-                            self.logger.warning(f"Frigate login failed (HTTP {login_resp.status}), trying without auth")
+                await frigate_login(
+                    session, self.args.frigate_http_url,
+                    username, password, ssl_val,
+                )
 
                 results = await asyncio.gather(
                     fetch_url(session, full_url, "full"),
