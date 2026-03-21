@@ -140,10 +140,9 @@ class DahuaCam(UnifiCamBase):
             raise RetryableError("Could not generate RTSP URL")
 
     async def process_continuous_move(self, msg: AVClientRequest) -> None:
-        if self.args.ptz == False:
+        if self.args.ptz is False:
             return
 
-        headers={"Authorization": "Basic "}
         x = msg["payload"].get("x")
         y = msg["payload"].get("y")
         z = msg["payload"].get("z")

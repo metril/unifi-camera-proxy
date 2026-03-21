@@ -66,7 +66,11 @@ optional arguments:
 
 ## Auto-detection
 
-When `--frigate-http-url` is set, camera settings such as detect dimensions, FPS, and stream URLs are automatically fetched from Frigate's config API. This means you can omit `--source` / `--video1` and let the proxy discover stream URLs from your Frigate configuration.
+When `--frigate-http-url` is set, camera settings such as detect
+dimensions, FPS, and stream URLs are automatically fetched from
+Frigate's config API. This means you can omit `--source` /
+`--video1` and let the proxy discover stream URLs from your
+Frigate configuration.
 
 ## Docker Compose
 

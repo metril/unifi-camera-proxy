@@ -599,18 +599,7 @@ class FrigateCam(RTSPCam):
                     f"Frigate: Received: {frigate_msg} "
                 )
 
-            before_snapshot_time = frigate_msg.get('before', {}).get('snapshot', {}).get('frame_time', 'N/A') if frigate_msg.get('before', {}).get('snapshot') else 'N/A'
-            after_snapshot_time = frigate_msg.get('after', {}).get('snapshot', {}).get('frame_time', 'N/A') if frigate_msg.get('after', {}).get('snapshot') else 'N/A'
-            
-            before_data = frigate_msg.get('before', {})
             after_data = frigate_msg.get('after', {})
-            
-            #self.logger.debug(
-            #    f"Times - before: frame={before_data.get('frame_time', 'N/A')}, snapshot_frame={before_snapshot_time}, start={before_data.get('start_time', 'N/A')}, end={before_data.get('end_time', 'N/A')} | after: frame={after_data.get('frame_time', 'N/A')}, snapshot_frame={after_snapshot_time}, start={after_data.get('start_time', 'N/A')}, end={after_data.get('end_time', 'N/A')}"
-            #)
-
-            #self.logger.debug(
-            #    f"{before_data.get('frame_time', 'N/A')},{before_snapshot_time},{before_data.get('start_time', 'N/A')},{before_data.get('end_time', 'N/A')},{after_data.get('frame_time', 'N/A')},{after_snapshot_time},{after_data.get('start_time', 'N/A')},{after_data.get('end_time', 'N/A')}"
             #)
 
             object_type = self.label_to_object_type(label)
@@ -647,7 +636,6 @@ class FrigateCam(RTSPCam):
                 custom_descriptor = self.build_descriptor_from_frigate_msg(
                     frigate_msg, object_type
                 )
-                start_time_ms = int(frigate_msg.get('after', {}).get('start_time', 0) * 1000) - self.args.frigate_time_sync_ms
                 frame_time_ms = int(frigate_msg.get('after', {}).get('frame_time', 0) * 1000) - self.args.frigate_time_sync_ms
                  
                 unifi_event_id = await self.trigger_smart_detect_start(object_type, custom_descriptor, frame_time_ms)

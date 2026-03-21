@@ -3,17 +3,12 @@ import asyncio
 import atexit
 import json
 import logging
-import shutil
 import ssl
-import subprocess
-import sys
-import tempfile
 import time
 from abc import ABCMeta, abstractmethod
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
-from urllib.parse import urlparse
 
 import aiohttp
 from aiohttp import web
@@ -21,6 +16,7 @@ import websockets
 
 from unifi.core import RetryableError
 from unifi.cams.handlers import ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers
+from unifi.cams.handlers.video_stream_handlers import StreamState
 
 AVClientRequest = AVClientResponse = dict[str, Any]
 
@@ -1259,8 +1255,8 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         # Get the event ID from the active analytics event
         if self._active_analytics_event_id is None:
             self.logger.warning(
-                f"trigger_analytics_stop called but no active event found. "
-                f"Event may have already ended or never started. Ignoring."
+                "trigger_analytics_stop called but no active event found. "
+                "Event may have already ended or never started. Ignoring."
             )
             return
         
