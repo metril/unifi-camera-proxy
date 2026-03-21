@@ -1,9 +1,28 @@
+import asyncio
 import json
 import os
 import signal
 import subprocess
 import sys
+import time
+from collections import deque
+from dataclasses import dataclass, field
 from typing import Any
+
+
+@dataclass
+class StreamState:
+    process: subprocess.Popen
+    stream_name: str
+    destination: tuple[str, int]
+    restart_count: int = 0
+    restart_timestamps: deque = field(default_factory=lambda: deque(maxlen=5))
+    last_start_time: float = field(default_factory=time.time)
+
+
+WATCHDOG_INTERVAL = 30  # seconds
+MAX_RESTARTS = 5
+RESTART_WINDOW = 600  # 10 minutes
 
 
 class VideoStreamHandlers:
@@ -81,7 +100,7 @@ class VideoStreamHandlers:
         self, stream_index: str, stream_name: str, destination: tuple[str, int]
     ):
         has_spawned = stream_index in self._ffmpeg_handles
-        is_dead = has_spawned and self._ffmpeg_handles[stream_index].poll() is not None
+        is_dead = has_spawned and self._ffmpeg_handles[stream_index].process.poll() is not None
 
         if not has_spawned or is_dead:
             source = await self.get_stream_source(stream_index)
@@ -96,26 +115,39 @@ class VideoStreamHandlers:
                 f" {destination[0]} {destination[1]}"
             )
 
+            # Preserve restart tracking from previous state
+            prev_restart_count = 0
+            prev_restart_timestamps = deque(maxlen=5)
             if is_dead:
-                exit_code = self._ffmpeg_handles[stream_index].poll()
+                prev_state = self._ffmpeg_handles[stream_index]
+                prev_restart_count = prev_state.restart_count
+                prev_restart_timestamps = prev_state.restart_timestamps
+                exit_code = prev_state.process.poll()
                 self.logger.warning(f"Previous ffmpeg process for {stream_index} died with exit code {exit_code}.")
 
             self.logger.info(
                 f"Spawning ffmpeg for {stream_index} ({stream_name}): {cmd}"
             )
             # Start process in a new process group so we can kill the entire pipeline
-            self._ffmpeg_handles[stream_index] = subprocess.Popen(
-                cmd, 
-                stdout=subprocess.DEVNULL, 
-                stderr=subprocess.DEVNULL, 
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 shell=True,
                 preexec_fn=os.setsid  # Create new process group
+            )
+            self._ffmpeg_handles[stream_index] = StreamState(
+                process=proc,
+                stream_name=stream_name,
+                destination=destination,
+                restart_count=prev_restart_count,
+                restart_timestamps=prev_restart_timestamps,
             )
 
     def stop_video_stream(self, stream_index: str):
         if stream_index in self._ffmpeg_handles:
             self.logger.info(f"Stopping stream {stream_index}")
-            proc = self._ffmpeg_handles[stream_index]
+            proc = self._ffmpeg_handles[stream_index].process
             
             # Check if process is already dead
             if proc.poll() is not None:
@@ -152,6 +184,67 @@ class VideoStreamHandlers:
             
             # Remove from handles
             del self._ffmpeg_handles[stream_index]
+
+    async def _stream_health_watchdog(self) -> None:
+        """Periodically check FFmpeg process health and restart dead streams."""
+        while True:
+            await asyncio.sleep(WATCHDOG_INTERVAL)
+            for stream_index in list(self._ffmpeg_handles.keys()):
+                state = self._ffmpeg_handles.get(stream_index)
+                if state is None:
+                    continue
+
+                exit_code = state.process.poll()
+                if exit_code is None:
+                    continue  # Process is alive
+
+                uptime = time.time() - state.last_start_time
+                self.logger.warning(
+                    f"Watchdog: FFmpeg for {stream_index} ({state.stream_name}) "
+                    f"died with exit code {exit_code} "
+                    f"(was running for {uptime:.1f}s, "
+                    f"restart count: {state.restart_count})"
+                )
+
+                # Check restart rate limit
+                now = time.time()
+                while state.restart_timestamps and (now - state.restart_timestamps[0]) > RESTART_WINDOW:
+                    state.restart_timestamps.popleft()
+
+                if len(state.restart_timestamps) >= MAX_RESTARTS:
+                    self.logger.error(
+                        f"Watchdog: {stream_index} has restarted {MAX_RESTARTS} times "
+                        f"in the last {RESTART_WINDOW}s. Giving up until Protect re-requests."
+                    )
+                    del self._ffmpeg_handles[stream_index]
+                    continue
+
+                # Attempt restart
+                state.restart_count += 1
+                state.restart_timestamps.append(now)
+                saved_name = state.stream_name
+                saved_dest = state.destination
+                saved_count = state.restart_count
+                saved_timestamps = state.restart_timestamps
+
+                # Remove dead handle so start_video_stream treats it as fresh
+                del self._ffmpeg_handles[stream_index]
+
+                try:
+                    await self.start_video_stream(stream_index, saved_name, saved_dest)
+                    # Restore restart tracking on the new StreamState
+                    if stream_index in self._ffmpeg_handles:
+                        new_state = self._ffmpeg_handles[stream_index]
+                        new_state.restart_count = saved_count
+                        new_state.restart_timestamps = saved_timestamps
+                        self.logger.info(
+                            f"Watchdog: Restarted {stream_index} successfully "
+                            f"(restart #{saved_count})"
+                        )
+                except Exception:
+                    self.logger.exception(
+                        f"Watchdog: Failed to restart {stream_index}"
+                    )
 
     def close_streams(self):
         for stream in list(self._ffmpeg_handles):
