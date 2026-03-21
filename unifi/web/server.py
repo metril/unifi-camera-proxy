@@ -60,10 +60,33 @@ async def list_cameras(request: web.Request) -> web.Response:
     return web.json_response(manager.get_all_statuses())
 
 
+VALID_CAMERA_TYPES = {
+    "rtsp", "frigate", "amcrest", "dahua", "hikvision",
+    "lorex", "reolink", "reolink_nvr", "tapo",
+}
+
+
+def _validate_camera_config(data: dict) -> list[str]:
+    """Validate camera config and return list of error messages."""
+    errors = []
+    if not data.get("name"):
+        errors.append("'name' is required")
+    if not data.get("type"):
+        errors.append("'type' is required")
+    elif data["type"] not in VALID_CAMERA_TYPES:
+        errors.append(f"'type' must be one of: {', '.join(sorted(VALID_CAMERA_TYPES))}")
+    if not data.get("mac"):
+        errors.append("'mac' is required")
+    return errors
+
+
 async def add_camera(request: web.Request) -> web.Response:
     manager = get_manager(request)
     try:
         data = await request.json()
+        errors = _validate_camera_config(data)
+        if errors:
+            return web.json_response({"errors": errors}, status=400)
         result = manager.add_camera(data)
         return web.json_response(result, status=201)
     except Exception as e:
@@ -85,6 +108,9 @@ async def update_camera(request: web.Request) -> web.Response:
     manager = get_manager(request)
     camera_id = request.match_info["id"]
     data = await request.json()
+    errors = _validate_camera_config(data)
+    if errors:
+        return web.json_response({"errors": errors}, status=400)
     try:
         result = manager.update_camera(camera_id, data)
         return web.json_response(result)
@@ -134,14 +160,14 @@ async def restart_camera(request: web.Request) -> web.Response:
 
 async def start_all(request: web.Request) -> web.Response:
     manager = get_manager(request)
-    asyncio.create_task(manager.start_all())
-    return web.json_response({"status": "starting"})
+    results = await manager.start_all()
+    return web.json_response({"status": "completed", "cameras": results})
 
 
 async def stop_all(request: web.Request) -> web.Response:
     manager = get_manager(request)
-    await manager.stop_all()
-    return web.json_response({"status": "stopped"})
+    results = await manager.stop_all()
+    return web.json_response({"status": "completed", "cameras": results})
 
 
 async def get_camera_logs(request: web.Request) -> web.Response:
@@ -608,6 +634,20 @@ async def security_headers_middleware(request: web.Request, handler):
     return response
 
 
+# --- Health Checks ---
+
+
+async def health_check(request: web.Request) -> web.Response:
+    return web.json_response({"status": "ok"})
+
+
+async def readiness_check(request: web.Request) -> web.Response:
+    manager: CameraManager | None = request.app.get("manager")
+    if not manager:
+        return web.json_response({"status": "not ready"}, status=503)
+    return web.json_response({"status": "ready"})
+
+
 # --- OIDC Auth ---
 
 
@@ -625,7 +665,11 @@ async def auth_middleware(request: web.Request, handler):
     if not token:
         token = request.rel_url.query.get("token")  # WebSocket fallback
     if token and token in manager.valid_tokens:
-        return await handler(request)
+        if manager.valid_tokens[token] > time.time():
+            return await handler(request)
+        else:
+            manager.valid_tokens.pop(token, None)
+            return web.json_response({"error": "token_expired"}, status=401)
 
     return web.json_response({"error": "Unauthorized"}, status=401)
 
@@ -659,7 +703,7 @@ async def auth_callback(request: web.Request) -> web.Response:
         tokens = await provider.exchange_code(code, pending.code_verifier, pending.redirect_uri)
         await provider.validate_id_token(tokens["id_token"])
         session_token = secrets.token_hex(32)
-        manager.valid_tokens.add(session_token)
+        manager.valid_tokens[session_token] = time.time() + 86400  # 24 hours
         raise web.HTTPFound(f"/#token={session_token}")
     except web.HTTPFound:
         raise
@@ -673,7 +717,7 @@ async def auth_logout(request: web.Request) -> web.Response:
     auth_header = request.headers.get("Authorization", "")
     token = auth_header[7:] if auth_header.startswith("Bearer ") else None
     if token:
-        manager.valid_tokens.discard(token)
+        manager.valid_tokens.pop(token, None)
     return web.json_response({"status": "logged_out"})
 
 
@@ -683,7 +727,7 @@ async def auth_end_session(request: web.Request) -> web.Response:
     manager = get_manager(request)
     token = request.rel_url.query.get("token")
     if token:
-        manager.valid_tokens.discard(token)
+        manager.valid_tokens.pop(token, None)
     provider = manager.oidc_provider
     if provider:
         d = await provider.discover()
@@ -746,6 +790,10 @@ def create_app(config_path: str) -> web.Application:
 
     manager = CameraManager(config_path)
     app["manager"] = manager
+
+    # Health check routes (no auth required)
+    app.router.add_get("/health", health_check)
+    app.router.add_get("/ready", readiness_check)
 
     # Auth routes (must come before catch-all)
     app.router.add_get("/api/auth/login", auth_login)

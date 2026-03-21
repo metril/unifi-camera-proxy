@@ -41,3 +41,5 @@ unifi-cam-proxy --mac '{unique MAC}' -H {NVR IP} -i {camera IP} -c /client.pem -
     -p {password} \
     --ffmpeg-args="-f lavfi -i anullsrc -c:v copy -ar 32000 -ac 1 -codec:a aac -b:a 32k"
 ```
+
+For common arguments shared by all camera types, see [Common Arguments](common).

@@ -30,9 +30,11 @@ optional arguments:
                         Camera username
   --password PASSWORD, -p PASSWORD
                         Camera password
-  --substream SUBSTREAM, -s CHANNEL
-                        Camera rtsp url substream index main, or sub
-```  
+  --stream {main,sub}, -m {main,sub}
+                        Stream profile to use for the higher quality stream (default: main)
+  --substream {main,sub}, -s {main,sub}
+                        Stream profile to use for the lower quality stream (default: sub)
+```
 
 ## RLC-410-5MP
 
@@ -50,3 +52,5 @@ unifi-cam-proxy --mac '{unique MAC}' -H {NVR IP} -i {camera IP} -c /client.pem -
     -s "main" \
     --ffmpeg-args='-c:v copy -bsf:v "h264_metadata=tick_rate=60000/1001" -ar 32000 -ac 1 -codec:a aac -b:a 32k'
 ```
+
+For common arguments shared by all camera types, see [Common Arguments](common).

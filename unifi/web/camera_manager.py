@@ -70,7 +70,7 @@ class CameraManager:
         self.config = load_config(config_path)
         self.instances: dict[str, CameraInstance] = {}
         self._monitor_task: Optional[asyncio.Task] = None
-        self.valid_tokens: set[str] = set()
+        self.valid_tokens: dict[str, float] = {}  # token -> expiry timestamp
         self.pending_auths: dict[str, PendingAuth] = {}
         self._oidc_cache: tuple[str, str, OIDCProvider] | None = None  # (issuer, client_id, provider)
 
@@ -328,21 +328,34 @@ class CameraManager:
                     await self.start_camera(cam_id)
                     await asyncio.sleep(1.5)  # Stagger startup
 
-    async def start_all(self) -> None:
+    async def start_all(self) -> dict[str, str]:
         """Start all cameras regardless of enabled flag (manual trigger)."""
+        results = {}
         for cam_config in self.config.get("cameras", []):
             cam_id = cam_config["id"]
             if cam_id in self.instances and self.instances[cam_id].status != "running":
-                await self.start_camera(cam_id)
+                try:
+                    await self.start_camera(cam_id)
+                    results[cam_id] = "started"
+                except Exception as e:
+                    results[cam_id] = f"error: {e}"
                 await asyncio.sleep(1.5)
+            elif cam_id in self.instances:
+                results[cam_id] = "already_running"
+        return results
 
-    async def stop_all(self) -> None:
-        tasks = []
-        for cam_id, instance in self.instances.items():
+    async def stop_all(self) -> dict[str, str]:
+        results = {}
+        for cam_id, instance in list(self.instances.items()):
             if instance.status == "running":
-                tasks.append(self.stop_camera(cam_id))
-        if tasks:
-            await asyncio.gather(*tasks)
+                try:
+                    await self.stop_camera(cam_id)
+                    results[cam_id] = "stopped"
+                except Exception as e:
+                    results[cam_id] = f"error: {e}"
+            else:
+                results[cam_id] = "not_running"
+        return results
 
     def add_camera(self, camera_config: dict) -> dict:
         """Add a new camera to config and return it with generated id."""

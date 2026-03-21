@@ -36,3 +36,5 @@ unifi-cam-proxy --mac '{unique MAC}' -H {Protect IP} -i {Reolink NVR IP} -c /cli
     -p {password} \
     -c {Camera channel}
 ```
+
+For common arguments shared by all camera types, see [Common Arguments](common).

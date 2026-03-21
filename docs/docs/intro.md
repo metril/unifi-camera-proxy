@@ -30,12 +30,9 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./config:/config
+      - "./data:/app/data"
     environment:
-      HOST: "unifi-protect-ip"
-      TOKEN: "your-adoption-token"
       BIND_ADDRESS: "0.0.0.0"
-      CONFIG_PATH: "/config/config.yaml"
 ```
 
 Once running, open `http://localhost:8080` in your browser to add and manage cameras.

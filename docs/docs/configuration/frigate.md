@@ -51,6 +51,15 @@ optional arguments:
                         Frigate API authentication password (needed when behind reverse proxy)
   --no-frigate-verify-ssl
                         Skip SSL certificate verification for Frigate API requests
+  --mqtt-username USER  MQTT authentication username
+  --mqtt-password PASS  MQTT authentication password
+  --camera-width WIDTH  Camera frame width in pixels (default: 1920)
+  --camera-height HEIGHT
+                        Camera frame height in pixels (default: 1080)
+  --frigate-detect-width WIDTH
+                        Frigate detection frame width in pixels (default: 1280)
+  --frigate-detect-height HEIGHT
+                        Frigate detection frame height in pixels (default: 720)
   --frigate-time-sync-ms MS
                         Time synchronization offset in milliseconds (default: 0)
 ```
@@ -79,3 +88,5 @@ services:
         --mqtt-host {mqtt host}
         --frigate-camera {camera name}
 ```
+
+For common arguments shared by all camera types, see [Common Arguments](common).

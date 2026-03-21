@@ -52,3 +52,5 @@ unifi-cam-proxy --mac '{unique MAC}' -H {NVR IP} -i {camera IP} -c /client.pem -
     --snapshot-channel 1 \
     --ffmpeg-args='-c:a copy -c:v copy -bsf:v "h264_metadata=tick_rate=30000/1001"'
 ```
+
+For common arguments shared by all camera types, see [Common Arguments](common).

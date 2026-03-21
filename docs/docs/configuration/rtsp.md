@@ -66,3 +66,5 @@ unifi-cam-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} \
   -s {rtsp stream} \
   --ffmpeg-args='-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format yuv420p'
 ```
+
+For common arguments shared by all camera types, see [Common Arguments](common).
