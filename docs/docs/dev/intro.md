@@ -39,7 +39,7 @@ In order to add a camera to Protect, you must first generate an adoption token.
 The token is only valid for 60 minutes.
 You will need to re-generate a new one if it expires during your initial setup.
 
-Open https://{NVR IP}/proxy/protect/api/cameras/manage-payload and copy the token field.
+Open `https://<NVR IP>/proxy/protect/api/cameras/manage-payload` and copy the token field.
 
 ## Docker
 
