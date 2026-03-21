@@ -28,6 +28,9 @@ optional arguments:
                         RTSP transport protocol used by stream
   --source SOURCE, -s SOURCE
                         Stream source
+  --video1 URL          High-quality stream source (preferred over --source)
+  --video2 URL          Medium-quality stream source
+  --video3 URL          Low-quality stream source
   --http-api HTTP_API   Specify a port number to enable the HTTP API (default: disabled)
   --snapshot-url SNAPSHOT_URL, -i SNAPSHOT_URL
                         HTTP endpoint to fetch snapshot image from
@@ -37,6 +40,42 @@ optional arguments:
                         MQTT port
   --mqtt-prefix MQTT_PREFIX
                         Topic prefix
+  --mqtt-ssl            Enable MQTT TLS/SSL
   --frigate-camera FRIGATE_CAMERA
                         Name of camera in frigate
+  --frigate-http-url URL
+                        Frigate HTTP API base URL for snapshot fetching and auto-detection
+  --frigate-username USER
+                        Frigate API authentication username (needed when behind reverse proxy)
+  --frigate-password PASS
+                        Frigate API authentication password (needed when behind reverse proxy)
+  --no-frigate-verify-ssl
+                        Skip SSL certificate verification for Frigate API requests
+  --frigate-time-sync-ms MS
+                        Time synchronization offset in milliseconds (default: 0)
+```
+
+## Auto-detection
+
+When `--frigate-http-url` is set, camera settings such as detect dimensions, FPS, and stream URLs are automatically fetched from Frigate's config API. This means you can omit `--source` / `--video1` and let the proxy discover stream URLs from your Frigate configuration.
+
+## Docker Compose
+
+```yaml
+services:
+  unifi-cam-proxy:
+    image: ghcr.io/metril/unifi-camera-proxy:latest
+    restart: unless-stopped
+    volumes:
+      - "./client.pem:/client.pem"
+    command: >-
+        unifi-cam-proxy
+        --host {NVR IP}
+        --mac '{unique MAC}'
+        --cert /client.pem
+        --token {Adoption token}
+        frigate
+        -s {rtsp source}
+        --mqtt-host {mqtt host}
+        --frigate-camera {camera name}
 ```

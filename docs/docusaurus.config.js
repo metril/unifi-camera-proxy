@@ -1,20 +1,18 @@
 // @ts-check
-// Note: type annotations allow type checking and IDEs autocompletion
 
-const lightCodeTheme = require('prism-react-renderer/themes/github');
-const darkCodeTheme = require('prism-react-renderer/themes/dracula');
+const {themes} = require('prism-react-renderer');
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'unifi-cam-proxy',
-  tagline: 'Dinosaurs are cool',
-  url: 'https://zacharee.github.io',
-  baseUrl: '/unifi-cam-proxy/',
+  title: 'unifi-camera-proxy',
+  tagline: 'Bridge third-party cameras to UniFi Protect',
+  url: 'https://metril.github.io',
+  baseUrl: '/unifi-camera-proxy/',
   onBrokenLinks: 'throw',
   onBrokenMarkdownLinks: 'warn',
   favicon: 'img/favicon.ico',
-  organizationName: 'zacharee', // Usually your GitHub org/user name.
-  projectName: 'unifi-cam-proxy', // Usually your repo name.
+  organizationName: 'metril',
+  projectName: 'unifi-camera-proxy',
   trailingSlash: false,
   presets: [
     [
@@ -23,12 +21,11 @@ const config = {
       ({
         docs: {
           routeBasePath: '/',
-          sidebarPath: require.resolve('./sidebars.js'),
-          // Please change this to your repo.
-          editUrl: 'https://github.com/zacharee/unifi-cam-proxy/tree/main/docs/',
+          sidebarPath: './sidebars.js',
+          editUrl: 'https://github.com/metril/unifi-camera-proxy/tree/main/docs/',
         },
         theme: {
-          customCss: require.resolve('./src/css/custom.css'),
+          customCss: './src/css/custom.css',
         },
       }),
     ],
@@ -38,7 +35,7 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       navbar: {
-        title: 'unifi-cam-proxy',
+        title: 'unifi-camera-proxy',
         items: [
           {
             type: 'doc',
@@ -47,7 +44,7 @@ const config = {
             label: 'Docs',
           },
           {
-            href: 'https://github.com/zacharee/unifi-cam-proxy',
+            href: 'https://github.com/metril/unifi-camera-proxy',
             label: 'GitHub',
             position: 'right',
           },
@@ -61,16 +58,16 @@ const config = {
             items: [
               {
                 label: 'GitHub',
-                href: 'https://github.com/zacharee/unifi-cam-proxy',
+                href: 'https://github.com/metril/unifi-camera-proxy',
               },
             ],
           },
         ],
-        copyright: `Copyright © ${new Date().getFullYear()} Keshav Varma, Zachary Wander. Built with Docusaurus.`,
+        copyright: `Copyright © ${new Date().getFullYear()} unifi-camera-proxy contributors. Built with Docusaurus.`,
       },
       prism: {
-        theme: lightCodeTheme,
-        darkTheme: darkCodeTheme,
+        theme: themes.github,
+        darkTheme: themes.dracula,
       },
     }),
 };
