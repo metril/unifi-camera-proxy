@@ -20,15 +20,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: yarn
-          cache-dependency-path: ./docs/yarn.lock
+          cache: npm
+          cache-dependency-path: ./docs/package-lock.json
 
       - name: Install Dependencies
-        run: yarn install --frozen-lockfile
+        run: npm ci
         working-directory: docs
 
       - name: Build
-        run: yarn build
+        run: npm run build
         working-directory: docs
 
       - name: Deploy

@@ -52,7 +52,7 @@ version: "3.9"
 services:
   unifi-cam-proxy:
     restart: unless-stopped
-    build: https://github.com/zacharee/unifi-cam-proxy.git
+    image: ghcr.io/metril/unifi-camera-proxy:latest
     volumes:
       - "./client.pem:/client.pem"
     command: unifi-cam-proxy --host {NVR IP} --cert /client.pem --token {Adoption token} rtsp -s rtsp://192.168.201.15:8554/cam'
@@ -71,7 +71,7 @@ version: "3.5"
 services:
   proxy-1:
     restart: unless-stopped
-    build: https://github.com/zacharee/unifi-cam-proxy.git
+    image: ghcr.io/metril/unifi-camera-proxy:latest
     volumes:
       - "./client.pem:/client.pem"
     command: >-
@@ -83,7 +83,7 @@ services:
         rtsp -s rtsp://192.168.201.15:8554/cam
   proxy-2:
     restart: unless-stopped
-    build: https://github.com/zacharee/unifi-cam-proxy.git
+    image: ghcr.io/metril/unifi-camera-proxy:latest
     volumes:
       - "./client.pem:/client.pem"
     command: >-

@@ -7,6 +7,44 @@ sidebar_position: 1
 
 ## Prerequisites
 
+### Adoption Token
+
+In order to add a camera to Protect, you must first generate an adoption token.
+The token is only valid for 60 minutes.
+You will need to re-generate a new one if it expires during your initial setup.
+
+Open https://{NVR IP}/proxy/protect/api/cameras/manage-payload and copy the token field.
+
+## Web UI Mode (Recommended)
+
+The recommended way to run unifi-cam-proxy is via the **Web UI** (`unifi-cam-proxy-web`).
+The Web UI lets you manage multiple cameras from a single interface, configure camera settings through a browser, and persist configuration to a YAML file.
+
+### Docker Compose
+
+```yaml
+services:
+  unifi-cam-proxy:
+    image: ghcr.io/metril/unifi-camera-proxy:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/config
+    environment:
+      HOST: "unifi-protect-ip"
+      TOKEN: "your-adoption-token"
+      BIND_ADDRESS: "0.0.0.0"
+      CONFIG_PATH: "/config/config.yaml"
+```
+
+Once running, open `http://localhost:8080` in your browser to add and manage cameras.
+
+## Legacy CLI Mode
+
+For single-camera setups or advanced scripting, you can use the legacy CLI directly.
+This requires generating a client certificate and passing all options on the command line.
+
 ### Certificate
 
 Generate a certificate by performing one of the following:
@@ -27,32 +65,22 @@ Generate a certificate by performing one of the following:
     rm -f /tmp/private.key /tmp/public.key /tmp/server.csr
     ```
 
-### Adoption Token
+### Docker
 
-In order to add a camera to Protect, you must first generate an adoption token.
-The token is only valid for 60 minutes.
-You will need to re-generate a new one if it expires during your initial setup.
-
-Open https://{NVR IP}/proxy/protect/api/cameras/manage-payload and copy the token field.
-
-## Docker
-
-Using Docker is the recommended installation method.
-The sample docker-compose file below is the recommended deployment for most users.
+The sample docker-compose file below shows legacy CLI deployment for a single camera.
 Note, the generated certificate must be in the same directory as the `docker-compose.yaml` file.
 
 ```yaml
-version: "3.9"
 services:
   unifi-cam-proxy:
+    image: ghcr.io/metril/unifi-camera-proxy:latest
     restart: unless-stopped
-    build: https://github.com/zacharee/unifi-cam-proxy.git
     volumes:
       - "./client.pem:/client.pem"
-    command: unifi-cam-proxy --host {NVR IP} --cert /client.pem --token {Adoption token} rtsp -s rtsp://192.168.201.15:8554/cam'
+    command: unifi-cam-proxy --host {NVR IP} --cert /client.pem --token {Adoption token} rtsp -s rtsp://192.168.201.15:8554/cam
 ```
 
-### Multiple cameras
+### Multiple cameras (CLI mode)
 
 To use multiple cameras, start an instance of the proxy for each, with a unique MAC address argument.
 Using docker-compose, your setup might look like the following:
@@ -61,11 +89,10 @@ Using docker-compose, your setup might look like the following:
 ***See here for more details: <https://www.mist.com/get-to-know-mac-address-randomization-in-2020/>***
 
 ```yaml
-version: "3.5"
 services:
   proxy-1:
+    image: ghcr.io/metril/unifi-camera-proxy:latest
     restart: unless-stopped
-    build: https://github.com/zacharee/unifi-cam-proxy.git
     volumes:
       - "./client.pem:/client.pem"
     command: >-
@@ -76,8 +103,8 @@ services:
         --token {Adoption token}
         rtsp -s rtsp://192.168.201.15:8554/cam
   proxy-2:
+    image: ghcr.io/metril/unifi-camera-proxy:latest
     restart: unless-stopped
-    build: https://github.com/zacharee/unifi-cam-proxy.git
     volumes:
       - "./client.pem:/client.pem"
     command: >-
@@ -89,15 +116,14 @@ services:
         rtsp -s rtsp://192.168.201.15:8554/cam
 ```
 
-## Bare Metal
+### Bare Metal
 
 If you cannot use Docker, you may install the proxy on most Linux distros, but support is not guaranteed.
-Find instructions for your distro below:
 
-### Ubuntu/Debian
+#### Ubuntu/Debian
 
 ```sh
 apt install ffmpeg netcat python3 python3-pip
 pip3 install unifi-cam-proxy
-unifi-cam-proxy --host {NVR IP} --cert /client.pem --token {Adoption token} rtsp -s rtsp://192.168.201.15:8554/cam'
+unifi-cam-proxy --host {NVR IP} --cert /client.pem --token {Adoption token} rtsp -s rtsp://192.168.201.15:8554/cam
 ```
