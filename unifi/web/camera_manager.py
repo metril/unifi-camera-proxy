@@ -111,12 +111,13 @@ class CameraManager:
             args = config_to_args(global_config, instance.config, diagnostics_port=diag_port)
 
             # Mask credentials in logged command
+            from unifi.utils import mask_url
             sensitive_flags = {'--token', '--nvr-password', '--api-key', '--mqtt-password'}
             masked = list(args)
             for i, arg in enumerate(masked):
                 if arg in sensitive_flags and i + 1 < len(masked):
                     masked[i + 1] = '***'
-            masked_str = re.sub(r'://[^@]+@', '://***:***@', ' '.join(masked))
+            masked_str = mask_url(' '.join(masked))
             logger.info(f"Starting camera {camera_id}: unifi-cam-proxy {masked_str}")
 
             process = await asyncio.create_subprocess_exec(

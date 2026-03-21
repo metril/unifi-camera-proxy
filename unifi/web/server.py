@@ -583,6 +583,31 @@ async def generate_cert(request: web.Request) -> web.Response:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+# --- Security Headers ---
+
+
+@web.middleware
+async def security_headers_middleware(request: web.Request, handler):
+    response = await handler(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self' wss: ws:; "
+        "font-src 'self'; "
+        "frame-ancestors 'none'"
+    )
+    if request.secure or request.headers.get("X-Forwarded-Proto") == "https":
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    return response
+
+
 # --- OIDC Auth ---
 
 
@@ -713,7 +738,7 @@ async def on_shutdown(app: web.Application) -> None:
 
 
 def create_app(config_path: str) -> web.Application:
-    app = web.Application(middlewares=[auth_middleware])
+    app = web.Application(middlewares=[security_headers_middleware, auth_middleware])
 
     resolved_path = Path(config_path).resolve()
     logger.info(f"Config path: {resolved_path} (exists: {resolved_path.exists()})")

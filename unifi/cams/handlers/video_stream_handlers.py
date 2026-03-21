@@ -69,7 +69,8 @@ class VideoStreamHandlers:
                 '-rtsp_transport', self.args.rtsp_transport,
                 source_url
             ]
-            self.logger.info(f"Probing {stream_index} source: {source_url}")
+            from unifi.utils import mask_url
+            self.logger.info(f"Probing {stream_index} source: {mask_url(source_url)}")
             result = subprocess.run(
                 cmd, 
                 capture_output=True, 
@@ -125,8 +126,9 @@ class VideoStreamHandlers:
                 exit_code = prev_state.process.poll()
                 self.logger.warning(f"Previous ffmpeg process for {stream_index} died with exit code {exit_code}.")
 
+            from unifi.utils import mask_url
             self.logger.info(
-                f"Spawning ffmpeg for {stream_index} ({stream_name}): {cmd}"
+                f"Spawning ffmpeg for {stream_index} ({stream_name}): {mask_url(cmd)}"
             )
             # Start process in a new process group so we can kill the entire pipeline
             proc = subprocess.Popen(

@@ -44,7 +44,8 @@ class ReolinkNVRCam(UnifiCamBase):
             f'[{{ "cmd":"GetMdState", "param":{{ "channel":{self.args.channel} }} }}]'
         )
         while True:
-            self.logger.info(f"Connecting to motion events API: {url}")
+            from unifi.utils import mask_url
+            self.logger.info(f"Connecting to motion events API: {mask_url(url)}")
             try:
                 async with aiohttp.ClientSession(
                     timeout=aiohttp.ClientTimeout(None)

@@ -72,7 +72,8 @@ class Reolink(UnifiCamBase):
             f"&rs={rs}&user={self.args.username}"
             f"&password={self.args.password}"
         )
-        self.logger.info(f"Grabbing snapshot: {url}")
+        from unifi.utils import mask_url
+        self.logger.info(f"Grabbing snapshot: {mask_url(url)}")
         await self.fetch_to_file(url, img_file)
         return img_file
 
@@ -91,7 +92,8 @@ class Reolink(UnifiCamBase):
         )
         while True:
             # self.logger.info(f"Connecting to AI person motion events API: {url}")
-            self.logger.info(f"Connecting to motion events API: {url}")
+            from unifi.utils import mask_url
+            self.logger.info(f"Connecting to motion events API: {mask_url(url)}")
             try:
                 async with aiohttp.ClientSession(
                     timeout=aiohttp.ClientTimeout(None)

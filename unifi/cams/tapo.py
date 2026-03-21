@@ -84,7 +84,8 @@ class TapoCam(UnifiCamBase):
                 "-r 1 "
                 f"-update 1 {self.snapshot_dir}/screen.jpg"
             )
-            self.logger.info(f"Spawning stream for snapshots: {cmd}")
+            from unifi.utils import mask_url
+            self.logger.info(f"Spawning stream for snapshots: {mask_url(cmd)}")
             self.snapshot_stream = subprocess.Popen(
                 cmd, stderr=subprocess.STDOUT, shell=True
             )
