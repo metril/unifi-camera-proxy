@@ -34,7 +34,10 @@ optional arguments:
 
 :::note
 
-`--source` is deprecated. Use `--video1`, `--video2`, and `--video3` to specify individual stream sources. This gives you explicit control over which streams map to each quality level in UniFi Protect.
+`--source` is deprecated. Use `--video1`, `--video2`, and
+`--video3` to specify individual stream sources. This gives you
+explicit control over which streams map to each quality level
+in UniFi Protect.
 
 :::
 

@@ -6,7 +6,11 @@ sidebar_position: 1
 
 ## Overview
 
-The Web UI (`unifi-camera-proxy-web`) is the recommended way to run unifi-camera-proxy. It provides a browser-based interface to manage multiple cameras from a single container. Configuration is persisted to a YAML file, and cameras are started as managed subprocesses.
+The Web UI (`unifi-camera-proxy-web`) is the recommended way to
+run unifi-camera-proxy. It provides a browser-based interface to
+manage multiple cameras from a single container. Configuration
+is persisted to a YAML file, and cameras are started as managed
+subprocesses.
 
 Key features:
 
@@ -32,7 +36,9 @@ services:
       - BIND_ADDRESS=0.0.0.0  # optional, default: 0.0.0.0
 ```
 
-Open `http://<host>:8080` to access the web UI. Configure your UniFi Protect host, generate a certificate, fetch an adoption token, then add cameras.
+Open `http://<host>:8080` to access the web UI. Configure your
+UniFi Protect host, generate a certificate, fetch an adoption
+token, then add cameras.
 
 ## Environment Variables
 
@@ -54,7 +60,8 @@ These can also be passed as CLI arguments `--port` and `--host` to `unifi-camera
 
 ## Config File Structure
 
-The config file (default: `/app/data/config.yaml`) is a YAML document with two top-level keys: `global` and `cameras`.
+The config file (default: `/app/data/config.yaml`) is a YAML
+document with two top-level keys: `global` and `cameras`.
 
 ```yaml
 global:
@@ -101,17 +108,24 @@ cameras:
     # ... additional type-specific fields
 ```
 
-Global settings (host, cert, token, MQTT, Frigate, RTSP credentials) apply to all cameras unless overridden per camera. Each camera entry specifies a `type` (e.g., `rtsp`, `frigate`, `reolink`, `dahua`, `hikvision`, `tapo`, `reolink_nvr`, `amcrest`, `lorex`) and its type-specific arguments.
+Global settings (host, cert, token, MQTT, Frigate, RTSP
+credentials) apply to all cameras unless overridden per camera.
+Each camera entry specifies a `type` (e.g., `rtsp`, `frigate`,
+`reolink`, `dahua`, `hikvision`, `tapo`, `reolink_nvr`,
+`amcrest`, `lorex`) and its type-specific arguments.
 
 ## OIDC Authentication
 
-When OIDC is configured, all `/api/` routes require a valid session token. OIDC credentials are stored in the config file under the `global` section -- no environment variables are needed.
+When OIDC is configured, all `/api/` routes require a valid
+session token. OIDC credentials are stored in the config file
+under the `global` section -- no environment variables are
+needed.
 
 Required fields:
 
 | Field | Description |
 |---|---|
-| `oidc_issuer` | OpenID Connect issuer URL (e.g., `https://auth.example.com/application/o/unifi-camera-proxy/`) |
+| `oidc_issuer` | OpenID Connect issuer URL |
 | `oidc_client_id` | OAuth2 client ID |
 | `oidc_client_secret` | OAuth2 client secret |
 
@@ -128,7 +142,9 @@ When using Authentik as your OIDC provider:
 
 ## API Reference
 
-The web server exposes a REST API. When OIDC is enabled, all `/api/` endpoints (except `/api/auth/*`) require a `Bearer` token in the `Authorization` header.
+The web server exposes a REST API. When OIDC is enabled, all
+`/api/` endpoints (except `/api/auth/*`) require a `Bearer`
+token in the `Authorization` header.
 
 ### Configuration
 

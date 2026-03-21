@@ -18,7 +18,9 @@ Open `https://NVR_IP/proxy/protect/api/cameras/manage-payload` and copy the toke
 ## Web UI Mode (Recommended)
 
 The recommended way to run unifi-camera-proxy is via the **Web UI** (`unifi-camera-proxy-web`).
-The Web UI lets you manage multiple cameras from a single interface, configure camera settings through a browser, and persist configuration to a YAML file.
+The Web UI lets you manage multiple cameras from a single
+interface, configure camera settings through a browser, and
+persist configuration to a YAML file.
 
 ### Docker Compose
 
