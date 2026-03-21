@@ -1535,6 +1535,9 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             ),
         )
 
+        # Pre-warm snapshot so it's ready for Protect's first GetRequest
+        asyncio.create_task(self.get_snapshot())
+
     async def process_upgrade(self, msg: AVClientRequest) -> None:
         url = msg["payload"]["uri"]
         headers = {"Range": "bytes=0-100"}

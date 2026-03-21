@@ -153,4 +153,6 @@ class TapoCam(UnifiCamBase):
             self.snapshot_stream.kill()
 
     async def get_stream_source(self, stream_index: str) -> str:
+        if stream_index == "mjpg":
+            return self.stream_source.get("video3", self.stream_source["video1"])
         return self.stream_source[stream_index]
