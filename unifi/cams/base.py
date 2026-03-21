@@ -45,7 +45,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 _init_time (float): Timestamp when camera was initialized
             Streams:
                 _streams (dict[str, str]): Mapping of stream names to URLs/identifiers
-                _ffmpeg_handles (dict[str, subprocess.Popen]): Active FFmpeg process handles by stream name
+                _ffmpeg_handles (dict[str, StreamState]): Active FFmpeg stream states by stream name
             Snapshots:
                 # Structure: Optional[Path] - filesystem path to stored snapshot image
                 _motion_snapshot: Legacy cropped snapshot with bounding box
@@ -117,7 +117,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         self._motion_object_type: Optional[SmartDetectObjectType] = None
         self._motion_last_descriptor: Optional[dict[str, Any]] = None
         
-        self._ffmpeg_handles: dict[str, subprocess.Popen] = {}
+        self._ffmpeg_handles: dict[str, "StreamState"] = {}
         
         # Video resolution detected from source (will be probed during init_adoption)
         # Store separate resolutions for each stream with defaults
@@ -215,6 +215,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         self._session = ws
         await self.start_diagnostics_server()
         await self.init_adoption()
+        self._watchdog_task = asyncio.create_task(self._stream_health_watchdog())
         while True:
             try:
                 msg = await ws.recv()
@@ -238,10 +239,12 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         streams = {}
         for name in ["video1", "video2", "video3"]:
             res = self._detected_resolutions.get(name)
-            ffmpeg = self._ffmpeg_handles.get(name)
+            state = self._ffmpeg_handles.get(name)
             streams[name] = {
                 "resolution": f"{res[0]}x{res[1]}" if res else "unknown",
-                "ffmpeg_running": ffmpeg is not None and ffmpeg.poll() is None if ffmpeg else False,
+                "ffmpeg_running": state is not None and state.process.poll() is None,
+                "restart_count": state.restart_count if state else 0,
+                "last_start": state.last_start_time if state else None,
             }
 
         # Active events
@@ -509,7 +512,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             del self._analytics_event_history[event_id]
             self.logger.debug(
                 f"Cleaned up analytics event {event_id} "
-                f"(age: {(current_time - event_data.get('end_time', current_time)) / 60:.1f} minutes)"
+                f"(age: {(current_time - (event_data.get('end_time') or current_time)) / 60:.1f} minutes)"
             )
         
         if events_to_remove:
@@ -1672,6 +1675,8 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
 
     async def close(self):
         self.logger.info("Cleaning up instance")
+        if hasattr(self, '_watchdog_task') and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
         await self.stop_all_motion_events()
         self.close_streams()
 
