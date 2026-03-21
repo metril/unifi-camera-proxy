@@ -5,7 +5,7 @@ const {themes} = require('prism-react-renderer');
 /** @type {import('@docusaurus/types').Config} */
 const config = {
   title: 'unifi-camera-proxy',
-  tagline: 'Bridge third-party cameras to UniFi Protect',
+  tagline: 'Bridge third-party IP cameras to UniFi Protect',
   url: 'https://metril.github.io',
   baseUrl: '/unifi-camera-proxy/',
   onBrokenLinks: 'throw',
