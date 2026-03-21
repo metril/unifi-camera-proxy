@@ -6,11 +6,7 @@ import logging
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import Any
-
 import yaml
-
-logger = logging.getLogger("Config")
 
 from unifi.cams import (
     DahuaCam,
@@ -21,6 +17,8 @@ from unifi.cams import (
     RTSPCam,
     TapoCam,
 )
+
+logger = logging.getLogger("Config")
 
 CAMS = {
     "amcrest": DahuaCam,

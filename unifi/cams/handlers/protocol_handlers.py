@@ -5,7 +5,7 @@ This module contains straightforward message handlers that primarily return
 static or simple responses. More complex handlers remain in base.py.
 """
 
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
