@@ -9,7 +9,11 @@ const config = {
   url: 'https://metril.github.io',
   baseUrl: '/unifi-camera-proxy/',
   onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'warn',
+  markdown: {
+    hooks: {
+      onBrokenMarkdownLinks: 'warn',
+    },
+  },
   favicon: 'img/favicon.ico',
   organizationName: 'metril',
   projectName: 'unifi-camera-proxy',
