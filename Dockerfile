@@ -41,7 +41,7 @@ COPY --from=builder \
     /usr/local/lib/python${version}/site-packages \
     /usr/local/lib/python${version}/site-packages
 
-RUN apk add --update ffmpeg netcat-openbsd libusb-dev openssl
+RUN apk add --update curl ffmpeg netcat-openbsd libusb-dev openssl
 
 COPY . .
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
@@ -51,8 +51,8 @@ COPY ./docker/entrypoint.sh /
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-  CMD wget -q -O /dev/null http://localhost:8080/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -sf http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["/entrypoint.sh"]
 CMD ["unifi-camera-proxy-web"]
