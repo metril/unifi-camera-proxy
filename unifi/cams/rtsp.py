@@ -18,10 +18,12 @@ class RTSPCam(UnifiCamBase):
         self.snapshot_stream = None
         self.runner = None
         self.stream_source = dict()
-        self.configured_streams = set()  # Track which streams were explicitly configured
-        
+        self.configured_streams = (
+            set()
+        )  # Track which streams were explicitly configured
+
         # Support both old --source format and new --video1/2/3 format
-        if hasattr(args, 'source') and args.source:
+        if hasattr(args, "source") and args.source:
             # Legacy format: --source URL1 [URL2] [URL3]
             # In legacy mode, all three streams are considered configured
             for i, stream_index in enumerate(["video1", "video2", "video3"]):
@@ -34,18 +36,18 @@ class RTSPCam(UnifiCamBase):
             # New format: --video1 URL1 [--video2 URL2] [--video3 URL3]
             if not args.video1:
                 raise ValueError("Either --source or --video1 must be provided")
-            
+
             # Only set stream sources for explicitly configured streams
             self.stream_source["video1"] = args.video1
             self.configured_streams.add("video1")
-            
+
             if args.video2:
                 self.stream_source["video2"] = args.video2
                 self.configured_streams.add("video2")
             if args.video3:
                 self.stream_source["video3"] = args.video3
                 self.configured_streams.add("video3")
-        
+
         if not self.args.snapshot_url:
             self.start_snapshot_stream()
 
@@ -95,7 +97,9 @@ class RTSPCam(UnifiCamBase):
     def start_snapshot_stream(self) -> None:
         if not self.snapshot_stream or self.snapshot_stream.poll() is not None:
             # Use video3 (lowest quality) for snapshots
-            snapshot_source = self.stream_source.get("video3", self.stream_source["video1"])
+            snapshot_source = self.stream_source.get(
+                "video3", self.stream_source["video1"]
+            )
             cmd = (
                 f"AV_LOG_FORCE_NOCOLOR=1 ffmpeg -loglevel level+{self.args.loglevel} "
                 f"-nostdin -y -re -rtsp_transport {self.args.rtsp_transport} "
@@ -104,6 +108,7 @@ class RTSPCam(UnifiCamBase):
                 f"-update 1 {self.snapshot_dir}/screen.jpg"
             )
             from unifi.utils import mask_url
+
             self.logger.info(f"Spawning stream for snapshots: {mask_url(cmd)}")
             self.snapshot_stream = subprocess.Popen(
                 cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True

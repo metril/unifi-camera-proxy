@@ -6,6 +6,7 @@ import logging
 import urllib.parse
 import uuid
 from pathlib import Path
+
 import yaml
 
 from unifi.cams import (
@@ -212,7 +213,9 @@ def get_camera_type_schemas() -> dict[str, list[dict]]:
     return schemas
 
 
-def inject_rtsp_credentials(url: str, username: str | None, password: str | None) -> str:
+def inject_rtsp_credentials(
+    url: str, username: str | None, password: str | None
+) -> str:
     """Inject URL-encoded credentials into an RTSP URL if not already present."""
     if not username or not password:
         return url
@@ -228,7 +231,9 @@ def inject_rtsp_credentials(url: str, username: str | None, password: str | None
     return f"{scheme}://{encoded_user}:{encoded_pass}@{rest}"
 
 
-def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: int = 0) -> list[str]:
+def config_to_args(
+    global_config: dict, camera_config: dict, diagnostics_port: int = 0
+) -> list[str]:
     """Build a CLI argument list from global + camera config."""
     args = []
 
@@ -253,7 +258,11 @@ def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: i
         args.extend(["--mac", str(camera_config["mac"])])
     if camera_config.get("ip"):
         args.extend(["--ip", str(camera_config["ip"])])
-    cam_name = camera_config.get("name") or camera_config.get("frigate_camera") or "unifi-camera-proxy"
+    cam_name = (
+        camera_config.get("name")
+        or camera_config.get("frigate_camera")
+        or "unifi-camera-proxy"
+    )
     args.extend(["--name", str(cam_name)])
     cam_model = camera_config.get("model") or "UVC G4 Bullet"
     args.extend(["--model", str(cam_model)])
@@ -273,10 +282,19 @@ def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: i
     type_fields = schemas.get(cam_type, [])
     # Fields that are already handled above or are common
     skip_fields = {
-        "ffmpeg-args", "ffmpeg-base-args", "rtsp-transport",
-        "timestamp-modifier", "loglevel", "format", "diagnostics-port",
-        "video1-bitrate", "video1-fps", "video2-bitrate", "video2-fps",
-        "video3-bitrate", "video3-fps",
+        "ffmpeg-args",
+        "ffmpeg-base-args",
+        "rtsp-transport",
+        "timestamp-modifier",
+        "loglevel",
+        "format",
+        "diagnostics-port",
+        "video1-bitrate",
+        "video1-fps",
+        "video2-bitrate",
+        "video2-fps",
+        "video3-bitrate",
+        "video3-fps",
     }
 
     # Handle base class fields explicitly
@@ -391,6 +409,8 @@ def config_to_args(global_config: dict, camera_config: dict, diagnostics_port: i
                 if args[i + 1] != original:
                     logger.info(f"Injected RTSP credentials into {arg} URL")
     else:
-        logger.debug(f"No RTSP credentials to inject (user={rtsp_user is not None}, pass={rtsp_pass is not None})")
+        logger.debug(
+            f"No RTSP credentials to inject (user={rtsp_user is not None}, pass={rtsp_pass is not None})"
+        )
 
     return args

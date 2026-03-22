@@ -45,6 +45,7 @@ class ReolinkNVRCam(UnifiCamBase):
         )
         while True:
             from unifi.utils import mask_url
+
             self.logger.info(f"Connecting to motion events API: {mask_url(url)}")
             try:
                 async with aiohttp.ClientSession(

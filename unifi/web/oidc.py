@@ -32,8 +32,11 @@ class OIDCProvider:
                 self._discovery = await r.json()
         return self._discovery
 
-    async def authorization_url(self, state: str, code_challenge: str, redirect_uri: str) -> str:
+    async def authorization_url(
+        self, state: str, code_challenge: str, redirect_uri: str
+    ) -> str:
         from urllib.parse import urlencode
+
         d = await self.discover()
         params = {
             "response_type": "code",
@@ -46,7 +49,9 @@ class OIDCProvider:
         }
         return f"{d['authorization_endpoint']}?{urlencode(params)}"
 
-    async def exchange_code(self, code: str, code_verifier: str, redirect_uri: str) -> dict:
+    async def exchange_code(
+        self, code: str, code_verifier: str, redirect_uri: str
+    ) -> dict:
         d = await self.discover()
         async with aiohttp.ClientSession() as s:
             async with s.post(

@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
-    from unifi.cams.base import UnifiCamBase, AVClientRequest, AVClientResponse
+    from unifi.cams.base import AVClientRequest, AVClientResponse, UnifiCamBase
 
 
 class ProtocolHandlers:
     """Mixin class providing simple protocol message handlers."""
-    
+
     async def process_hello(self: "UnifiCamBase", msg: "AVClientRequest") -> None:
         """Process hello message from UniFi Protect (no-op)."""
         pass
@@ -143,7 +143,7 @@ class ProtocolHandlers:
     ) -> "AVClientResponse":
         """Process time synchronization request."""
         import time
-        
+
         return self.gen_response(
             "ubnt_avclient_paramAgreement",
             msg["messageId"],
@@ -165,7 +165,7 @@ class ProtocolHandlers:
     ) -> "AVClientResponse":
         """
         Process face database update request.
-        
+
         Returns empty response to indicate no face database is available.
         This prevents UniFi Protect from trying to fetch a non-existent file.
         """
@@ -404,17 +404,19 @@ class ProtocolHandlers:
                             ),
                             "type": "extendedFlv",
                         },
-                        "bitRateCbrAvg": getattr(self.args, 'video1_bitrate', 6000) * 1000,
-                        "bitRateVbrMax": getattr(self.args, 'video1_bitrate', 6000) * 1000,
+                        "bitRateCbrAvg": getattr(self.args, "video1_bitrate", 6000)
+                        * 1000,
+                        "bitRateVbrMax": getattr(self.args, "video1_bitrate", 6000)
+                        * 1000,
                         "bitRateVbrMin": 48000,
                         "description": "Hi quality video track",
                         "enabled": True,
-                        "fps": getattr(self.args, 'video1_fps', 30),
+                        "fps": getattr(self.args, "video1_fps", 30),
                         "gopModel": 0,
                         "height": self._detected_resolutions["video1"][1],
                         "horizontalFlip": False,
                         "isCbr": False,
-                        "maxFps": getattr(self.args, 'video1_fps', 30),
+                        "maxFps": getattr(self.args, "video1_fps", 30),
                         "minClientAdaptiveBitRate": 0,
                         "minMotionAdaptiveBitRate": 0,
                         "nMultiplier": 6,
@@ -423,9 +425,30 @@ class ProtocolHandlers:
                         "streamId": 1,
                         "streamOrdinal": 0,
                         "type": "h264",
-                        "validBitrateRangeMax": getattr(self.args, 'video1_bitrate', 6000) * 1000,
+                        "validBitrateRangeMax": getattr(
+                            self.args, "video1_bitrate", 6000
+                        )
+                        * 1000,
                         "validBitrateRangeMin": 32000,
-                        "validFpsValues": [1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 16, 18, 20, 24, 25, 30],
+                        "validFpsValues": [
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            8,
+                            9,
+                            10,
+                            12,
+                            15,
+                            16,
+                            18,
+                            20,
+                            24,
+                            25,
+                            30,
+                        ],
                         "verticalFlip": False,
                         "width": self._detected_resolutions["video1"][0],
                     },
@@ -447,18 +470,21 @@ class ProtocolHandlers:
                             ),
                             "type": "extendedFlv",
                         },
-                        "bitRateCbrAvg": getattr(self.args, 'video2_bitrate', 1500) * 1000,
-                        "bitRateVbrMax": getattr(self.args, 'video2_bitrate', 1500) * 1000,
+                        "bitRateCbrAvg": getattr(self.args, "video2_bitrate", 1500)
+                        * 1000,
+                        "bitRateVbrMax": getattr(self.args, "video2_bitrate", 1500)
+                        * 1000,
                         "bitRateVbrMin": 48000,
-                        "currentVbrBitrate": getattr(self.args, 'video2_bitrate', 1500) * 1000,
+                        "currentVbrBitrate": getattr(self.args, "video2_bitrate", 1500)
+                        * 1000,
                         "description": "Medium quality video track",
                         "enabled": True,
-                        "fps": getattr(self.args, 'video2_fps', 15),
+                        "fps": getattr(self.args, "video2_fps", 15),
                         "gopModel": 0,
                         "height": self._detected_resolutions["video2"][1],
                         "horizontalFlip": False,
                         "isCbr": False,
-                        "maxFps": getattr(self.args, 'video2_fps', 15),
+                        "maxFps": getattr(self.args, "video2_fps", 15),
                         "minClientAdaptiveBitRate": 0,
                         "minMotionAdaptiveBitRate": 0,
                         "nMultiplier": 6,
@@ -467,9 +493,30 @@ class ProtocolHandlers:
                         "streamId": 2,
                         "streamOrdinal": 1,
                         "type": "h264",
-                        "validBitrateRangeMax": getattr(self.args, 'video2_bitrate', 1500) * 1000,
+                        "validBitrateRangeMax": getattr(
+                            self.args, "video2_bitrate", 1500
+                        )
+                        * 1000,
                         "validBitrateRangeMin": 32000,
-                        "validFpsValues": [1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 16, 18, 20, 24, 25, 30],
+                        "validFpsValues": [
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            8,
+                            9,
+                            10,
+                            12,
+                            15,
+                            16,
+                            18,
+                            20,
+                            24,
+                            25,
+                            30,
+                        ],
                         "verticalFlip": False,
                         "width": self._detected_resolutions["video2"][0],
                     },
@@ -491,18 +538,21 @@ class ProtocolHandlers:
                             ),
                             "type": "extendedFlv",
                         },
-                        "bitRateCbrAvg": getattr(self.args, 'video3_bitrate', 750) * 1000,
-                        "bitRateVbrMax": getattr(self.args, 'video3_bitrate', 750) * 1000,
+                        "bitRateCbrAvg": getattr(self.args, "video3_bitrate", 750)
+                        * 1000,
+                        "bitRateVbrMax": getattr(self.args, "video3_bitrate", 750)
+                        * 1000,
                         "bitRateVbrMin": 48000,
-                        "currentVbrBitrate": getattr(self.args, 'video3_bitrate', 750) * 1000,
+                        "currentVbrBitrate": getattr(self.args, "video3_bitrate", 750)
+                        * 1000,
                         "description": "Low quality video track",
                         "enabled": True,
-                        "fps": getattr(self.args, 'video3_fps', 15),
+                        "fps": getattr(self.args, "video3_fps", 15),
                         "gopModel": 0,
                         "height": self._detected_resolutions["video3"][1],
                         "horizontalFlip": False,
                         "isCbr": False,
-                        "maxFps": getattr(self.args, 'video3_fps', 15),
+                        "maxFps": getattr(self.args, "video3_fps", 15),
                         "minClientAdaptiveBitRate": 0,
                         "minMotionAdaptiveBitRate": 0,
                         "nMultiplier": 6,
@@ -511,9 +561,24 @@ class ProtocolHandlers:
                         "streamId": 4,
                         "streamOrdinal": 2,
                         "type": "h264",
-                        "validBitrateRangeMax": getattr(self.args, 'video3_bitrate', 750) * 1000,
+                        "validBitrateRangeMax": getattr(
+                            self.args, "video3_bitrate", 750
+                        )
+                        * 1000,
                         "validBitrateRangeMin": 32000,
-                        "validFpsValues": [1, 2, 3, 4, 5, 6, 8, 9, 10, 12, 15, 16,
+                        "validFpsValues": [
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            8,
+                            9,
+                            10,
+                            12,
+                            15,
+                            16,
                             18,
                             20,
                             24,
@@ -533,27 +598,29 @@ class ProtocolHandlers:
     ) -> "AVClientResponse":
         """Process smart motion settings change request and update lingerEventStart and motionEvents."""
         payload = msg.get("payload", {})
-        
+
         # Update motion event enable/disable flag
         if "enable" in payload:
             self.motionEvents = payload["enable"]
             self.logger.info(
                 f"Motion events {'enabled' if self.motionEvents else 'disabled'} from ChangeSmartMotionSettings"
             )
-        
+
         # Update lingerEventStart if provided in the message
         if "lingerEventStartMSec" in payload:
             self.lingerEventStart = payload["lingerEventStartMSec"]
             self.logger.info(
                 f"Updated lingerEventStart to {self.lingerEventStart}ms from ChangeSmartMotionSettings"
             )
-        
+
         # Log other settings for debugging
         if "lingerEventStopMSec" in payload:
-            self.logger.debug(f"Received lingerEventStopMSec: {payload['lingerEventStopMSec']}ms")
+            self.logger.debug(
+                f"Received lingerEventStopMSec: {payload['lingerEventStopMSec']}ms"
+            )
         if "eventMaxDurationMSec" in payload:
-            self.logger.debug(f"Received eventMaxDurationMSec: {payload['eventMaxDurationMSec']}ms")
-        
-        return self.gen_response(
-            "ChangeSmartMotionSettings", msg["messageId"], payload
-        )
+            self.logger.debug(
+                f"Received eventMaxDurationMSec: {payload['eventMaxDurationMSec']}ms"
+            )
+
+        return self.gen_response("ChangeSmartMotionSettings", msg["messageId"], payload)

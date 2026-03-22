@@ -33,7 +33,9 @@ async def frigate_login(
     ) as login_resp:
         if login_resp.status != 200:
             text = await login_resp.text()
-            logger.warning(f"Frigate login failed (HTTP {login_resp.status}): {text[:200]}")
+            logger.warning(
+                f"Frigate login failed (HTTP {login_resp.status}): {text[:200]}"
+            )
             return False
         logger.debug("Frigate login successful")
         return True
@@ -49,7 +51,9 @@ async def _do_request(
     timeout: int,
 ) -> dict[str, Any]:
     """Execute login + request with given SSL setting."""
-    if not await frigate_login(session, base_url, username, password, ssl_param, timeout):
+    if not await frigate_login(
+        session, base_url, username, password, ssl_param, timeout
+    ):
         raise Exception("Frigate login failed")
 
     request_url = f"{base_url}{path}"
@@ -60,9 +64,7 @@ async def _do_request(
     ) as resp:
         if resp.status != 200:
             text = await resp.text()
-            raise Exception(
-                f"Frigate API error (HTTP {resp.status}): {text[:200]}"
-            )
+            raise Exception(f"Frigate API error (HTTP {resp.status}): {text[:200]}")
         return await resp.json()
 
 
@@ -83,8 +85,14 @@ async def frigate_request(
 
     async with aiohttp.ClientSession() as session:
         try:
-            return await _do_request(session, base_url, path, username, password, ssl_param, timeout)
-        except (aiohttp.ClientConnectorCertificateError, aiohttp.ClientConnectorSSLError, aiohttp.ClientOSError) as e:
+            return await _do_request(
+                session, base_url, path, username, password, ssl_param, timeout
+            )
+        except (
+            aiohttp.ClientConnectorCertificateError,
+            aiohttp.ClientConnectorSSLError,
+            aiohttp.ClientOSError,
+        ) as e:
             raise Exception(
                 f"SSL connection to {base_url} failed: {e}. "
                 f"If Frigate does not have TLS enabled, change the URL to http:// in your camera settings."

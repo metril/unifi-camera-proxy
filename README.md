@@ -8,6 +8,7 @@ Cameras are managed through a web UI and registered as virtual
 UniFi cameras in Protect.
 
 Things that work:
+
 * Live streaming
 * Full-time recording
 * Motion detection with certain cameras
@@ -71,9 +72,9 @@ No environment variables are used for OIDC — credentials are stored in `data/c
 
 **Authentik provider setup:**
 
-- Type: OAuth2/OpenID Connect, Client type: Confidential
-- Redirect URI: `https://your-host/api/auth/callback`
-- Scopes: `openid`, `profile`, `email`
+* Type: OAuth2/OpenID Connect, Client type: Confidential
+* Redirect URI: `https://your-host/api/auth/callback`
+* Scopes: `openid`, `profile`, `email`
 
 ## Reverse Proxy
 
@@ -84,4 +85,3 @@ environment:
   - BIND_PORT=8080
   - BIND_ADDRESS=127.0.0.1   # only reachable via reverse proxy
 ```
-

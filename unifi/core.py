@@ -14,7 +14,7 @@ class Core(object):
         self.host = args.host
         self.token = args.token
         self.mac = args.mac
-        self.sysid = getattr(args, 'sysid', None)
+        self.sysid = getattr(args, "sysid", None)
         self.logger = logger
         self.cam = camera
 
@@ -40,6 +40,7 @@ class Core(object):
         async def connect():
             nonlocal has_connected
             from unifi.utils import mask_url
+
             self.logger.info(f"Creating ws connection to {mask_url(uri)}")
             try:
                 ws = await websockets.connect(

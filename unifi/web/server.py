@@ -16,11 +16,14 @@ import aiohttp as aiohttp_client
 import aiomqtt
 import coloredlogs
 from aiohttp import web
-
 from uiprotect import ProtectApiClient
 
 from unifi.web.camera_manager import CameraManager, PendingAuth
-from unifi.web.config import MODEL_CHOICES, get_camera_type_schemas, inject_rtsp_credentials
+from unifi.web.config import (
+    MODEL_CHOICES,
+    get_camera_type_schemas,
+    inject_rtsp_credentials,
+)
 from unifi.web.frigate_api import frigate_request
 from unifi.web.oidc import generate_pkce
 
@@ -38,7 +41,9 @@ async def get_config(request: web.Request) -> web.Response:
     manager = get_manager(request)
     config = copy.deepcopy(manager.config)
     g = config.get("global", {})
-    has_oidc = bool(g.get("oidc_issuer") and g.get("oidc_client_id") and g.get("oidc_client_secret"))
+    has_oidc = bool(
+        g.get("oidc_issuer") and g.get("oidc_client_id") and g.get("oidc_client_secret")
+    )
     g.pop("oidc_client_secret", None)
     g["has_oidc"] = has_oidc
     return web.json_response(config)
@@ -61,8 +66,15 @@ async def list_cameras(request: web.Request) -> web.Response:
 
 
 VALID_CAMERA_TYPES = {
-    "rtsp", "frigate", "amcrest", "dahua", "hikvision",
-    "lorex", "reolink", "reolink_nvr", "tapo",
+    "rtsp",
+    "frigate",
+    "amcrest",
+    "dahua",
+    "hikvision",
+    "lorex",
+    "reolink",
+    "reolink_nvr",
+    "tapo",
 }
 
 
@@ -206,19 +218,29 @@ async def camera_snapshot(request: web.Request) -> web.Response:
     global_config = manager.config.get("global", {})
 
     if cam_config.get("type") != "frigate":
-        return web.json_response({"error": "Snapshots only available for Frigate cameras"}, status=400)
+        return web.json_response(
+            {"error": "Snapshots only available for Frigate cameras"}, status=400
+        )
 
     # Resolve Frigate connection with per-camera → global fallback
-    frigate_url = cam_config.get("frigate_http_url") or global_config.get("frigate_http_url")
+    frigate_url = cam_config.get("frigate_http_url") or global_config.get(
+        "frigate_http_url"
+    )
     frigate_camera = cam_config.get("frigate_camera")
-    username = cam_config.get("frigate_username") or global_config.get("frigate_username")
-    password = cam_config.get("frigate_password") or global_config.get("frigate_password")
+    username = cam_config.get("frigate_username") or global_config.get(
+        "frigate_username"
+    )
+    password = cam_config.get("frigate_password") or global_config.get(
+        "frigate_password"
+    )
     verify_ssl = cam_config.get("frigate_verify_ssl")
     if verify_ssl is None:
         verify_ssl = global_config.get("frigate_verify_ssl", True)
 
     if not frigate_url or not frigate_camera:
-        return web.json_response({"error": "Frigate HTTP URL and camera name are required"}, status=400)
+        return web.json_response(
+            {"error": "Frigate HTTP URL and camera name are required"}, status=400
+        )
 
     ssl_param = None if verify_ssl else False
 
@@ -233,17 +255,23 @@ async def camera_snapshot(request: web.Request) -> web.Response:
                     timeout=aiohttp_client.ClientTimeout(total=5),
                 ) as login_resp:
                     if login_resp.status != 200:
-                        return web.json_response({"error": "Frigate login failed"}, status=502)
+                        return web.json_response(
+                            {"error": "Frigate login failed"}, status=502
+                        )
 
             # Fetch snapshot
-            snapshot_url = f"{frigate_url}/api/{frigate_camera}/latest.jpg?height=480&quality=75"
+            snapshot_url = (
+                f"{frigate_url}/api/{frigate_camera}/latest.jpg?height=480&quality=75"
+            )
             async with session.get(
                 snapshot_url,
                 ssl=ssl_param,
                 timeout=aiohttp_client.ClientTimeout(total=5),
             ) as resp:
                 if resp.status != 200:
-                    return web.json_response({"error": f"Frigate returned {resp.status}"}, status=502)
+                    return web.json_response(
+                        {"error": f"Frigate returned {resp.status}"}, status=502
+                    )
                 data = await resp.read()
                 return web.Response(
                     body=data,
@@ -275,6 +303,7 @@ async def camera_ws(request: web.Request) -> web.WebSocketResponse:
     try:
         # Send existing logs as initial batch
         import json
+
         existing = list(instance.log_buffer)
         await ws.send_str(json.dumps({"type": "logs_batch", "data": existing}))
 
@@ -296,10 +325,14 @@ async def camera_ws(request: web.Request) -> web.WebSocketResponse:
                                 if ws.closed:
                                     return
                                 if msg.type == aiohttp_client.WSMsgType.TEXT:
-                                    await ws.send_str(json.dumps({
-                                        "type": "diagnostics",
-                                        "data": json.loads(msg.data),
-                                    }))
+                                    await ws.send_str(
+                                        json.dumps(
+                                            {
+                                                "type": "diagnostics",
+                                                "data": json.loads(msg.data),
+                                            }
+                                        )
+                                    )
                 except Exception:
                     if ws.closed:
                         return
@@ -338,15 +371,23 @@ async def fetch_token(request: web.Request) -> web.Response:
     password = body.get("password", "")
 
     if not host:
-        return web.json_response({"error": "UniFi Protect host is required"}, status=400)
+        return web.json_response(
+            {"error": "UniFi Protect host is required"}, status=400
+        )
     if not username or not password:
         return web.json_response(
-            {"error": "Username and password are required to fetch token (API keys cannot access this endpoint)"}, status=400
+            {
+                "error": "Username and password are required to fetch token (API keys cannot access this endpoint)"
+            },
+            status=400,
         )
 
     try:
         protect = ProtectApiClient(
-            host, 443, username, password,
+            host,
+            443,
+            username,
+            password,
             verify_ssl=False,
             store_sessions=False,
         )
@@ -394,10 +435,12 @@ async def test_mqtt(request: web.Request) -> web.Response:
                         topics.add(message.topic.value)
             except TimeoutError:
                 pass
-        return web.json_response({
-            "status": "ok",
-            "topics": sorted(topics),
-        })
+        return web.json_response(
+            {
+                "status": "ok",
+                "topics": sorted(topics),
+            }
+        )
     except Exception as e:
         logger.error(f"MQTT test failed: {e}")
         return web.json_response({"error": str(e)}, status=500)
@@ -419,13 +462,17 @@ async def test_frigate(request: web.Request) -> web.Response:
         return web.json_response({"error": "Frigate HTTP URL is required"}, status=400)
 
     try:
-        config = await frigate_request(url, "/api/config", username, password, verify_ssl=verify_ssl)
+        config = await frigate_request(
+            url, "/api/config", username, password, verify_ssl=verify_ssl
+        )
         cameras = list(config.get("cameras", {}).keys())
-        return web.json_response({
-            "status": "ok",
-            "cameras": cameras,
-            "version": config.get("version", "unknown"),
-        })
+        return web.json_response(
+            {
+                "status": "ok",
+                "cameras": cameras,
+                "version": config.get("version", "unknown"),
+            }
+        )
     except Exception as e:
         logger.error(f"Frigate test failed: {e}")
         return web.json_response({"error": str(e)}, status=500)
@@ -450,14 +497,19 @@ async def detect_frigate_camera(request: web.Request) -> web.Response:
         return web.json_response({"error": "Camera name is required"}, status=400)
 
     try:
-        config = await frigate_request(url, "/api/config", username, password, verify_ssl=verify_ssl)
+        config = await frigate_request(
+            url, "/api/config", username, password, verify_ssl=verify_ssl
+        )
 
         camera_config = config.get("cameras", {}).get(camera_name)
         if not camera_config:
             available = list(config.get("cameras", {}).keys())
-            return web.json_response({
-                "error": f"Camera '{camera_name}' not found. Available: {', '.join(available)}",
-            }, status=404)
+            return web.json_response(
+                {
+                    "error": f"Camera '{camera_name}' not found. Available: {', '.join(available)}",
+                },
+                status=404,
+            )
 
         detect = camera_config.get("detect", {})
         inputs = camera_config.get("ffmpeg", {}).get("inputs", [])
@@ -471,32 +523,38 @@ async def detect_frigate_camera(request: web.Request) -> web.Response:
                 for local in ["127.0.0.1", "localhost", "0.0.0.0"]:
                     if local in path:
                         path = path.replace(local, frigate_host)
-            streams.append({
-                "path": path,
-                "roles": inp.get("roles", []),
-            })
+            streams.append(
+                {
+                    "path": path,
+                    "roles": inp.get("roles", []),
+                }
+            )
 
         # Look up go2rtc source for real camera IP
-        go2rtc_sources = config.get("go2rtc", {}).get("streams", {}).get(camera_name, [])
+        go2rtc_sources = (
+            config.get("go2rtc", {}).get("streams", {}).get(camera_name, [])
+        )
         camera_source_url = None
         for src in go2rtc_sources:
             if isinstance(src, str) and not src.startswith("ffmpeg:"):
                 camera_source_url = src
                 break
 
-        return web.json_response({
-            "status": "ok",
-            "camera_name": camera_name,
-            "detect": {
-                "width": detect.get("width", 0),
-                "height": detect.get("height", 0),
-                "fps": detect.get("fps", 0),
-                "enabled": detect.get("enabled", False),
-            },
-            "streams": streams,
-            "camera_source_url": camera_source_url,
-            "record_enabled": camera_config.get("record", {}).get("enabled", False),
-        })
+        return web.json_response(
+            {
+                "status": "ok",
+                "camera_name": camera_name,
+                "detect": {
+                    "width": detect.get("width", 0),
+                    "height": detect.get("height", 0),
+                    "fps": detect.get("fps", 0),
+                    "enabled": detect.get("enabled", False),
+                },
+                "streams": streams,
+                "camera_source_url": camera_source_url,
+                "record_enabled": camera_config.get("record", {}).get("enabled", False),
+            }
+        )
     except Exception as e:
         logger.error(f"Frigate camera detection failed: {e}")
         return web.json_response({"error": str(e)}, status=500)
@@ -523,25 +581,35 @@ async def test_rtsp(request: web.Request) -> web.Response:
     try:
         proc = await asyncio.create_subprocess_exec(
             "ffprobe",
-            "-v", "error",
-            "-rtsp_transport", transport,
-            "-i", url,
+            "-v",
+            "error",
+            "-rtsp_transport",
+            transport,
+            "-i",
+            url,
             "-show_streams",
-            "-of", "json",
+            "-of",
+            "json",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
 
         if proc.returncode != 0:
-            error_msg = stderr.decode().strip() or f"ffprobe exited with code {proc.returncode}"
+            error_msg = (
+                stderr.decode().strip() or f"ffprobe exited with code {proc.returncode}"
+            )
             return web.json_response({"error": error_msg}, status=500)
 
         import json
+
         data = json.loads(stdout.decode())
         streams = []
         for s in data.get("streams", []):
-            info = {"codec": s.get("codec_name", "unknown"), "type": s.get("codec_type", "unknown")}
+            info = {
+                "codec": s.get("codec_name", "unknown"),
+                "type": s.get("codec_type", "unknown"),
+            }
             if s.get("width"):
                 info["resolution"] = f"{s['width']}x{s['height']}"
             if s.get("r_frame_rate"):
@@ -550,7 +618,9 @@ async def test_rtsp(request: web.Request) -> web.Response:
 
         return web.json_response({"status": "ok", "streams": streams})
     except asyncio.TimeoutError:
-        return web.json_response({"error": "Connection timed out after 10 seconds"}, status=500)
+        return web.json_response(
+            {"error": "Connection timed out after 10 seconds"}, status=500
+        )
     except Exception as e:
         logger.error(f"RTSP test failed: {e}")
         return web.json_response({"error": str(e)}, status=500)
@@ -562,7 +632,9 @@ async def generate_cert(request: web.Request) -> web.Response:
     # Accept optional path from request body, fall back to saved config
     try:
         body = await request.json()
-        cert_path = body.get("path") or manager.config.get("global", {}).get("cert", "/app/data/client.pem")
+        cert_path = body.get("path") or manager.config.get("global", {}).get(
+            "cert", "/app/data/client.pem"
+        )
     except Exception:
         cert_path = manager.config.get("global", {}).get("cert", "/app/data/client.pem")
 
@@ -581,11 +653,42 @@ async def generate_cert(request: web.Request) -> web.Response:
         pub_key = os.path.join(tmpdir, "public.key")
 
         cmds = [
-            ["openssl", "ecparam", "-out", priv_key, "-name", "prime256v1", "-genkey", "-noout"],
-            ["openssl", "req", "-new", "-sha256", "-key", priv_key, "-out", csr_file,
-             "-subj", "/C=TW/L=Taipei/O=Ubiquiti Networks Inc./OU=devint/CN=camera.ubnt.dev/emailAddress=support@ubnt.com"],
-            ["openssl", "x509", "-req", "-sha256", "-days", "36500", "-in", csr_file,
-             "-signkey", priv_key, "-out", pub_key],
+            [
+                "openssl",
+                "ecparam",
+                "-out",
+                priv_key,
+                "-name",
+                "prime256v1",
+                "-genkey",
+                "-noout",
+            ],
+            [
+                "openssl",
+                "req",
+                "-new",
+                "-sha256",
+                "-key",
+                priv_key,
+                "-out",
+                csr_file,
+                "-subj",
+                "/C=TW/L=Taipei/O=Ubiquiti Networks Inc./OU=devint/CN=camera.ubnt.dev/emailAddress=support@ubnt.com",
+            ],
+            [
+                "openssl",
+                "x509",
+                "-req",
+                "-sha256",
+                "-days",
+                "36500",
+                "-in",
+                csr_file,
+                "-signkey",
+                priv_key,
+                "-out",
+                pub_key,
+            ],
         ]
         for cmd in cmds:
             proc = await asyncio.create_subprocess_exec(
@@ -634,7 +737,9 @@ async def security_headers_middleware(request: web.Request, handler):
         "frame-ancestors 'none'"
     )
     if request.secure or request.headers.get("X-Forwarded-Proto") == "https":
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers[
+            "Strict-Transport-Security"
+        ] = "max-age=31536000; includeSubDomains"
     return response
 
 
@@ -663,7 +768,11 @@ RATE_LIMIT_WINDOW = 60  # seconds
 async def rate_limit_middleware(request: web.Request, handler):
     if not request.path.startswith("/api/auth/"):
         return await handler(request)
-    ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote or "unknown"
+    ip = (
+        request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or request.remote
+        or "unknown"
+    )
     now = time.time()
     timestamps = _rate_limit_store.get(ip, [])
     timestamps = [t for t in timestamps if now - t < RATE_LIMIT_WINDOW]
@@ -706,13 +815,17 @@ async def auth_login(request: web.Request) -> web.Response:
     if not provider:
         raise web.HTTPNotFound()
     now = time.time()
-    manager.pending_auths = {k: v for k, v in manager.pending_auths.items() if now - v.created_at < 300}
+    manager.pending_auths = {
+        k: v for k, v in manager.pending_auths.items() if now - v.created_at < 300
+    }
     state = secrets.token_hex(16)
     code_verifier, code_challenge = generate_pkce()
     scheme = request.headers.get("X-Forwarded-Proto") or request.scheme
     host = request.headers.get("X-Forwarded-Host") or request.host
     redirect_uri = f"{scheme}://{host}/api/auth/callback"
-    manager.pending_auths[state] = PendingAuth(code_verifier=code_verifier, redirect_uri=redirect_uri, created_at=now)
+    manager.pending_auths[state] = PendingAuth(
+        code_verifier=code_verifier, redirect_uri=redirect_uri, created_at=now
+    )
     auth_url = await provider.authorization_url(state, code_challenge, redirect_uri)
     raise web.HTTPFound(auth_url)
 
@@ -726,7 +839,9 @@ async def auth_callback(request: web.Request) -> web.Response:
     if not pending or not code or not provider:
         raise web.HTTPFound("/#auth_error=invalid_state")
     try:
-        tokens = await provider.exchange_code(code, pending.code_verifier, pending.redirect_uri)
+        tokens = await provider.exchange_code(
+            code, pending.code_verifier, pending.redirect_uri
+        )
         await provider.validate_id_token(tokens["id_token"])
         session_token = secrets.token_hex(32)
         manager.valid_tokens[session_token] = time.time() + 86400  # 24 hours
@@ -750,6 +865,7 @@ async def auth_logout(request: web.Request) -> web.Response:
 async def auth_end_session(request: web.Request) -> web.Response:
     """Invalidate session token and redirect to OIDC provider end-session."""
     from urllib.parse import urlencode
+
     manager = get_manager(request)
     token = request.rel_url.query.get("token")
     if token:
@@ -762,7 +878,9 @@ async def auth_end_session(request: web.Request) -> web.Response:
             scheme = request.headers.get("X-Forwarded-Proto") or request.scheme
             host = request.headers.get("X-Forwarded-Host") or request.host
             redirect_uri = f"{scheme}://{host}/"
-            raise web.HTTPFound(f"{end_session}?{urlencode({'post_logout_redirect_uri': redirect_uri})}")
+            raise web.HTTPFound(
+                f"{end_session}?{urlencode({'post_logout_redirect_uri': redirect_uri})}"
+            )
     raise web.HTTPFound("/")
 
 
@@ -808,7 +926,13 @@ async def on_shutdown(app: web.Application) -> None:
 
 
 def create_app(config_path: str) -> web.Application:
-    app = web.Application(middlewares=[security_headers_middleware, rate_limit_middleware, auth_middleware])
+    app = web.Application(
+        middlewares=[
+            security_headers_middleware,
+            rate_limit_middleware,
+            auth_middleware,
+        ]
+    )
 
     resolved_path = Path(config_path).resolve()
     logger.info(f"Config path: {resolved_path} (exists: {resolved_path.exists()})")
@@ -874,7 +998,8 @@ def main():
         help="Path to config file (default: /app/data/config.yaml)",
     )
     parser.add_argument(
-        "--port", type=int,
+        "--port",
+        type=int,
         default=int(os.environ.get("BIND_PORT", "8080")),
         help="Web server port (default: 8080, env: BIND_PORT)",
     )
