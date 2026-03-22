@@ -38,7 +38,9 @@ def parse_args():
     parser.add_argument("--host", "-H", required=True, help="NVR ip address and port")
     parser.add_argument("--nvr-username", required=False, help="NVR username")
     parser.add_argument("--nvr-password", required=False, help="NVR password")
-    parser.add_argument("--api-key", required=False, default=None, help="UniFi Protect API key")
+    parser.add_argument(
+        "--api-key", required=False, default=None, help="UniFi Protect API key"
+    )
     parser.add_argument(
         "--cert",
         "-c",
@@ -66,17 +68,47 @@ def parse_args():
         "--model",
         default="UVC G4 Bullet",
         choices=[
-            "UVC G6 Bullet", "UVC G6 Dome", "UVC G6 Turret", "UVC G6 Instant",
-            "UVC G6 PTZ", "UVC G6 Pro Bullet", "UVC G6 180",
-            "UVC AI 360", "UVC AI Bullet", "UVC AI Pro", "UVC AI THETA", "UVC AI DSLR",
-            "UVC G5 Bullet", "UVC G5 Dome", "UVC G5 Dome Ultra", "UVC G5 Turret Ultra",
-            "UVC G5 Flex", "UVC G5 Pro", "UVC G5 PTZ",
-            "UVC G4 Bullet", "UVC G4 Pro", "UVC G4 PTZ",
-            "UVC G4 Doorbell", "UVC G4 Doorbell Pro", "UVC G4 Doorbell Pro PoE",
-            "UVC G4 Dome", "UVC G4 Instant",
-            "UVC G3", "UVC G3 Battery", "UVC G3 Dome", "UVC G3 Micro",
-            "UVC G3 Mini", "UVC G3 Instant", "UVC G3 Pro", "UVC G3 Flex",
-            "UVC", "UVC Pro", "UVC Dome", "UVC Micro", "AFi VC", "Vision Pro",
+            "UVC G6 Bullet",
+            "UVC G6 Dome",
+            "UVC G6 Turret",
+            "UVC G6 Instant",
+            "UVC G6 PTZ",
+            "UVC G6 Pro Bullet",
+            "UVC G6 180",
+            "UVC AI 360",
+            "UVC AI Bullet",
+            "UVC AI Pro",
+            "UVC AI THETA",
+            "UVC AI DSLR",
+            "UVC G5 Bullet",
+            "UVC G5 Dome",
+            "UVC G5 Dome Ultra",
+            "UVC G5 Turret Ultra",
+            "UVC G5 Flex",
+            "UVC G5 Pro",
+            "UVC G5 PTZ",
+            "UVC G4 Bullet",
+            "UVC G4 Pro",
+            "UVC G4 PTZ",
+            "UVC G4 Doorbell",
+            "UVC G4 Doorbell Pro",
+            "UVC G4 Doorbell Pro PoE",
+            "UVC G4 Dome",
+            "UVC G4 Instant",
+            "UVC G3",
+            "UVC G3 Battery",
+            "UVC G3 Dome",
+            "UVC G3 Micro",
+            "UVC G3 Mini",
+            "UVC G3 Instant",
+            "UVC G3 Pro",
+            "UVC G3 Flex",
+            "UVC",
+            "UVC Pro",
+            "UVC Dome",
+            "UVC Micro",
+            "AFi VC",
+            "Vision Pro",
         ],
         help="Hardware model to identify as",
     )
@@ -104,8 +136,11 @@ def parse_args():
 async def generate_token(args, logger):
     try:
         protect = ProtectApiClient(
-            args.host, 443, args.nvr_username, args.nvr_password,
-            api_key=getattr(args, 'api_key', None),
+            args.host,
+            443,
+            args.nvr_username,
+            args.nvr_password,
+            api_key=getattr(args, "api_key", None),
             verify_ssl=False,
             store_sessions=False,
         )
@@ -151,6 +186,7 @@ async def run():
 
     # Look up sysid from model database for Protect device identification
     from unifi.model_db import get_sysid_hex
+
     args.sysid = get_sysid_hex(args.model)
 
     cam = klass(args, logger)

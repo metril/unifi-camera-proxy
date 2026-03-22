@@ -8,7 +8,13 @@ import httpx
 from amcrest import AmcrestCamera
 from amcrest.exceptions import CommError
 
-from unifi.cams.base import RetryableError, SmartDetectObjectType, UnifiCamBase,AVClientRequest
+from unifi.cams.base import (
+    AVClientRequest,
+    RetryableError,
+    SmartDetectObjectType,
+    UnifiCamBase,
+)
+
 
 class DahuaCam(UnifiCamBase):
     def __init__(self, args: argparse.Namespace, logger: logging.Logger) -> None:
@@ -148,30 +154,43 @@ class DahuaCam(UnifiCamBase):
         z = msg["payload"].get("z")
 
         if x == 0 and y == 0 and z == 0:
-            self.camera.ptz_control_command(action="stop", code="Left", arg1=0, arg2=1, arg3=0)
+            self.camera.ptz_control_command(
+                action="stop", code="Left", arg1=0, arg2=1, arg3=0
+            )
         elif z > 0:
-            self.camera.ptz_control_command(action="start", code="ZoomTele", arg1=0, arg2=1, arg3=0)
+            self.camera.ptz_control_command(
+                action="start", code="ZoomTele", arg1=0, arg2=1, arg3=0
+            )
         elif z < 0:
-            self.camera.ptz_control_command(action="start", code="ZoomWide", arg1=0, arg2=1, arg3=0)
+            self.camera.ptz_control_command(
+                action="start", code="ZoomWide", arg1=0, arg2=1, arg3=0
+            )
         elif y > x and y > 0:
-            self.camera.ptz_control_command(action="start", code="Up", arg1=0, arg2=1, arg3=0)
+            self.camera.ptz_control_command(
+                action="start", code="Up", arg1=0, arg2=1, arg3=0
+            )
         elif y < x and y < 0:
-            self.camera.ptz_control_command(action="start", code="Down", arg1=0, arg2=1, arg3=0)
+            self.camera.ptz_control_command(
+                action="start", code="Down", arg1=0, arg2=1, arg3=0
+            )
         elif x > y and x > 0:
-            self.camera.ptz_control_command(action="start", code="Right", arg1=0, arg2=1, arg3=0)
+            self.camera.ptz_control_command(
+                action="start", code="Right", arg1=0, arg2=1, arg3=0
+            )
         elif x < y and x < 0:
-            self.camera.ptz_control_command(action="start", code="Left", arg1=0, arg2=1, arg3=0)
-
+            self.camera.ptz_control_command(
+                action="start", code="Left", arg1=0, arg2=1, arg3=0
+            )
 
     async def get_feature_flags(self) -> dict[str, Any]:
-            return {
-                **await super().get_feature_flags(),
-                **{
-                    "mic": True,
-                    "ptz": self.args.ptz,
-                    "smartDetect": [
-                        "person",
-                        "vehicle",
-                    ],
-                },
-            }
+        return {
+            **await super().get_feature_flags(),
+            **{
+                "mic": True,
+                "ptz": self.args.ptz,
+                "smartDetect": [
+                    "person",
+                    "vehicle",
+                ],
+            },
+        }

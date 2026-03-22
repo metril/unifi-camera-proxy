@@ -73,7 +73,9 @@ class CameraManager:
         self._monitor_task: Optional[asyncio.Task] = None
         self.valid_tokens: dict[str, float] = {}  # token -> expiry timestamp
         self.pending_auths: dict[str, PendingAuth] = {}
-        self._oidc_cache: tuple[str, str, OIDCProvider] | None = None  # (issuer, client_id, provider)
+        self._oidc_cache: tuple[
+            str, str, OIDCProvider
+        ] | None = None  # (issuer, client_id, provider)
 
         # Initialize instances from config
         for cam_config in self.config.get("cameras", []):
@@ -109,16 +111,24 @@ class CameraManager:
         instance.diagnostics_port = diag_port
 
         try:
-            args = config_to_args(global_config, instance.config, diagnostics_port=diag_port)
+            args = config_to_args(
+                global_config, instance.config, diagnostics_port=diag_port
+            )
 
             # Mask credentials in logged command
             from unifi.utils import mask_url
-            sensitive_flags = {'--token', '--nvr-password', '--api-key', '--mqtt-password'}
+
+            sensitive_flags = {
+                "--token",
+                "--nvr-password",
+                "--api-key",
+                "--mqtt-password",
+            }
             masked = list(args)
             for i, arg in enumerate(masked):
                 if arg in sensitive_flags and i + 1 < len(masked):
-                    masked[i + 1] = '***'
-            masked_str = mask_url(' '.join(masked))
+                    masked[i + 1] = "***"
+            masked_str = mask_url(" ".join(masked))
             logger.info(f"Starting camera {camera_id}: unifi-camera-proxy {masked_str}")
 
             process = await asyncio.create_subprocess_exec(
@@ -136,9 +146,7 @@ class CameraManager:
             instance.log_buffer.clear()
 
             # Start log reader tasks
-            instance._log_task = asyncio.create_task(
-                self._read_logs(instance)
-            )
+            instance._log_task = asyncio.create_task(self._read_logs(instance))
         except Exception as e:
             instance.status = "error"
             instance.error_message = str(e)
@@ -169,9 +177,13 @@ class CameraManager:
         if instance.process:
             tasks = []
             if instance.process.stdout:
-                tasks.append(asyncio.create_task(read_stream(instance.process.stdout, "stdout")))
+                tasks.append(
+                    asyncio.create_task(read_stream(instance.process.stdout, "stdout"))
+                )
             if instance.process.stderr:
-                tasks.append(asyncio.create_task(read_stream(instance.process.stderr, "stderr")))
+                tasks.append(
+                    asyncio.create_task(read_stream(instance.process.stderr, "stderr"))
+                )
             if tasks:
                 await asyncio.gather(*tasks)
 
@@ -185,8 +197,17 @@ class CameraManager:
                 else:
                     instance.status = "error"
                     last_entries = list(instance.log_buffer)[-5:]
-                    error_detail = "\n".join(e.get("raw", str(e)) if isinstance(e, dict) else str(e) for e in last_entries) if last_entries else "No output captured"
-                    instance.error_message = f"Process exited with code {returncode}: {error_detail}"
+                    error_detail = (
+                        "\n".join(
+                            e.get("raw", str(e)) if isinstance(e, dict) else str(e)
+                            for e in last_entries
+                        )
+                        if last_entries
+                        else "No output captured"
+                    )
+                    instance.error_message = (
+                        f"Process exited with code {returncode}: {error_detail}"
+                    )
                     logger.warning(
                         f"Camera {instance.id} exited with code {returncode}. "
                         f"Last output: {error_detail}"
@@ -219,7 +240,9 @@ class CameraManager:
             except Exception:
                 pass
         else:
-            logger.debug(f"Camera {instance.id} did not connect within 60s, skipping Protect update")
+            logger.debug(
+                f"Camera {instance.id} did not connect within 60s, skipping Protect update"
+            )
             return
 
         # Give Protect a moment to register the device
@@ -227,8 +250,12 @@ class CameraManager:
 
         try:
             from uiprotect import ProtectApiClient
+
             protect = ProtectApiClient(
-                host, 443, username, password,
+                host,
+                443,
+                username,
+                password,
                 verify_ssl=False,
                 store_sessions=False,
             )
@@ -243,7 +270,9 @@ class CameraManager:
                     break
 
             if not target:
-                logger.debug(f"Camera {instance.id} (MAC {cam_mac}) not found in Protect")
+                logger.debug(
+                    f"Camera {instance.id} (MAC {cam_mac}) not found in Protect"
+                )
                 return
 
             # Update name if different
@@ -252,7 +281,9 @@ class CameraManager:
             if target.get("name") != cam_name:
                 updates["name"] = cam_name
             if updates:
-                await protect.api_request(f"cameras/{protect_id}", method="patch", data=updates)
+                await protect.api_request(
+                    f"cameras/{protect_id}", method="patch", data=updates
+                )
                 logger.info(f"Updated Protect device {protect_id}: {updates}")
 
             await protect.close_session()
@@ -325,7 +356,10 @@ class CameraManager:
         for cam_config in self.config.get("cameras", []):
             if cam_config.get("enabled", True):
                 cam_id = cam_config["id"]
-                if cam_id in self.instances and self.instances[cam_id].status != "running":
+                if (
+                    cam_id in self.instances
+                    and self.instances[cam_id].status != "running"
+                ):
                     await self.start_camera(cam_id)
                     await asyncio.sleep(1.5)  # Stagger startup
 
@@ -389,13 +423,21 @@ class CameraManager:
             instance.config = camera_config
             # Update name in Protect if it changed and camera is running
             new_name = camera_config.get("name")
-            if old_name and new_name and old_name != new_name and instance.status == "running":
+            if (
+                old_name
+                and new_name
+                and old_name != new_name
+                and instance.status == "running"
+            ):
                 asyncio.create_task(self._update_protect_device(instance))
         return camera_config
 
     async def delete_camera(self, camera_id: str) -> None:
         """Delete a camera (stop first if running)."""
-        if camera_id in self.instances and self.instances[camera_id].status == "running":
+        if (
+            camera_id in self.instances
+            and self.instances[camera_id].status == "running"
+        ):
             await self.stop_camera(camera_id)
         self.config["cameras"] = [
             c for c in self.config.get("cameras", []) if c.get("id") != camera_id
@@ -411,9 +453,15 @@ class CameraManager:
         client_secret = g.get("oidc_client_secret") or ""
         if not issuer or not client_id or not client_secret:
             return None
-        if self._oidc_cache and self._oidc_cache[0] == issuer and self._oidc_cache[1] == client_id:
+        if (
+            self._oidc_cache
+            and self._oidc_cache[0] == issuer
+            and self._oidc_cache[1] == client_id
+        ):
             return self._oidc_cache[2]
-        provider = OIDCProvider(OIDCConfig(issuer=issuer, client_id=client_id, client_secret=client_secret))
+        provider = OIDCProvider(
+            OIDCConfig(issuer=issuer, client_id=client_id, client_secret=client_secret)
+        )
         self._oidc_cache = (issuer, client_id, provider)
         return provider
 
@@ -452,6 +500,7 @@ class CameraManager:
             return {"connected": False, "status": instance.status}
         try:
             import aiohttp as aiohttp_client
+
             async with aiohttp_client.ClientSession() as session:
                 async with session.get(
                     f"http://127.0.0.1:{instance.diagnostics_port}/diagnostics",
@@ -469,6 +518,7 @@ class CameraManager:
         if not instance or not instance.ws_clients:
             return
         import json
+
         msg = json.dumps({"type": "log", "data": entry})
         async with instance._ws_lock:
             dead = set()

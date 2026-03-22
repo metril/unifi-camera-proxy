@@ -15,4 +15,3 @@ xmltodict==0.13.0
 pytapo==3.3.21
 httpx~=0.28.0
 pyjwt[crypto]>=2.12.1
-

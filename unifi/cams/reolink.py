@@ -1,16 +1,16 @@
 import argparse
 import json
 import logging
+import string
 import tempfile
 from pathlib import Path
-import string
 from random import choices
 
 import aiohttp
 import reolinkapi
 from yarl import URL
 
-from unifi.cams.base import UnifiCamBase #, SmartDetectObjectType
+from unifi.cams.base import UnifiCamBase  # , SmartDetectObjectType
 
 
 class Reolink(UnifiCamBase):
@@ -64,7 +64,7 @@ class Reolink(UnifiCamBase):
         )
 
     async def get_snapshot(self) -> Path:
-        rs = ''.join(choices(string.ascii_uppercase + string.digits, k=10))
+        rs = "".join(choices(string.ascii_uppercase + string.digits, k=10))
         img_file = Path(self.snapshot_dir, "screen.jpg")
         url = (
             f"http://{self.args.ip}"
@@ -73,6 +73,7 @@ class Reolink(UnifiCamBase):
             f"&password={self.args.password}"
         )
         from unifi.utils import mask_url
+
         self.logger.info(f"Grabbing snapshot: {mask_url(url)}")
         await self.fetch_to_file(url, img_file)
         return img_file
@@ -93,6 +94,7 @@ class Reolink(UnifiCamBase):
         while True:
             # self.logger.info(f"Connecting to AI person motion events API: {url}")
             from unifi.utils import mask_url
+
             self.logger.info(f"Connecting to motion events API: {mask_url(url)}")
             try:
                 async with aiohttp.ClientSession(
@@ -142,10 +144,7 @@ class Reolink(UnifiCamBase):
         else:
             fps = self.stream_fps[1]
 
-        return (
-            "-acodec copy -c:v copy -vbsf"
-            f' "h264_metadata=tick_rate={fps * 2}"'
-        )
+        return "-acodec copy -c:v copy -vbsf" f' "h264_metadata=tick_rate={fps * 2}"'
 
     async def get_stream_source(self, stream_index: str) -> str:
         if stream_index == "video1":

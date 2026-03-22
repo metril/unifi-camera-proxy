@@ -5,4 +5,4 @@ cat /tmp/private.key /tmp/public.key > client.pem
 rm -f /tmp/private.key /tmp/public.key /tmp/server.csr
 
 echo "Certificate created: client.pem"
-echo "Please retireve the token from https://192.168.1.1/proxy/protect/api/cameras/manage-payload"
+echo "Please retrieve the token from https://192.168.1.1/proxy/protect/api/cameras/manage-payload"

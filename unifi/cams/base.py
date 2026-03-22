@@ -11,12 +11,16 @@ from pathlib import Path
 from typing import Any, Optional
 
 import aiohttp
-from aiohttp import web
 import websockets
+from aiohttp import web
 
-from unifi.core import RetryableError
-from unifi.cams.handlers import ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers
+from unifi.cams.handlers import (
+    ProtocolHandlers,
+    SnapshotHandlers,
+    VideoStreamHandlers,
+)
 from unifi.cams.handlers.video_stream_handlers import StreamState
+from unifi.core import RetryableError
 
 AVClientRequest = AVClientResponse = dict[str, Any]
 
@@ -29,7 +33,9 @@ class SmartDetectObjectType(Enum):
     LICENSEPLATE = "licensePlate"
 
 
-class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, metaclass=ABCMeta):
+class UnifiCamBase(
+    ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, metaclass=ABCMeta
+):
     def __init__(self, args: argparse.Namespace, logger: logging.Logger) -> None:
         """
         Initialize the camera base with configuration and state management.
@@ -91,46 +97,62 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         self._msg_id: int = 0
         self._init_time: float = time.time()
         self._streams: dict[str, str] = {}
-        
+
         # Snapshot storage - UniFi Protect requests three types:
         # 1. motionSnapshot - Cropped image with bounding box
-        # 2. motionSnapshotFullFoV - Full size image with bounding box  
+        # 2. motionSnapshotFullFoV - Full size image with bounding box
         # 3. motionHeatmap - Heatmap visualization (use full FoV as fallback)
-        self._motion_snapshot: Optional[Path] = None  # Legacy field, typically the cropped version
+        self._motion_snapshot: Optional[
+            Path
+        ] = None  # Legacy field, typically the cropped version
         self._motion_snapshot_crop: Optional[Path] = None  # Cropped with bounding box
-        self._motion_snapshot_fov: Optional[Path] = None  # Full field of view with bounding box
-        self._motion_heatmap: Optional[Path] = None  # Heatmap (defaults to FoV if not available)
-        
+        self._motion_snapshot_fov: Optional[
+            Path
+        ] = None  # Full field of view with bounding box
+        self._motion_heatmap: Optional[
+            Path
+        ] = None  # Heatmap (defaults to FoV if not available)
+
         # Global event ID counter - UniFi requires unique IDs across all event types
-        self._motion_event_id: int = 0  # Shared counter for both analytics and smart detect events
-        
+        self._motion_event_id: int = (
+            0  # Shared counter for both analytics and smart detect events
+        )
+
         # Enhanced event tracking to support overlapping events
         # Track both generic motion (EventAnalytics) and smart detect events (EventSmartDetect)
         # Store all events (active and completed) for 1 hour to support snapshot retrieval
-        self._analytics_event_history: dict[int, dict[str, Any]] = {}  # All analytics events by event_id
-        self._active_analytics_event_id: Optional[int] = None  # Current active analytics event ID
-        self._active_smart_events: dict[int, dict[str, Any]] = {}  # Smart detect events by event_id
-        
+        self._analytics_event_history: dict[
+            int, dict[str, Any]
+        ] = {}  # All analytics events by event_id
+        self._active_analytics_event_id: Optional[
+            int
+        ] = None  # Current active analytics event ID
+        self._active_smart_events: dict[
+            int, dict[str, Any]
+        ] = {}  # Smart detect events by event_id
+
         # Legacy compatibility (deprecated, use _active_* instead)
         self._motion_event_ts: Optional[float] = None
         self._motion_object_type: Optional[SmartDetectObjectType] = None
         self._motion_last_descriptor: Optional[dict[str, Any]] = None
-        
+
         self._ffmpeg_handles: dict[str, "StreamState"] = {}
-        
+
         # Video resolution detected from source (will be probed during init_adoption)
         # Store separate resolutions for each stream with defaults
         self._detected_resolutions: dict[str, tuple[int, int]] = {
             "video1": (2560, 1920),  # High quality default
-            "video2": (1280, 704),   # Medium quality default
-            "video3": (640, 360),    # Low quality default
+            "video2": (1280, 704),  # Medium quality default
+            "video3": (640, 360),  # Low quality default
         }
 
         # Analytics event linger settings
         # Delay sending EventAnalytics start until the event has been active for this duration (milliseconds)
         self.lingerEventStart: int = 1000  # 1000ms = 1 second
-        self._analytics_start_task: Optional[asyncio.Task] = None  # Track pending analytics start event
-        
+        self._analytics_start_task: Optional[
+            asyncio.Task
+        ] = None  # Track pending analytics start event
+
         # Motion event control
         self.motionEvents: bool = True  # Enable/disable motion event handling
 
@@ -171,7 +193,17 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         parser.add_argument(
             "--loglevel",
             default="error",
-            choices=["trace", "debug", "verbose", "info", "warning", "error", "fatal", "panic", "quiet"],
+            choices=[
+                "trace",
+                "debug",
+                "verbose",
+                "info",
+                "warning",
+                "error",
+                "fatal",
+                "panic",
+                "quiet",
+            ],
             help="Set the ffmpeg log level",
         )
         parser.add_argument(
@@ -180,27 +212,39 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             help="Set the ffpmeg output format",
         )
         parser.add_argument(
-            "--video1-bitrate", type=int, default=6000,
+            "--video1-bitrate",
+            type=int,
+            default=6000,
             help="Max bitrate for high quality stream in kbps (default: 6000)",
         )
         parser.add_argument(
-            "--video1-fps", type=int, default=30,
+            "--video1-fps",
+            type=int,
+            default=30,
             help="FPS for high quality stream (default: 30)",
         )
         parser.add_argument(
-            "--video2-bitrate", type=int, default=1500,
+            "--video2-bitrate",
+            type=int,
+            default=1500,
             help="Max bitrate for medium quality stream in kbps (default: 1500)",
         )
         parser.add_argument(
-            "--video2-fps", type=int, default=15,
+            "--video2-fps",
+            type=int,
+            default=15,
             help="FPS for medium quality stream (default: 15)",
         )
         parser.add_argument(
-            "--video3-bitrate", type=int, default=750,
+            "--video3-bitrate",
+            type=int,
+            default=750,
             help="Max bitrate for low quality stream in kbps (default: 750)",
         )
         parser.add_argument(
-            "--video3-fps", type=int, default=15,
+            "--video3-fps",
+            type=int,
+            default=15,
             help="FPS for low quality stream (default: 15)",
         )
         parser.add_argument(
@@ -263,7 +307,9 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 entry["duration_sec"] = round(time.time() - event["start_time"], 1)
                 active_events.append(entry)
             else:
-                entry["duration_sec"] = round(event["end_time"] - event["start_time"], 1)
+                entry["duration_sec"] = round(
+                    event["end_time"] - event["start_time"], 1
+                )
                 entry["ended_ago_sec"] = round(time.time() - event["end_time"], 1)
                 recent_events.append(entry)
 
@@ -288,9 +334,9 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
 
     async def start_diagnostics_server(self) -> None:
         """Start a diagnostics HTTP API server if a port is configured."""
-        if getattr(self, '_diag_server_started', False):
+        if getattr(self, "_diag_server_started", False):
             return  # Already running from a previous connection
-        port = getattr(self.args, 'diagnostics_port', 0)
+        port = getattr(self.args, "diagnostics_port", 0)
         if not port:
             return
 
@@ -328,12 +374,14 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 self.logger.info(f"Diagnostics server started on port {port + attempt}")
                 return
             except OSError:
-                self.logger.warning(f"Diagnostics port {port + attempt} in use, trying next")
+                self.logger.warning(
+                    f"Diagnostics port {port + attempt} in use, trying next"
+                )
         self.logger.error("Could not start diagnostics server after 10 attempts")
 
     async def notify_diagnostics_changed(self) -> None:
         """Push diagnostics to all connected WebSocket clients."""
-        clients = getattr(self, '_diag_ws_clients', None)
+        clients = getattr(self, "_diag_ws_clients", None)
         if not clients:
             return
         diag = self.get_diagnostics()
@@ -365,11 +413,11 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         """
         Fetch and cache all three snapshot types for an event.
         Subclasses can override this to provide event-specific snapshot fetching.
-        
+
         Args:
             event_id: The event ID (analytics or smart detect)
             event_type: "analytics" or "smart_detect"
-            
+
         Returns:
             Tuple of (crop_path, fov_path, heatmap_path) - paths to cached snapshot files
         """
@@ -377,33 +425,37 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         # Subclasses (like FrigateCam) should override this
         snapshot = await self.get_snapshot()
         return (snapshot, snapshot, snapshot)
-    
-    def update_snapshot_dimensions_from_file(self, event_id: int, snapshot_path: Optional[Path]) -> None:
+
+    def update_snapshot_dimensions_from_file(
+        self, event_id: int, snapshot_path: Optional[Path]
+    ) -> None:
         """
         Update the snapshot dimensions in the descriptor history based on the actual image file.
         Should be called by subclasses after fetching snapshots.
-        
+
         Args:
             event_id: The smart detect event ID
             snapshot_path: Path to the snapshot image file
         """
         if event_id not in self._active_smart_events:
             return
-            
+
         if snapshot_path:
             width, height = self._get_image_dimensions(snapshot_path)
-            
+
             # Update the stored dimensions for this event
             self._active_smart_events[event_id]["snapshot_width"] = width
             self._active_smart_events[event_id]["snapshot_height"] = height
-            
+
             # Update ALL descriptor history entries with the actual snapshot dimensions
             # since they all reference the same cropped snapshot image
-            descriptor_history = self._active_smart_events[event_id]["descriptor_history"]
+            descriptor_history = self._active_smart_events[event_id][
+                "descriptor_history"
+            ]
             for desc_entry in descriptor_history:
                 desc_entry["snapshot_width"] = width
                 desc_entry["snapshot_height"] = height
-            
+
             self.logger.debug(
                 f"Updated snapshot dimensions for event {event_id}: {width}x{height} from file {snapshot_path} "
                 f"(updated {len(descriptor_history)} descriptor entries)"
@@ -416,7 +468,6 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             "videoMode": ["default"],
             "motionDetect": ["enhanced"],
         }
-
 
     ###
 
@@ -475,7 +526,6 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
     # idleSinceTimeMs: a.default.number().finite().optional()
     ###
 
-
     # API for subclasses - Smart Detect Events
     def _cleanup_old_analytics_events(self) -> None:
         """
@@ -485,35 +535,45 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         """
         current_time = time.time()
         one_hour_ago = current_time - 3600  # 1 hour in seconds
-        
+
         # Find events to remove
         events_to_remove = []
         for event_id, event_data in self._analytics_event_history.items():
             # Use end_time if event is completed, otherwise use start_time
-            event_time = event_data.get('end_time') or event_data.get('start_time', 0)
+            event_time = event_data.get("end_time") or event_data.get("start_time", 0)
             if event_time < one_hour_ago:
                 events_to_remove.append(event_id)
-        
+
         # Remove old events and delete their cached snapshot files
         for event_id in events_to_remove:
             event_data = self._analytics_event_history[event_id]
-            
+
             # Delete cached snapshot files
-            for snapshot_key in ['snapshot_crop_path', 'snapshot_fov_path', 'heatmap_path']:
+            for snapshot_key in [
+                "snapshot_crop_path",
+                "snapshot_fov_path",
+                "heatmap_path",
+            ]:
                 snapshot_path = event_data.get(snapshot_key)
-                if snapshot_path and isinstance(snapshot_path, Path) and snapshot_path.exists():
+                if (
+                    snapshot_path
+                    and isinstance(snapshot_path, Path)
+                    and snapshot_path.exists()
+                ):
                     try:
                         snapshot_path.unlink()
                         self.logger.debug(f"Deleted cached snapshot: {snapshot_path}")
                     except Exception as e:
-                        self.logger.warning(f"Failed to delete cached snapshot {snapshot_path}: {e}")
-            
+                        self.logger.warning(
+                            f"Failed to delete cached snapshot {snapshot_path}: {e}"
+                        )
+
             del self._analytics_event_history[event_id]
             self.logger.debug(
                 f"Cleaned up analytics event {event_id} "
                 f"(age: {(current_time - (event_data.get('end_time') or current_time)) / 60:.1f} minutes)"
             )
-        
+
         if events_to_remove:
             self.logger.info(
                 f"Cleaned up {len(events_to_remove)} old analytics events. "
@@ -527,35 +587,45 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         """
         current_time = time.time()
         sixty_minutes_ago = current_time - 3600  # 60 minutes in seconds
-        
+
         # Find ended events to remove
         events_to_remove = []
         for event_id, event_data in self._active_smart_events.items():
-            end_time = event_data.get('end_time')
+            end_time = event_data.get("end_time")
             # Only clean up events that have ended and are older than 60 minutes
             if end_time and end_time < sixty_minutes_ago:
                 events_to_remove.append(event_id)
-        
+
         # Remove old events and delete their cached snapshot files
         for event_id in events_to_remove:
             event_data = self._active_smart_events[event_id]
-            
+
             # Delete cached snapshot files
-            for snapshot_key in ['snapshot_crop_path', 'snapshot_fov_path', 'heatmap_path']:
+            for snapshot_key in [
+                "snapshot_crop_path",
+                "snapshot_fov_path",
+                "heatmap_path",
+            ]:
                 snapshot_path = event_data.get(snapshot_key)
-                if snapshot_path and isinstance(snapshot_path, Path) and snapshot_path.exists():
+                if (
+                    snapshot_path
+                    and isinstance(snapshot_path, Path)
+                    and snapshot_path.exists()
+                ):
                     try:
                         snapshot_path.unlink()
                         self.logger.debug(f"Deleted cached snapshot: {snapshot_path}")
                     except Exception as e:
-                        self.logger.warning(f"Failed to delete cached snapshot {snapshot_path}: {e}")
-            
+                        self.logger.warning(
+                            f"Failed to delete cached snapshot {snapshot_path}: {e}"
+                        )
+
             del self._active_smart_events[event_id]
             self.logger.debug(
                 f"Cleaned up smart detect event {event_id} "
                 f"(age: {(current_time - end_time) / 60:.1f} minutes)"
             )
-        
+
         if events_to_remove:
             self.logger.info(
                 f"Cleaned up {len(events_to_remove)} old smart detect events. "
@@ -565,43 +635,46 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
     def _get_image_dimensions(self, image_path: Optional[Path]) -> tuple[int, int]:
         """
         Get the dimensions of an image file.
-        
+
         Args:
             image_path: Path to the image file
-            
+
         Returns:
             Tuple of (width, height) for the image, or (640, 360) as fallback
         """
         if not image_path or not image_path.exists():
             return (640, 360)
-        
+
         try:
             # Try to read image dimensions without loading the entire image
             # This works with PIL/Pillow if available
             try:
                 from PIL import Image
+
                 with Image.open(image_path) as img:
                     return img.size  # Returns (width, height)
             except ImportError:
                 # PIL not available, try alternative method using basic file reading
                 # Read just enough bytes to get dimensions from common image formats
-                with image_path.open('rb') as f:
+                with image_path.open("rb") as f:
                     # Try PNG format
                     header = f.read(24)
-                    if header[:8] == b'\x89PNG\r\n\x1a\n':
+                    if header[:8] == b"\x89PNG\r\n\x1a\n":
                         # PNG format: width and height are at bytes 16-23
                         f.seek(16)
                         width_bytes = f.read(4)
                         height_bytes = f.read(4)
-                        width = int.from_bytes(width_bytes, byteorder='big')
-                        height = int.from_bytes(height_bytes, byteorder='big')
+                        width = int.from_bytes(width_bytes, byteorder="big")
+                        height = int.from_bytes(height_bytes, byteorder="big")
                         return (width, height)
                     # Try JPEG format
-                    elif header[:2] == b'\xff\xd8':
+                    elif header[:2] == b"\xff\xd8":
                         f.seek(0)
                         # JPEG dimensions are more complex to parse
                         # For now, fall back to default
-                        self.logger.debug("JPEG format detected but dimensions parsing not implemented without PIL")
+                        self.logger.debug(
+                            "JPEG format detected but dimensions parsing not implemented without PIL"
+                        )
                         return (640, 360)
                     else:
                         self.logger.debug(f"Unknown image format for {image_path}")
@@ -610,46 +683,53 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             self.logger.debug(f"Could not read image dimensions from {image_path}: {e}")
             return (640, 360)
 
-    def _calculate_snapshot_dimensions(self, descriptor: dict[str, Any], snapshot_path: Optional[Path] = None) -> tuple[int, int]:
+    def _calculate_snapshot_dimensions(
+        self, descriptor: dict[str, Any], snapshot_path: Optional[Path] = None
+    ) -> tuple[int, int]:
         """
         Calculate snapshot dimensions from the actual snapshot image file.
         Falls back to bounding box calculation if image not available.
-        
+
         Args:
             descriptor: Descriptor dictionary containing coordinate information
             snapshot_path: Optional path to the snapshot image file
-            
+
         Returns:
             Tuple of (width, height) for the snapshot
         """
         # First try to get dimensions from the actual snapshot file
         if snapshot_path:
             width, height = self._get_image_dimensions(snapshot_path)
-            if (width, height) != (640, 360):  # If we got real dimensions (not the default)
+            if (width, height) != (
+                640,
+                360,
+            ):  # If we got real dimensions (not the default)
                 return (width, height)
-        
+
         # Fallback: Try to calculate from bounding box coordinates
         coord = descriptor.get("coord")
         if coord and len(coord) >= 4:
             try:
                 # Assuming coord is normalized [x1, y1, x2, y2]
                 x1, y1, x2, y2 = coord[0], coord[1], coord[2], coord[3]
-                
+
                 # Get the video stream resolution (use video3/low quality as default for snapshots)
-                stream_width, stream_height = self._detected_resolutions.get("video3", (640, 360))
-                
+                stream_width, stream_height = self._detected_resolutions.get(
+                    "video3", (640, 360)
+                )
+
                 # Calculate absolute bounding box dimensions
                 bbox_width = abs(x2 - x1) * stream_width
                 bbox_height = abs(y2 - y1) * stream_height
-                
+
                 # Round to integers and ensure minimum size
                 width = max(int(bbox_width), 100)  # Minimum 100px
                 height = max(int(bbox_height), 100)  # Minimum 100px
-                
+
                 return (width, height)
             except (ValueError, TypeError, IndexError) as e:
                 self.logger.debug(f"Could not parse coord from descriptor: {e}")
-        
+
         # Final fallback to default dimensions
         return (640, 360)
 
@@ -662,24 +742,24 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
     ) -> int:
         """
         Start a smart detect event for a specific object type.
-        
+
         Args:
             object_type: The type of object detected (person, vehicle, etc.)
             custom_descriptor: Optional descriptor data (bounding box, etc.)
             event_timestamp: Optional timestamp for the event
-            
+
         Returns:
             The UniFi event ID for this smart detect event
         """
         current_time = time.time()
-        
+
         # Compose a globally-unique event ID using epoch milliseconds plus a local counter.
         # Embedding time reduces collisions across restarts/instances while keeping a small
         # incrementing counter for uniqueness within the same millisecond.
         epoch_ms = int(time.time() * 1000)
         event_id = epoch_ms * 1000 + (self._motion_event_id % 1000)
         self._motion_event_id += 1
-        
+
         # Check if we already have an active smart detect event with this event_id
         if event_id in self._active_smart_events:
             existing_event = self._active_smart_events[event_id]
@@ -690,7 +770,9 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 f"Ignoring duplicate start for {object_type.value}."
             )
             return event_id
-        zonesStatus = {"1": {"level": 60, "status": "enter"}}  # Example zonesStatus, can be customized
+        zonesStatus = {
+            "1": {"level": 60, "status": "enter"}
+        }  # Example zonesStatus, can be customized
         # Build descriptors array
         descriptors = []
         if custom_descriptor:
@@ -701,7 +783,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 except Exception:
                     score = 75
                 zonesStatus = {"1": {"level": score, "status": "enter"}}
-        
+
         payload: dict[str, Any] = {
             "clockMonotonic": int(self.get_uptime()),
             "clockStream": int(self.get_uptime()),
@@ -712,25 +794,23 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             "edgeType": "enter",
             "eventId": event_id,
             "objectTypes": [object_type.value],
-                "smartDetectSnapshotFullFoV": "",
-                "smartDetectSnapshotFullFoVHeight": 0,
-                "smartDetectSnapshotFullFoVWidth": 0,
-                "smartDetectSnapshots": [],
+            "smartDetectSnapshotFullFoV": "",
+            "smartDetectSnapshotFullFoVHeight": 0,
+            "smartDetectSnapshotFullFoVWidth": 0,
+            "smartDetectSnapshots": [],
             "zonesStatus": zonesStatus,
         }
-        
+
         self.logger.info(
             f"Starting smart detect event {event_id} for {object_type.value} "
             f"(active smart events: {len(self._active_smart_events)})"
         )
-        
-        await self.send(
-            self.gen_response("EventSmartDetect", payload=payload)
-        )
-        
+
+        await self.send(self.gen_response("EventSmartDetect", payload=payload))
+
         # Clean up old smart detect events (keep for 60 minutes after end)
         self._cleanup_old_smart_events()
-        
+
         # Track this smart detect event
         self._active_smart_events[event_id] = {
             "object_type": object_type,
@@ -741,30 +821,34 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             "descriptor_history": [],  # Track all descriptors with timestamps for building snapshot array
             # UniFi Protect requests three snapshot types - store cached file paths:
             "snapshot_crop_path": None,  # motionSnapshot - cropped with bounding box
-            "snapshot_fov_path": None,   # motionSnapshotFullFoV - full size with bounding box
-            "heatmap_path": None,        # motionHeatmap - heatmap visualization
+            "snapshot_fov_path": None,  # motionSnapshotFullFoV - full size with bounding box
+            "heatmap_path": None,  # motionHeatmap - heatmap visualization
             "snapshot_width": None,  # Actual snapshot dimensions
             "snapshot_height": None,
         }
-        
+
         # Add the initial descriptor to history if provided
         if custom_descriptor:
             # Use default dimensions initially - subclasses should call
             # update_snapshot_dimensions_from_file() after fetching snapshots
             # to get actual dimensions from the image file
             snapshot_width, snapshot_height = (640, 360)  # Default dimensions
-            
-            self._active_smart_events[event_id]["descriptor_history"].append({
-                "descriptor": custom_descriptor,
-                "timestamp_ms": event_timestamp or int(round(time.time() * 1000)),
-                "monotonic": int(self.get_uptime()),
-                "snapshot_width": snapshot_width,
-                "snapshot_height": snapshot_height,
-            })
-        
+
+            self._active_smart_events[event_id]["descriptor_history"].append(
+                {
+                    "descriptor": custom_descriptor,
+                    "timestamp_ms": event_timestamp or int(round(time.time() * 1000)),
+                    "monotonic": int(self.get_uptime()),
+                    "snapshot_width": snapshot_width,
+                    "snapshot_height": snapshot_height,
+                }
+            )
+
         # If there's an active analytics event, associate this smart detect event with it
         if self._active_analytics_event_id is not None:
-            active_analytics = self._analytics_event_history.get(self._active_analytics_event_id)
+            active_analytics = self._analytics_event_history.get(
+                self._active_analytics_event_id
+            )
             if active_analytics:
                 active_analytics["smart_detect_event_ids"].append(event_id)
                 self.logger.debug(
@@ -773,7 +857,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                     f"Total smart detects for this analytics event: "
                     f"{len(active_analytics['smart_detect_event_ids'])}"
                 )
-        
+
         # Update legacy compatibility fields
         self._motion_event_ts = current_time
         self._motion_object_type = object_type
@@ -790,7 +874,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
     ) -> None:
         """
         Send a smart detect update (moving) event with updated descriptor information.
-        
+
         Args:
             object_type: The type of object to update
             custom_descriptor: Updated descriptor data (bounding box, etc.)
@@ -802,16 +886,18 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             if event["object_type"] == object_type:
                 event_id = eid
                 break
-        
+
         if event_id is None:
             self.logger.warning(
                 f"trigger_smart_detect_update called for {object_type.value} "
                 f"but no active event found. Event may have already ended or never started. Ignoring."
             )
             return
-        
+
         active_event = self._active_smart_events[event_id]
-        zonesStatus = {"1": {"level": 75, "status": "moving"}}  # Example zonesStatus, can be customized
+        zonesStatus = {
+            "1": {"level": 75, "status": "moving"}
+        }  # Example zonesStatus, can be customized
         # Build descriptors array
         descriptors = []
         if custom_descriptor:
@@ -823,21 +909,23 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             # Use default dimensions initially - subclasses should call
             # update_snapshot_dimensions_from_file() after fetching snapshots
             snapshot_width, snapshot_height = (640, 360)  # Default dimensions
-            
-            active_event["descriptor_history"].append({
-                "descriptor": custom_descriptor,
-                "timestamp_ms": event_timestamp or int(round(time.time() * 1000)),
-                "monotonic": int(self.get_uptime()),
-                "snapshot_width": snapshot_width,
-                "snapshot_height": snapshot_height,
-            })
+
+            active_event["descriptor_history"].append(
+                {
+                    "descriptor": custom_descriptor,
+                    "timestamp_ms": event_timestamp or int(round(time.time() * 1000)),
+                    "monotonic": int(self.get_uptime()),
+                    "snapshot_width": snapshot_width,
+                    "snapshot_height": snapshot_height,
+                }
+            )
             if custom_descriptor and "confidenceLevel" in custom_descriptor:
                 try:
                     score = int(custom_descriptor.get("confidenceLevel"))
                 except Exception:
                     score = 75
                 zonesStatus = {"1": {"level": score, "status": "moving"}}
-        
+
         payload: dict[str, Any] = {
             "clockMonotonic": int(self.get_uptime()),
             "clockStream": int(self.get_uptime()),
@@ -854,14 +942,12 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             "smartDetectSnapshots": [],
             "zonesStatus": zonesStatus,
         }
-        
+
         self.logger.debug(
             f"Updating smart detect event {event_id} for {object_type.value}"
         )
-        
-        await self.send(
-            self.gen_response("EventSmartDetect", payload=payload)
-        )
+
+        await self.send(self.gen_response("EventSmartDetect", payload=payload))
         await self.notify_diagnostics_changed()
 
     async def trigger_smart_detect_stop(
@@ -874,7 +960,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
     ) -> None:
         """
         Stop a smart detect event for a specific object type.
-        
+
         Args:
             object_type: The type of object to stop detecting
             custom_descriptor: Optional final descriptor data. If provided, sends a final update before stopping.
@@ -884,30 +970,30 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         """
         # Find the active smart detect event
         target_event_id = event_id
-        
+
         if target_event_id is None:
             # Fallback to finding by object type (legacy behavior)
             for eid, event in self._active_smart_events.items():
                 if event["object_type"] == object_type:
                     target_event_id = eid
                     break
-        
+
         if target_event_id is None:
             self.logger.warning(
                 f"trigger_smart_detect_stop called for {object_type.value} "
                 f"but no active event found. Event may have already ended or never started. Ignoring."
             )
             return
-            
+
         if target_event_id not in self._active_smart_events:
             self.logger.warning(
                 f"trigger_smart_detect_stop called for event {target_event_id} "
                 f"but it is not in active events list. Ignoring."
             )
             return
-        
+
         active_event = self._active_smart_events[target_event_id]
-        
+
         # If a custom_descriptor is provided, send it as a final update first
         # so UniFi Protect receives the final bounding box and snapshot
         if custom_descriptor:
@@ -915,119 +1001,153 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 f"Sending final update with custom descriptor before stopping event {target_event_id}"
             )
             await self.trigger_smart_detect_update(
-                object_type,
-                custom_descriptor,
-                frame_time_ms or event_timestamp
+                object_type, custom_descriptor, frame_time_ms or event_timestamp
             )
-        
-        zonesStatus = {"1": {"level": 75, "status": "leave"}}  # Example zonesStatus, can be customized
-        
+
+        zonesStatus = {
+            "1": {"level": 75, "status": "leave"}
+        }  # Example zonesStatus, can be customized
+
         # Build smartDetectSnapshots array and trackerIDAttrMap from descriptor history
         smart_detect_snapshots = []
         tracker_id_attr_map = {}
-        
+
         # Use descriptor history if available, otherwise use last descriptor
         descriptors_to_process = active_event.get("descriptor_history", [])
         if not descriptors_to_process and custom_descriptor:
             # Fallback: create a single entry from the final descriptor
-            snapshot_width, snapshot_height = self._calculate_snapshot_dimensions(custom_descriptor)
-            descriptors_to_process = [{
-                "descriptor": custom_descriptor,
-                "timestamp_ms": event_timestamp or int(round(time.time() * 1000)),
-                "monotonic": int(self.get_uptime()),
-                "snapshot_width": snapshot_width,
-                "snapshot_height": snapshot_height,
-            }]
+            snapshot_width, snapshot_height = self._calculate_snapshot_dimensions(
+                custom_descriptor
+            )
+            descriptors_to_process = [
+                {
+                    "descriptor": custom_descriptor,
+                    "timestamp_ms": event_timestamp or int(round(time.time() * 1000)),
+                    "monotonic": int(self.get_uptime()),
+                    "snapshot_width": snapshot_width,
+                    "snapshot_height": snapshot_height,
+                }
+            ]
         elif not descriptors_to_process and active_event.get("last_descriptor"):
             # Further fallback: use last stored descriptor
             last_desc = active_event["last_descriptor"]
-            snapshot_width, snapshot_height = self._calculate_snapshot_dimensions(last_desc)
-            descriptors_to_process = [{
-                "descriptor": last_desc,
-                "timestamp_ms": event_timestamp or int(round(time.time() * 1000)),
-                "monotonic": int(self.get_uptime()),
-                "snapshot_width": snapshot_width,
-                "snapshot_height": snapshot_height,
-            }]
-        
+            snapshot_width, snapshot_height = self._calculate_snapshot_dimensions(
+                last_desc
+            )
+            descriptors_to_process = [
+                {
+                    "descriptor": last_desc,
+                    "timestamp_ms": event_timestamp or int(round(time.time() * 1000)),
+                    "monotonic": int(self.get_uptime()),
+                    "snapshot_width": snapshot_width,
+                    "snapshot_height": snapshot_height,
+                }
+            ]
+
         # Group descriptors by tracker ID and select the one with highest confidence for each
         # Only one snapshot per tracker ID should be in the smartDetectSnapshots array
         best_descriptors_by_tracker: dict[int, dict[str, Any]] = {}
-        
+
         for desc_entry in descriptors_to_process:
             descriptor = desc_entry["descriptor"]
             tracker_id = descriptor.get("trackerID", 1)
             confidence = descriptor.get("confidenceLevel", 0)
-            
+
             # Keep only the descriptor with the highest confidence for each tracker ID
             if tracker_id not in best_descriptors_by_tracker:
                 best_descriptors_by_tracker[tracker_id] = desc_entry
             else:
-                existing_confidence = best_descriptors_by_tracker[tracker_id]["descriptor"].get("confidenceLevel", 0)
+                existing_confidence = best_descriptors_by_tracker[tracker_id][
+                    "descriptor"
+                ].get("confidenceLevel", 0)
                 if confidence > existing_confidence:
                     best_descriptors_by_tracker[tracker_id] = desc_entry
-        
+
         # Build smartDetectSnapshots array from best descriptors (one per tracker ID)
         for tracker_id, desc_entry in best_descriptors_by_tracker.items():
             descriptor = desc_entry["descriptor"]
             zones = descriptor.get("zones", [1])
-            
+
             # Use per-descriptor snapshot dimensions if available, otherwise use event-level defaults
-            snapshot_width = desc_entry.get("snapshot_width") or active_event.get("snapshot_width") or 640
-            snapshot_height = desc_entry.get("snapshot_height") or active_event.get("snapshot_height") or 360
-            
+            snapshot_width = (
+                desc_entry.get("snapshot_width")
+                or active_event.get("snapshot_width")
+                or 640
+            )
+            snapshot_height = (
+                desc_entry.get("snapshot_height")
+                or active_event.get("snapshot_height")
+                or 360
+            )
+
             # Use the actual cached snapshot path as the filename
             # UniFi Protect will request this file via GetRequest
             snapshot_crop_path = active_event.get("snapshot_crop_path")
-            snapshot_filename = str(snapshot_crop_path) if snapshot_crop_path else f"smartdetectsnap_zone_{tracker_id}_{desc_entry['timestamp_ms']}.jpg"
-            
+            snapshot_filename = (
+                str(snapshot_crop_path)
+                if snapshot_crop_path
+                else f"smartdetectsnap_zone_{tracker_id}_{desc_entry['timestamp_ms']}.jpg"
+            )
+
             # Build smartDetectSnapshots entry
-            smart_detect_snapshots.append({
-                "clockBestMonotonic": desc_entry["monotonic"],
-                "clockBestWall": desc_entry["timestamp_ms"],
-                "smartDetectSnapshot": snapshot_filename,
-                "smartDetectSnapshotHeight": snapshot_height,
-                "smartDetectSnapshotName": descriptor.get("name", ""),
-                "smartDetectSnapshotType": object_type.value,
-                "smartDetectSnapshotWidth": snapshot_width,
-                "trackerID": tracker_id
-            })
-            
+            smart_detect_snapshots.append(
+                {
+                    "clockBestMonotonic": desc_entry["monotonic"],
+                    "clockBestWall": desc_entry["timestamp_ms"],
+                    "smartDetectSnapshot": snapshot_filename,
+                    "smartDetectSnapshotHeight": snapshot_height,
+                    "smartDetectSnapshotName": descriptor.get("name", ""),
+                    "smartDetectSnapshotType": object_type.value,
+                    "smartDetectSnapshotWidth": snapshot_width,
+                    "trackerID": tracker_id,
+                }
+            )
+
             # Build trackerIDAttrMap entry (use zones from best descriptor for each tracker)
             tracker_id_attr_map[str(tracker_id)] = {
                 "objectType": object_type.value,
-                "zone": zones if zones else [1]
+                "zone": zones if zones else [1],
             }
-        
+
         # If no descriptors were processed, create a minimal default entry
         if not smart_detect_snapshots:
             default_tracker_id = 1
             default_timestamp_ms = event_timestamp or int(round(time.time() * 1000))
             default_monotonic = int(self.get_uptime())
-            
+
             # Use the actual cached snapshot path as the filename
             snapshot_crop_path = active_event.get("snapshot_crop_path")
-            snapshot_filename = str(snapshot_crop_path) if snapshot_crop_path else f"smartdetectsnap_zone_{default_tracker_id}_{default_timestamp_ms}.jpg"
-            
-            smart_detect_snapshots.append({
-                "clockBestMonotonic": default_monotonic,
-                "clockBestWall": default_timestamp_ms,
-                "smartDetectSnapshot": snapshot_filename,
-                "smartDetectSnapshotHeight": snapshot_height,
-                "smartDetectSnapshotName": "",
-                "smartDetectSnapshotType": object_type.value,
-                "smartDetectSnapshotWidth": snapshot_width,
-                "trackerID": default_tracker_id
-            })
+            snapshot_filename = (
+                str(snapshot_crop_path)
+                if snapshot_crop_path
+                else f"smartdetectsnap_zone_{default_tracker_id}_{default_timestamp_ms}.jpg"
+            )
+
+            smart_detect_snapshots.append(
+                {
+                    "clockBestMonotonic": default_monotonic,
+                    "clockBestWall": default_timestamp_ms,
+                    "smartDetectSnapshot": snapshot_filename,
+                    "smartDetectSnapshotHeight": snapshot_height,
+                    "smartDetectSnapshotName": "",
+                    "smartDetectSnapshotType": object_type.value,
+                    "smartDetectSnapshotWidth": snapshot_width,
+                    "trackerID": default_tracker_id,
+                }
+            )
             tracker_id_attr_map[str(default_tracker_id)] = {
                 "objectType": object_type.value,
-                "zone": [1]
+                "zone": [1],
             }
-        
+
         # Get the full FoV snapshot path and dimensions from the event
         snapshot_fov_path = active_event.get("snapshot_fov_path")
-        fov_filename = str(snapshot_fov_path) if snapshot_fov_path else f"smartdetectsnap_{target_event_id}_fullfov.jpg"
-        
+        fov_filename = (
+            str(snapshot_fov_path)
+            if snapshot_fov_path
+            else f"smartdetectsnap_{target_event_id}_fullfov.jpg"
+        )
+
         # Get FoV dimensions - try to read from the actual FoV file if available
         if snapshot_fov_path:
             fov_width, fov_height = self._get_image_dimensions(snapshot_fov_path)
@@ -1035,13 +1155,13 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             # Fall back to event-level dimensions or defaults
             fov_width = active_event.get("snapshot_width") or 640
             fov_height = active_event.get("snapshot_height") or 360
-        
+
         payload: dict[str, Any] = {
             "clockMonotonic": int(self.get_uptime()),
             "clockStream": int(self.get_uptime()),
             "clockStreamRate": 1000,
             "clockWall": event_timestamp or int(round(time.time() * 1000)),
-            "descriptors": [],         # This is empty on stop events
+            "descriptors": [],  # This is empty on stop events
             "displayTimeoutMSec": 2000,
             "edgeType": "leave",
             "eventId": target_event_id,
@@ -1053,24 +1173,24 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             "trackerIDAttrMap": tracker_id_attr_map,
             "zonesStatus": zonesStatus,
         }
-        
+
         duration = time.time() - active_event["start_time"]
         self.logger.info(
             f"Stopping smart detect event {target_event_id} for {object_type.value} "
             f"(duration: {duration:.1f}s, active smart events: "
             f"{len([e for e in self._active_smart_events.values() if e.get('end_time') is None])})"
         )
-        
-        await self.send(
-            self.gen_response("EventSmartDetect", payload=payload)
-        )
-        
+
+        await self.send(self.gen_response("EventSmartDetect", payload=payload))
+
         # Mark this smart detect event as ended (keep in memory for 60 minutes)
         active_event["end_time"] = time.time()
-        
+
         # Update legacy compatibility fields
         # Check if there are any other active (not ended) smart detect events
-        active_smart_events = [e for e in self._active_smart_events.values() if e.get("end_time") is None]
+        active_smart_events = [
+            e for e in self._active_smart_events.values() if e.get("end_time") is None
+        ]
         if not active_smart_events:
             # No more active smart detect events
             self._motion_object_type = None
@@ -1089,7 +1209,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
     ) -> None:
         """
         Internal method to actually send the analytics start event after linger period.
-        
+
         Args:
             event_id: The event ID to send
             event_timestamp: Optional timestamp for the event
@@ -1101,16 +1221,16 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 f"Not sending start event."
             )
             return
-        
+
         active_event = self._analytics_event_history[event_id]
-        
+
         # Check if it was already ended
         if active_event.get("end_time") is not None:
             self.logger.debug(
                 f"Analytics event {event_id} already ended. Not sending start event."
             )
             return
-        
+
         payload: dict[str, Any] = {
             "clockBestMonotonic": 0,
             "clockBestWall": 0,
@@ -1125,16 +1245,14 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             "motionHeatmap": "motionHeatmapline101.png",
             "motionSnapshot": "motionSnapshotline102.png",
         }
-        
+
         self.logger.info(
             f"Sending analytics start event {event_id} after {self.lingerEventStart}ms linger period "
             f"(active smart events: {len(self._active_smart_events)})"
         )
-        
-        await self.send(
-            self.gen_response("EventAnalytics", payload=payload)
-        )
-        
+
+        await self.send(self.gen_response("EventAnalytics", payload=payload))
+
         # Mark that the start event has been sent
         active_event["start_event_sent"] = True
 
@@ -1144,45 +1262,49 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
     ) -> None:
         """
         Start a generic analytics motion event.
-        
+
         The actual EventAnalytics message will be delayed by lingerEventStart milliseconds
         to avoid sending events for very brief motion detections. If trigger_analytics_stop
         is called before the linger period expires, no start event will be sent.
-        
+
         Args:
             event_timestamp: Optional timestamp for the event
         """
         # Check if motion events are disabled
         if not self.motionEvents:
-            self.logger.debug("Motion events disabled, ignoring trigger_analytics_start")
+            self.logger.debug(
+                "Motion events disabled, ignoring trigger_analytics_start"
+            )
             return
-        
+
         # Clean up old events before starting a new one
         self._cleanup_old_analytics_events()
-        
+
         current_time = time.time()
-        
+
         # Get the next available event ID and increment counter
         epoch_ms = int(time.time() * 1000)
         event_id = epoch_ms * 1000 + (self._motion_event_id % 1000)
         self._motion_event_id += 1
-        
+
         # Check if we already have an active analytics event
         if self._active_analytics_event_id is not None:
-            active_event = self._analytics_event_history.get(self._active_analytics_event_id)
+            active_event = self._analytics_event_history.get(
+                self._active_analytics_event_id
+            )
             if active_event:
-                existing_start = active_event['start_time']
+                existing_start = active_event["start_time"]
                 self.logger.warning(
                     f"Analytics event {self._active_analytics_event_id} already active "
                     f"(started: {current_time - existing_start:.1f}s ago). "
                     f"Ignoring duplicate start."
                 )
                 return
-        
+
         self.logger.info(
             f"Preparing analytics event {event_id}, will send start event after {self.lingerEventStart}ms linger period"
         )
-        
+
         # Track this analytics event in history
         self._analytics_event_history[event_id] = {
             "event_id": event_id,
@@ -1202,17 +1324,17 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             "smart_detect_event_ids": [],
         }
         self._active_analytics_event_id = event_id
-        
+
         # Schedule the actual start event to be sent after linger period
         linger_seconds = self.lingerEventStart / 1000.0
         self._analytics_start_task = asyncio.create_task(
             self._delayed_analytics_start(event_id, event_timestamp, linger_seconds)
         )
-        
+
         # Update legacy compatibility fields
         if not self._motion_event_ts:  # Only set if not already set by smart detect
             self._motion_event_ts = current_time
-    
+
     async def _delayed_analytics_start(
         self,
         event_id: int,
@@ -1221,7 +1343,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
     ) -> None:
         """
         Helper method to delay sending the analytics start event.
-        
+
         Args:
             event_id: The event ID
             event_timestamp: Optional timestamp for the event
@@ -1231,7 +1353,9 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             await asyncio.sleep(delay_seconds)
             await self._send_analytics_start_event(event_id, event_timestamp)
         except asyncio.CancelledError:
-            self.logger.debug(f"Analytics start event {event_id} was cancelled during linger period")
+            self.logger.debug(
+                f"Analytics start event {event_id} was cancelled during linger period"
+            )
             raise
 
     async def trigger_analytics_stop(
@@ -1240,15 +1364,15 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
     ) -> None:
         """
         Stop the active analytics motion event.
-        
+
         If the event hasn't been active long enough to send the start event (lingerEventStart),
         the pending start will be cancelled and no EventAnalytics messages will be sent.
-        
+
         Handles snapshot caching:
         - If smart detect events occurred during this analytics event, uses the most recent
           smart detect event's cached snapshots
         - Otherwise, fetches fresh snapshots and caches them
-        
+
         Args:
             event_timestamp: Optional timestamp for the event
         """
@@ -1259,17 +1383,17 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 "Event may have already ended or never started. Ignoring."
             )
             return
-        
+
         event_id = self._active_analytics_event_id
         active_event = self._analytics_event_history.get(event_id)
-        
+
         if not active_event:
             self.logger.warning(
                 f"trigger_analytics_stop called for event {event_id} but event not found in history. Ignoring."
             )
             self._active_analytics_event_id = None
             return
-        
+
         # Cancel the pending start event if it hasn't been sent yet
         if self._analytics_start_task and not self._analytics_start_task.done():
             self._analytics_start_task.cancel()
@@ -1284,26 +1408,26 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             # Clean up the event from history since we never sent anything
             del self._analytics_event_history[event_id]
             self._active_analytics_event_id = None
-            
+
             # Update legacy compatibility fields
             if not self._active_smart_events:
                 self._motion_event_ts = None
-            
+
             return
-        
+
         # If we get here, the start event was sent, so we need to send the stop event
-        
+
         # Determine which snapshots to use
         snapshot_crop_path = None
         snapshot_fov_path = None
         heatmap_path = None
-        
+
         # Check if any smart detect events occurred during this analytics event
         smart_detect_ids = active_event.get("smart_detect_event_ids", [])
         if smart_detect_ids:
             # Use snapshots from the most recent smart detect event
             most_recent_smart_id = smart_detect_ids[-1]  # Last element is most recent
-            
+
             # Look up in _active_smart_events (includes ended events kept for 60 min)
             smart_event = self._active_smart_events.get(most_recent_smart_id)
             if smart_event:
@@ -1319,7 +1443,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                     f"Smart detect event {most_recent_smart_id} not found in history "
                     f"(may have been cleaned up after 60 minutes)"
                 )
-        
+
         # If no smart detect snapshots available, fetch fresh snapshots
         if not snapshot_crop_path or not snapshot_fov_path or not heatmap_path:
             self.logger.info(
@@ -1327,9 +1451,11 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 f"fetching fresh snapshots"
             )
             try:
-                snapshot_crop_path, snapshot_fov_path, heatmap_path = await self.fetch_snapshots_for_event(
-                    event_id, "analytics"
-                )
+                (
+                    snapshot_crop_path,
+                    snapshot_fov_path,
+                    heatmap_path,
+                ) = await self.fetch_snapshots_for_event(event_id, "analytics")
                 self.logger.info(
                     f"Fetched fresh snapshots for analytics event {event_id}: "
                     f"crop={snapshot_crop_path is not None}, "
@@ -1337,26 +1463,38 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                     f"heatmap={heatmap_path is not None}"
                 )
             except Exception as e:
-                self.logger.error(f"Error fetching snapshots for analytics event {event_id}: {e}")
+                self.logger.error(
+                    f"Error fetching snapshots for analytics event {event_id}: {e}"
+                )
                 # Continue without snapshots
-        
+
         # Store cached paths in the event history for later GetRequest handling
         active_event["snapshot_crop_path"] = snapshot_crop_path
         active_event["snapshot_fov_path"] = snapshot_fov_path
         active_event["heatmap_path"] = heatmap_path
-        
+
         # Generate filenames using the cached file paths
         # These will be passed to UniFi Protect and then matched in GetRequest
-        snapshot_filename = str(snapshot_crop_path) if snapshot_crop_path else f"snapshot_{event_id}.jpg"
-        snapshot_fov_filename = str(snapshot_fov_path) if snapshot_fov_path else f"snapshot_fov_{event_id}.jpg"
-        heatmap_filename = str(heatmap_path) if heatmap_path else f"heatmap_{event_id}.jpg"
-        
+        snapshot_filename = (
+            str(snapshot_crop_path)
+            if snapshot_crop_path
+            else f"snapshot_{event_id}.jpg"
+        )
+        snapshot_fov_filename = (
+            str(snapshot_fov_path)
+            if snapshot_fov_path
+            else f"snapshot_fov_{event_id}.jpg"
+        )
+        heatmap_filename = (
+            str(heatmap_path) if heatmap_path else f"heatmap_{event_id}.jpg"
+        )
+
         # Store filenames and end time in the event history
         active_event["snapshot_filename"] = snapshot_filename
         active_event["snapshot_fov_filename"] = snapshot_fov_filename
         active_event["heatmap_filename"] = heatmap_filename
         active_event["end_time"] = time.time()
-        
+
         payload: dict[str, Any] = {
             "clockBestMonotonic": int(self.get_uptime()),
             "clockBestWall": int(round(active_event["start_time"] * 1000)),
@@ -1372,7 +1510,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             "motionSnapshot": snapshot_filename,
             "motionSnapshotFullFoV": snapshot_fov_filename,
         }
-        
+
         duration = time.time() - active_event["start_time"]
         self.logger.info(
             f"Stopping analytics event {event_id} (duration: {duration:.1f}s, "
@@ -1381,35 +1519,38 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         self.logger.debug(
             f"Analytics event snapshots: crop={snapshot_filename}, fov={snapshot_fov_filename}, heatmap={heatmap_filename}"
         )
-        
-        await self.send(
-            self.gen_response("EventAnalytics", payload=payload)
-        )
-        
+
+        await self.send(self.gen_response("EventAnalytics", payload=payload))
+
         # Mark as no longer active (but keep in history for snapshot retrieval)
         self._active_analytics_event_id = None
-        
+
         # Update legacy compatibility fields
         if not self._active_smart_events:
             # No smart detect events either, fully clear state
             self._motion_event_ts = None
-
 
     def get_active_events_summary(self) -> dict[str, Any]:
         """
         Get a summary of currently active motion events.
         Useful for debugging and monitoring event state.
         """
-        active_analytics = self._analytics_event_history.get(self._active_analytics_event_id) if self._active_analytics_event_id else None
-        
+        active_analytics = (
+            self._analytics_event_history.get(self._active_analytics_event_id)
+            if self._active_analytics_event_id
+            else None
+        )
+
         return {
             "analytics_event": {
                 "active": self._active_analytics_event_id is not None,
                 "event_id": self._active_analytics_event_id,
-                "duration": time.time() - active_analytics["start_time"] 
-                    if active_analytics else None,
-                "smart_detect_event_ids": active_analytics["smart_detect_event_ids"] 
-                    if active_analytics else [],
+                "duration": time.time() - active_analytics["start_time"]
+                if active_analytics
+                else None,
+                "smart_detect_event_ids": active_analytics["smart_detect_event_ids"]
+                if active_analytics
+                else [],
             },
             "smart_detect_events": {
                 event_id: {
@@ -1422,10 +1563,11 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 }
                 for event_id, event in self._active_smart_events.items()
             },
-            "total_active_events": (1 if self._active_analytics_event_id else 0) + len(self._active_smart_events),
+            "total_active_events": (1 if self._active_analytics_event_id else 0)
+            + len(self._active_smart_events),
             "analytics_history_count": len(self._analytics_event_history),
         }
-    
+
     async def stop_all_motion_events(self) -> None:
         """
         Stop all active motion events (both analytics and smart detect).
@@ -1442,10 +1584,8 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             try:
                 await self.trigger_motion_stop(object_type=event["object_type"])
             except Exception as e:
-                self.logger.error(
-                    f"Error stopping smart detect event {event_id}: {e}"
-                )
-        
+                self.logger.error(f"Error stopping smart detect event {event_id}: {e}")
+
         # Stop analytics event if active
         if self._active_analytics_event_id is not None:
             self.logger.info("Force stopping analytics event")
@@ -1472,10 +1612,8 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         return self._msg_id
 
     async def init_adoption(self) -> None:
-        self.logger.info(
-            f"Adopting with mac [{self.args.mac}]"
-        )
-        
+        self.logger.info(f"Adopting with mac [{self.args.mac}]")
+
         # Probe video resolutions only for streams that are actually configured
         # video1 is required, video2 and video3 use their defaults if not probed
         video1_source = None
@@ -1487,15 +1625,21 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                     # For video1, always probe
                     if stream_index == "video1":
                         video1_source = source
-                        width, height = self.probe_video_resolution(stream_index, source)
+                        width, height = self.probe_video_resolution(
+                            stream_index, source
+                        )
                         self._detected_resolutions[stream_index] = (width, height)
                     # For video2/video3, only probe if source is different from video1 (not a fallback)
                     elif source != video1_source:
-                        width, height = self.probe_video_resolution(stream_index, source)
+                        width, height = self.probe_video_resolution(
+                            stream_index, source
+                        )
                         self._detected_resolutions[stream_index] = (width, height)
                     else:
                         # Stream is using video1 as fallback, skip probing
-                        self.logger.debug(f"{stream_index} using video1 source as fallback, using default resolution")
+                        self.logger.debug(
+                            f"{stream_index} using video1 source as fallback, using default resolution"
+                        )
             except NotImplementedError:
                 # If get_stream_source is not implemented, skip probing this stream
                 self.logger.debug(f"{stream_index} not implemented, using defaults")
@@ -1504,11 +1648,15 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 # If stream probe fails, use the default resolution for that stream
                 if stream_index == "video1":
                     # video1 is required, so keep the default
-                    self.logger.warning(f"Could not probe {stream_index}: {e}, using defaults")
+                    self.logger.warning(
+                        f"Could not probe {stream_index}: {e}, using defaults"
+                    )
                 else:
                     # For video2/video3, silently use their default resolutions
-                    self.logger.debug(f"Could not probe {stream_index}, using default resolution")
-        
+                    self.logger.debug(
+                        f"Could not probe {stream_index}, using default resolution"
+                    )
+
         await self.send(
             self.gen_response(
                 "ubnt_avclient_hello",
@@ -1584,7 +1732,9 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         if fn == "GetRequest" and "payload" in m:
             what = m["payload"].get("what", "N/A")
             filename = m["payload"].get("filename", "N/A")
-            self.logger.info(f"Processing [{fn}] message (what={what}, filename={filename})")
+            self.logger.info(
+                f"Processing [{fn}] message (what={what}, filename={filename})"
+            )
         else:
             self.logger.info(f"Processing [{fn}] message")
         self.logger.debug(f"Message contents: {m}")
@@ -1597,7 +1747,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
                 "UpdateFirmwareRequest",
                 "Reboot",
                 "ubnt_avclient_hello",
-                "ContinuousMove"
+                "ContinuousMove",
             ]
         ):
             return False
@@ -1651,13 +1801,9 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         elif fn == "ChangeSmartMotionSettings":
             res = await self.process_smart_motion_settings(m)
         elif fn == "SmartMotionTest":
-            res = self.gen_response(
-                "SmartMotionTest", response_to=m["messageId"]
-            )
+            res = self.gen_response("SmartMotionTest", response_to=m["messageId"])
         elif fn == "ChangeClarityZones":
-            res = self.gen_response(
-                "ChangeClarityZones", response_to=m["messageId"]
-            )
+            res = self.gen_response("ChangeClarityZones", response_to=m["messageId"])
         elif fn == "UpdateFirmwareRequest":
             await self.process_upgrade(m)
             return True
@@ -1667,8 +1813,7 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
             res = await self.process_continuous_move(m)
         else:
             self.logger.warning(
-                f"Received unhandled message type: {fn}. "
-                f"Message contents: {m}"
+                f"Received unhandled message type: {fn}. " f"Message contents: {m}"
             )
         if res is not None:
             await self.send(res)
@@ -1677,11 +1822,10 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
 
     async def close(self):
         self.logger.info("Cleaning up instance")
-        if hasattr(self, '_watchdog_task') and not self._watchdog_task.done():
+        if hasattr(self, "_watchdog_task") and not self._watchdog_task.done():
             self._watchdog_task.cancel()
         await self.stop_all_motion_events()
         self.close_streams()
-
 
     # Legacy API for subclasses - backwards compatibility
     async def trigger_motion_start(
@@ -1691,16 +1835,18 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         event_timestamp: Optional[float] = None,
     ) -> None:
         """
-        Start a motion event. Supports both generic motion (EventAnalytics) and 
+        Start a motion event. Supports both generic motion (EventAnalytics) and
         smart detect events (EventSmartDetect with object_type).
-        
+
         DEPRECATED: Use trigger_analytics_start() or trigger_smart_detect_start() instead.
-        
+
         All events use a globally unique event ID counter that increments
         for each new event regardless of type.
         """
         if object_type:
-            await self.trigger_smart_detect_start(object_type, custom_descriptor, event_timestamp)
+            await self.trigger_smart_detect_start(
+                object_type, custom_descriptor, event_timestamp
+            )
         else:
             await self.trigger_analytics_start(event_timestamp)
 
@@ -1713,9 +1859,9 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         """
         Send a motion update (moving) event with updated descriptor information.
         Only applicable to SmartDetect events (not generic EventAnalytics).
-        
+
         DEPRECATED: Use trigger_smart_detect_update() instead.
-        
+
         Args:
             custom_descriptor: Updated descriptor data (bounding box, etc.)
             event_timestamp: Optional timestamp for the event
@@ -1724,15 +1870,17 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         """
         # Determine which event to update
         target_object_type = object_type or self._motion_object_type
-        
+
         if not target_object_type:
             self.logger.warning(
                 "trigger_motion_update called but no object_type specified and "
                 "no active smart detect event found. Ignoring."
             )
             return
-        
-        await self.trigger_smart_detect_update(target_object_type, custom_descriptor, event_timestamp)
+
+        await self.trigger_smart_detect_update(
+            target_object_type, custom_descriptor, event_timestamp
+        )
 
     async def trigger_motion_stop(
         self,
@@ -1741,18 +1889,20 @@ class UnifiCamBase(ProtocolHandlers, VideoStreamHandlers, SnapshotHandlers, meta
         object_type: Optional[SmartDetectObjectType] = None,
     ) -> None:
         """
-        Stop a motion event. Can stop either a generic motion event (EventAnalytics) 
+        Stop a motion event. Can stop either a generic motion event (EventAnalytics)
         or a specific smart detect event (EventSmartDetect).
-        
+
         DEPRECATED: Use trigger_analytics_stop() or trigger_smart_detect_stop() instead.
-        
+
         Args:
             custom_descriptor: Optional final descriptor data
             event_timestamp: Optional timestamp for the event
-            object_type: If provided, stops a specific smart detect event. 
+            object_type: If provided, stops a specific smart detect event.
                         If None, stops the generic analytics event.
         """
         if object_type:
-            await self.trigger_smart_detect_stop(object_type, custom_descriptor, event_timestamp)
+            await self.trigger_smart_detect_stop(
+                object_type, custom_descriptor, event_timestamp
+            )
         else:
             await self.trigger_analytics_stop(event_timestamp)

@@ -3,7 +3,8 @@ sidebar_position: 1
 ---
 
 # Tapo
-Unifi-cam-proxy has basic support for Tapo/TPlink cameras, like the C100 or C200 with PTZ. 
+
+Unifi-cam-proxy has basic support for Tapo/TPlink cameras, like the C100 or C200 with PTZ.
 
 To control the PTZ functionality, you have to use the camera
 image settings in unifi. Adjusting the contrast to anything less
@@ -15,6 +16,7 @@ somewhere around 50 after adjusting the cameras position, to
 avoid adjusting the position by accident.
 
 ## Standard
+
 ```sh
 unifi-camera-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} --mac 'AA:BB:CC:00:11:22'\
   tapo \
@@ -22,6 +24,7 @@ unifi-camera-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token}
 ```
 
 ## PTZ Support
+
 ```sh
 unifi-camera-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} --mac 'AA:BB:CC:00:11:22'\
   tapo \
