@@ -30,24 +30,24 @@
 /* Dark theme as default (app has no light mode) */
 @layer base {
   :root {
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 6% 8%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 8% 6%;
-    --popover-foreground: 0 0% 98%;
+    --background: 224 71% 4%;
+    --foreground: 213 31% 91%;
+    --card: 224 71% 4%;
+    --card-foreground: 213 31% 91%;
+    --popover: 224 71% 4%;
+    --popover-foreground: 213 31% 91%;
     --primary: 217 91% 60%;
-    --primary-foreground: 240 10% 3.9%;
-    --secondary: 240 4% 13%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 4% 13%;
-    --muted-foreground: 240 5% 55%;
-    --accent: 240 4% 16%;
-    --accent-foreground: 0 0% 98%;
+    --primary-foreground: 222 47% 11%;
+    --secondary: 222 47% 11%;
+    --secondary-foreground: 213 31% 91%;
+    --muted: 223 47% 11%;
+    --muted-foreground: 215 20% 57%;
+    --accent: 216 34% 17%;
+    --accent-foreground: 213 31% 91%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 4% 16%;
-    --input: 240 4% 16%;
+    --border: 216 34% 17%;
+    --input: 216 34% 17%;
     --ring: 217 91% 60%;
     --radius: 0.5rem;
   }
