@@ -57,7 +57,7 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
 
   return (
     <>
-      <Card className="border-border/60 bg-card/80 hover:border-border transition-colors">
+      <Card className="border-border bg-card hover:border-border transition-colors">
         <CardHeader className="p-4 pb-3">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
