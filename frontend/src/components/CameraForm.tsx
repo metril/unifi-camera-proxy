@@ -591,7 +591,43 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                 />
                 <Label htmlFor="cam-auto-restart">Enable auto-restart for this camera</Label>
               </div>
-              {form.auto_restart_enabled !== undefined && (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="cam-auto-restart-max">Max Attempts</Label>
+                  <Input
+                    id="cam-auto-restart-max"
+                    type="number"
+                    min={0}
+                    placeholder="Global default"
+                    value={form.auto_restart_max_attempts !== undefined ? String(form.auto_restart_max_attempts) : ''}
+                    onChange={(e) => handleChange('auto_restart_max_attempts', e.target.value === '' ? undefined : parseInt(e.target.value) || 0)}
+                  />
+                  <p className="text-xs text-muted-foreground">0 = retry indefinitely</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cam-auto-restart-init">Initial Delay (s)</Label>
+                  <Input
+                    id="cam-auto-restart-init"
+                    type="number"
+                    min={1}
+                    placeholder="Global default"
+                    value={form.auto_restart_initial_delay !== undefined ? String(form.auto_restart_initial_delay) : ''}
+                    onChange={(e) => handleChange('auto_restart_initial_delay', e.target.value === '' ? undefined : parseInt(e.target.value) || 5)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="cam-auto-restart-max-delay">Max Delay (s)</Label>
+                  <Input
+                    id="cam-auto-restart-max-delay"
+                    type="number"
+                    min={1}
+                    placeholder="Global default"
+                    value={form.auto_restart_max_delay !== undefined ? String(form.auto_restart_max_delay) : ''}
+                    onChange={(e) => handleChange('auto_restart_max_delay', e.target.value === '' ? undefined : parseInt(e.target.value) || 300)}
+                  />
+                </div>
+              </div>
+              {(form.auto_restart_enabled !== undefined || form.auto_restart_max_attempts !== undefined || form.auto_restart_initial_delay !== undefined || form.auto_restart_max_delay !== undefined) && (
                 <Button
                   type="button"
                   variant="ghost"
@@ -600,10 +636,13 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                   onClick={() => {
                     const next = { ...form };
                     delete next.auto_restart_enabled;
+                    delete next.auto_restart_max_attempts;
+                    delete next.auto_restart_initial_delay;
+                    delete next.auto_restart_max_delay;
                     setForm(next);
                   }}
                 >
-                  Reset to global default
+                  Reset all to global defaults
                 </Button>
               )}
             </div>
