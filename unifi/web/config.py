@@ -56,6 +56,10 @@ DEFAULT_GLOBAL = {
     "oidc_issuer": "",
     "oidc_client_id": "",
     "oidc_client_secret": "",
+    "auto_restart_enabled": True,
+    "auto_restart_max_attempts": 0,
+    "auto_restart_initial_delay": 5,
+    "auto_restart_max_delay": 300,
 }
 
 MODEL_CHOICES = [
