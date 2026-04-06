@@ -539,7 +539,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                   (uses global settings if not overridden)
                 </span>
               </summary>
-              <div className="mt-4 rounded-lg border border-border/60 bg-muted/30 p-4 space-y-4">
+              <div className="mt-4 rounded-lg border border-border bg-muted/80 p-4 space-y-4">
                 {mqttFields.map(renderField)}
               </div>
             </details>
@@ -553,7 +553,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                 (uses global credentials if not overridden)
               </span>
             </summary>
-            <div className="mt-4 rounded-lg border border-border/60 bg-muted/30 p-4 grid grid-cols-2 gap-3">
+            <div className="mt-4 rounded-lg border border-border bg-muted/80 p-4 grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="rtsp-user">RTSP Username</Label>
                 <Input
@@ -582,7 +582,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                 (uses global setting if not overridden)
               </span>
             </summary>
-            <div className="mt-4 rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
+            <div className="mt-4 rounded-lg border border-border bg-muted/80 p-4 space-y-3">
               <div className="flex items-center gap-2">
                 <Switch
                   id="cam-auto-restart"
@@ -654,7 +654,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
               <summary className="text-sm font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
                 Advanced FFmpeg Settings
               </summary>
-              <div className="mt-4 rounded-lg border border-border/60 bg-muted/30 p-4 space-y-4">
+              <div className="mt-4 rounded-lg border border-border bg-muted/80 p-4 space-y-4">
                 {baseFields.map(renderField)}
               </div>
             </details>
