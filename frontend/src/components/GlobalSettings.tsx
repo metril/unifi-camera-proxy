@@ -105,6 +105,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
           {/* OIDC Authentication */}
           <div className="space-y-3">
             <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">OIDC Authentication</h4>
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
             <p className="text-xs text-muted-foreground">
               Configure Authentik (or any OIDC provider). Leave all fields empty to disable authentication.
             </p>
@@ -138,11 +139,15 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
                 />
               </div>
             </div>
+            </div>
           </div>
 
           <Separator />
 
           {/* NVR Settings */}
+          <div className="space-y-3">
+            <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">NVR Connection</h4>
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
           <div className="space-y-1.5">
             <Label htmlFor="host">UniFi Protect Host</Label>
             <Input
@@ -244,12 +249,15 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
             />
             <Label htmlFor="verbose">Verbose logging</Label>
           </div>
+            </div>
+          </div>
 
           <Separator />
 
           {/* MQTT Settings */}
           <div className="space-y-3">
             <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">MQTT Settings (Frigate)</h4>
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
             <div className="grid grid-cols-3 gap-3">
               <div className="col-span-2 space-y-1.5">
                 <Label htmlFor="mqtt_host">MQTT Host</Label>
@@ -336,6 +344,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
               </div>
             )}
             {mqttStatus.type === 'error' && <p className="text-xs text-red-400">{mqttStatus.message}</p>}
+            </div>
           </div>
 
           <Separator />
@@ -343,6 +352,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
           {/* Frigate Settings */}
           <div className="space-y-3">
             <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">Frigate Settings</h4>
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
             <div className="space-y-1.5">
               <Label htmlFor="frigate_http_url">Frigate HTTP URL</Label>
               <Input
@@ -408,6 +418,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
               </div>
             )}
             {frigateStatus.type === 'error' && <p className="text-xs text-red-400">{frigateStatus.message}</p>}
+            </div>
           </div>
 
           <Separator />
@@ -415,6 +426,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
           {/* RTSP Authentication */}
           <div className="space-y-3">
             <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">RTSP Authentication</h4>
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
             <p className="text-xs text-muted-foreground">
               Auto-injected into RTSP URLs that don't already contain credentials. Leave empty for unauthenticated streams.
             </p>
@@ -437,6 +449,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
                 />
               </div>
             </div>
+            </div>
           </div>
 
           <Separator />
@@ -444,6 +457,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
           {/* Auto-Restart */}
           <div className="space-y-3">
             <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">Auto-Restart</h4>
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-3">
             <p className="text-xs text-muted-foreground">
               Automatically restart cameras that crash, with exponential backoff.
             </p>
@@ -490,6 +504,7 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
                 </div>
               </div>
             )}
+            </div>
           </div>
 
           <div className="flex justify-end gap-3 pt-2 border-t border-border">
