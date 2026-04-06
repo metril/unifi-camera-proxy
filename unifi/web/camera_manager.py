@@ -260,9 +260,17 @@ class CameraManager:
             return
 
         global_config = self.config.get("global", {})
-        max_attempts = global_config.get("auto_restart_max_attempts", 0)
-        initial_delay = global_config.get("auto_restart_initial_delay", 5)
-        max_delay = global_config.get("auto_restart_max_delay", 300)
+        cam_config = instance.config
+
+        def _cfg(key: str, default):
+            cam_val = cam_config.get(key)
+            if cam_val is not None:
+                return cam_val
+            return global_config.get(key, default)
+
+        max_attempts = _cfg("auto_restart_max_attempts", 0)
+        initial_delay = _cfg("auto_restart_initial_delay", 5)
+        max_delay = _cfg("auto_restart_max_delay", 300)
 
         instance.restart_attempt += 1
         if max_attempts > 0 and instance.restart_attempt > max_attempts:
