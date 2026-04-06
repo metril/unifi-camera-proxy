@@ -439,6 +439,59 @@ export default function GlobalSettings({ isOpen, onClose, config, onSave }: Glob
             </div>
           </div>
 
+          <Separator />
+
+          {/* Auto-Restart */}
+          <div className="space-y-3">
+            <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">Auto-Restart</h4>
+            <p className="text-xs text-muted-foreground">
+              Automatically restart cameras that crash, with exponential backoff.
+            </p>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="auto_restart_enabled"
+                checked={form.auto_restart_enabled}
+                onCheckedChange={(v) => handleChange('auto_restart_enabled', v)}
+              />
+              <Label htmlFor="auto_restart_enabled">Enable auto-restart</Label>
+            </div>
+            {form.auto_restart_enabled && (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="auto_restart_max_attempts">Max Attempts</Label>
+                  <Input
+                    id="auto_restart_max_attempts"
+                    type="number"
+                    min={0}
+                    value={form.auto_restart_max_attempts}
+                    onChange={(e) => handleChange('auto_restart_max_attempts', parseInt(e.target.value) || 0)}
+                  />
+                  <p className="text-xs text-muted-foreground">0 = retry indefinitely</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="auto_restart_initial_delay">Initial Delay (s)</Label>
+                  <Input
+                    id="auto_restart_initial_delay"
+                    type="number"
+                    min={1}
+                    value={form.auto_restart_initial_delay}
+                    onChange={(e) => handleChange('auto_restart_initial_delay', parseInt(e.target.value) || 5)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="auto_restart_max_delay">Max Delay (s)</Label>
+                  <Input
+                    id="auto_restart_max_delay"
+                    type="number"
+                    min={1}
+                    value={form.auto_restart_max_delay}
+                    onChange={(e) => handleChange('auto_restart_max_delay', parseInt(e.target.value) || 300)}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="flex justify-end gap-3 pt-2 border-t border-border">
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             <Button type="submit">Save</Button>

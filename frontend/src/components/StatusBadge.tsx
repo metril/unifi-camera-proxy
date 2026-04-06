@@ -7,7 +7,8 @@ interface StatusBadgeProps {
 const STATUS_MAP: Record<string, { label: string; className: string }> = {
   running: { label: 'Running', className: 'bg-green-500/15 text-green-400 border-green-500/30 hover:bg-green-500/15' },
   stopped: { label: 'Stopped', className: 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30 hover:bg-zinc-500/15' },
-  error:   { label: 'Error',   className: 'bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/15' },
+  error:      { label: 'Error',      className: 'bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/15' },
+  restarting: { label: 'Restarting', className: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/15' },
 };
 
 export default function StatusBadge({ status }: StatusBadgeProps) {

@@ -92,6 +92,17 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
                 <dd className="text-foreground font-mono text-xs">{camera.pid}</dd>
               </>
             )}
+            {camera.status === 'restarting' && (
+              <>
+                <dt className="text-muted-foreground">Restart</dt>
+                <dd className="text-yellow-400">
+                  Attempt {camera.restart_attempt}
+                  {camera.next_restart_at && (
+                    <> &mdash; in {Math.max(0, Math.ceil(camera.next_restart_at - Date.now() / 1000))}s</>
+                  )}
+                </dd>
+              </>
+            )}
           </dl>
 
           {camera.error_message && (
@@ -120,6 +131,15 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
                   Restart
                 </Button>
               </>
+            ) : camera.status === 'restarting' ? (
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex-1 h-8 text-xs text-red-400 border-red-600/30 hover:bg-red-600/10 hover:text-red-300"
+                onClick={() => onStop(camera.id)}
+              >
+                Cancel Restart
+              </Button>
             ) : (
               <Button
                 variant="outline"

@@ -52,7 +52,7 @@ class CameraInstance:
     id: str
     config: dict
     process: Optional[asyncio.subprocess.Process] = None
-    status: str = "stopped"  # stopped, running, error
+    status: str = "stopped"  # stopped, running, error, restarting
     exit_code: Optional[int] = None
     error_message: Optional[str] = None
     log_buffer: deque = field(default_factory=lambda: deque(maxlen=500))
@@ -61,6 +61,11 @@ class CameraInstance:
     diagnostics_port: int = 0
     ws_clients: set = field(default_factory=set)
     _ws_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    restart_attempt: int = 0
+    next_restart_at: Optional[float] = None
+    _restart_task: Optional[asyncio.Task] = None
+    _stability_task: Optional[asyncio.Task] = None
+    manually_stopped: bool = False
 
 
 class CameraManager:
@@ -105,6 +110,12 @@ class CameraManager:
         if instance.status == "running":
             return
 
+        instance.manually_stopped = False
+
+        # Cancel stability timer from previous run
+        if instance._stability_task and not instance._stability_task.done():
+            instance._stability_task.cancel()
+
         global_config = self.config.get("global", {})
         diag_port = CameraManager._next_diag_port
         CameraManager._next_diag_port += 1
@@ -147,6 +158,11 @@ class CameraManager:
 
             # Start log reader tasks
             instance._log_task = asyncio.create_task(self._read_logs(instance))
+
+            # Reset backoff counter after 5 min of stable running
+            instance._stability_task = asyncio.create_task(
+                self._reset_backoff_after_stable_run(instance)
+            )
         except Exception as e:
             instance.status = "error"
             instance.error_message = str(e)
@@ -212,6 +228,84 @@ class CameraManager:
                         f"Camera {instance.id} exited with code {returncode}. "
                         f"Last output: {error_detail}"
                     )
+                    await self._maybe_schedule_restart(instance)
+
+    async def _reset_backoff_after_stable_run(
+        self, instance: CameraInstance
+    ) -> None:
+        """Reset restart_attempt to 0 after camera runs stably for 5 minutes."""
+        try:
+            await asyncio.sleep(300)
+            if instance.status == "running":
+                instance.restart_attempt = 0
+                logger.info(
+                    f"Camera {instance.id} stable for 5m, reset backoff counter"
+                )
+        except asyncio.CancelledError:
+            pass
+
+    def _is_auto_restart_enabled(self, instance: CameraInstance) -> bool:
+        cam_val = instance.config.get("auto_restart_enabled")
+        if cam_val is not None:
+            return bool(cam_val)
+        return self.config.get("global", {}).get("auto_restart_enabled", True)
+
+    async def _maybe_schedule_restart(self, instance: CameraInstance) -> None:
+        """Schedule an auto-restart with exponential backoff if enabled."""
+        if instance.manually_stopped:
+            return
+        if instance._restart_task and not instance._restart_task.done():
+            return
+        if not self._is_auto_restart_enabled(instance):
+            return
+
+        global_config = self.config.get("global", {})
+        max_attempts = global_config.get("auto_restart_max_attempts", 0)
+        initial_delay = global_config.get("auto_restart_initial_delay", 5)
+        max_delay = global_config.get("auto_restart_max_delay", 300)
+
+        instance.restart_attempt += 1
+        if max_attempts > 0 and instance.restart_attempt > max_attempts:
+            logger.warning(
+                f"Camera {instance.id} exceeded max restart attempts "
+                f"({max_attempts}), giving up"
+            )
+            instance.error_message = (
+                f"Auto-restart failed after {max_attempts} attempts. "
+                + (instance.error_message or "")
+            )
+            return
+
+        delay = min(initial_delay * (2 ** (instance.restart_attempt - 1)), max_delay)
+        instance.next_restart_at = time.time() + delay
+        instance.status = "restarting"
+
+        logger.info(
+            f"Auto-restarting camera {instance.id} in {delay}s "
+            f"(attempt {instance.restart_attempt}"
+            f"{'/' + str(max_attempts) if max_attempts > 0 else ''})"
+        )
+
+        instance._restart_task = asyncio.create_task(
+            self._auto_restart(instance, delay)
+        )
+
+    async def _auto_restart(
+        self, instance: CameraInstance, delay: float
+    ) -> None:
+        """Wait for delay then restart the camera."""
+        try:
+            await asyncio.sleep(delay)
+            if instance.manually_stopped:
+                return
+            instance.next_restart_at = None
+            await self.start_camera(instance.id)
+        except asyncio.CancelledError:
+            instance.next_restart_at = None
+        except Exception as e:
+            logger.error(f"Auto-restart failed for {instance.id}: {e}")
+            instance.status = "error"
+            instance.error_message = f"Auto-restart failed: {e}"
 
     async def _update_protect_device(self, instance: CameraInstance) -> None:
         """Update camera name/model in Protect after adoption."""
@@ -294,7 +388,16 @@ class CameraManager:
         instance = self.instances.get(camera_id)
         if not instance:
             raise ValueError(f"Camera {camera_id} not found")
-        if instance.status != "running" or not instance.process:
+
+        instance.manually_stopped = True
+
+        # Cancel any pending auto-restart
+        if instance._restart_task and not instance._restart_task.done():
+            instance._restart_task.cancel()
+            instance._restart_task = None
+        instance.next_restart_at = None
+
+        if instance.status not in ("running", "restarting") or not instance.process:
             instance.status = "stopped"
             return
 
@@ -350,6 +453,9 @@ class CameraManager:
             "error_message": instance.error_message,
             "uptime": uptime,
             "pid": pid,
+            "restart_attempt": instance.restart_attempt,
+            "next_restart_at": instance.next_restart_at,
+            "auto_restart_enabled": self._is_auto_restart_enabled(instance),
         }
 
     async def start_all_enabled(self) -> None:

@@ -13,11 +13,14 @@ export interface CameraConfig {
 export interface CameraStatus {
   id: string;
   config: CameraConfig;
-  status: 'stopped' | 'running' | 'error';
+  status: 'stopped' | 'running' | 'error' | 'restarting';
   exit_code: number | null;
   error_message: string | null;
   uptime: number | null;
   pid: number | null;
+  restart_attempt: number;
+  next_restart_at: number | null;
+  auto_restart_enabled: boolean;
 }
 
 export interface GlobalConfig {
@@ -44,6 +47,10 @@ export interface GlobalConfig {
   oidc_client_id?: string;
   oidc_client_secret?: string | null;  // write-only: sent when changing, never returned
   has_oidc?: boolean;                   // read-only: returned from server
+  auto_restart_enabled: boolean;
+  auto_restart_max_attempts: number;
+  auto_restart_initial_delay: number;
+  auto_restart_max_delay: number;
 }
 
 export interface FieldSchema {

@@ -574,6 +574,41 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
             </div>
           </details>
 
+          {/* Per-camera auto-restart override */}
+          <details className="border-t border-border pt-4">
+            <summary className="text-sm font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
+              Auto-Restart Override
+              <span className="text-xs text-muted-foreground font-normal ml-2 normal-case">
+                (uses global setting if not overridden)
+              </span>
+            </summary>
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="cam-auto-restart"
+                  checked={form.auto_restart_enabled !== undefined ? Boolean(form.auto_restart_enabled) : true}
+                  onCheckedChange={(v) => handleChange('auto_restart_enabled', v)}
+                />
+                <Label htmlFor="cam-auto-restart">Enable auto-restart for this camera</Label>
+              </div>
+              {form.auto_restart_enabled !== undefined && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs text-muted-foreground"
+                  onClick={() => {
+                    const next = { ...form };
+                    delete next.auto_restart_enabled;
+                    setForm(next);
+                  }}
+                >
+                  Reset to global default
+                </Button>
+              )}
+            </div>
+          </details>
+
           {/* Base ffmpeg fields (collapsible) */}
           {baseFields.length > 0 && (
             <details className="border-t border-border pt-4">

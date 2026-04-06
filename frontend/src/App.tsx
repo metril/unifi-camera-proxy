@@ -28,6 +28,10 @@ const DEFAULT_GLOBAL: GlobalConfig = {
   frigate_username: null,
   frigate_password: null,
   frigate_verify_ssl: true,
+  auto_restart_enabled: true,
+  auto_restart_max_attempts: 0,
+  auto_restart_initial_delay: 5,
+  auto_restart_max_delay: 300,
 };
 
 function App() {
