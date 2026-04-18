@@ -120,15 +120,16 @@ class VideoStreamHandlers:
 
         if not has_spawned or is_dead:
             source = await self.get_stream_source(stream_index)
+            mac_safe = self.args.mac.replace(":", "-")
+            log_path = f"/tmp/unifi-ffmpeg-{mac_safe}-{stream_index}.log"
             cmd = (
-                f"AV_LOG_FORCE_NOCOLOR=1 ffmpeg -nostdin -loglevel level+{self.args.loglevel} -y"
+                f"( AV_LOG_FORCE_NOCOLOR=1 ffmpeg -nostdin -loglevel level+{self.args.loglevel} -y"
                 f" {self.get_base_ffmpeg_args(stream_index)} -rtsp_transport"
                 f' {self.args.rtsp_transport} -i "{source}"'
                 f" {self.get_extra_ffmpeg_args(stream_index)} -metadata"
-                f" streamName={stream_name} -f {self.args.format} - "
-                f" | {sys.executable} -m unifi.clock_sync --timestamp-modifier {self.args.timestamp_modifier}"
-                f" | nc"
-                f" {destination[0]} {destination[1]}"
+                f" streamName={stream_name} -f {self.args.format} - 2>>{log_path} )"
+                f" | ( {sys.executable} -m unifi.clock_sync --timestamp-modifier {self.args.timestamp_modifier} 2>>{log_path} )"
+                f" | ( nc {destination[0]} {destination[1]} 2>>{log_path} )"
             )
 
             # Preserve restart tracking from previous state
@@ -146,7 +147,8 @@ class VideoStreamHandlers:
             from unifi.utils import mask_url
 
             self.logger.info(
-                f"Spawning ffmpeg for {stream_index} ({stream_name}): {mask_url(cmd)}"
+                f"Spawning ffmpeg for {stream_index} ({stream_name}) "
+                f"destination={destination[0]}:{destination[1]} stderr={log_path}: {mask_url(cmd)}"
             )
             # Start process in a new process group so we can kill the entire pipeline
             proc = subprocess.Popen(
