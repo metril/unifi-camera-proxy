@@ -1,9 +1,17 @@
 import { useState } from 'react';
+import { MoreHorizontal } from 'lucide-react';
 import type { CameraStatus } from '../types';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
 import StatusBadge from './StatusBadge';
 import LogViewer from './LogViewer';
 
@@ -44,6 +52,10 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
   const [confirming, setConfirming] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
+  const config = camera.config;
+  const typeColor = TYPE_COLORS[config.type] ?? 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30 hover:bg-zinc-500/15';
+  const isRunning = camera.status === 'running';
+
   const handleSyncName = async () => {
     setSyncing(true);
     try {
@@ -53,17 +65,15 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
     }
   };
 
-  const config = camera.config;
-  const typeColor = TYPE_COLORS[config.type] ?? 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30 hover:bg-zinc-500/15';
-
-  const handleDelete = () => {
-    if (confirming) {
-      onDelete(camera.id);
-      setConfirming(false);
-    } else {
+  const handleDeleteSelect = (e: Event) => {
+    if (!confirming) {
+      e.preventDefault();
       setConfirming(true);
       setTimeout(() => setConfirming(false), 3000);
+      return;
     }
+    onDelete(camera.id);
+    setConfirming(false);
   };
 
   return (
@@ -122,8 +132,8 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
             </div>
           )}
 
-          <div className="flex gap-2 flex-wrap pt-1">
-            {camera.status === 'running' ? (
+          <div className="flex gap-2 pt-1">
+            {isRunning ? (
               <>
                 <Button
                   variant="destructive"
@@ -161,44 +171,47 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
                 Start
               </Button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => setShowLogs(true)}
-            >
-              Logs
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs"
-              onClick={() => onEdit(camera.id)}
-            >
-              Edit
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 text-xs"
-              onClick={handleSyncName}
-              disabled={syncing || camera.status !== 'running'}
-              title={
-                camera.status !== 'running'
-                  ? 'Camera must be running to sync name to Protect'
-                  : 'Push the configured name to UniFi Protect'
-              }
-            >
-              {syncing ? 'Syncing…' : 'Sync Name'}
-            </Button>
-            <Button
-              variant={confirming ? 'destructive' : 'ghost'}
-              size="sm"
-              className="h-8 text-xs"
-              onClick={handleDelete}
-            >
-              {confirming ? 'Confirm?' : 'Delete'}
-            </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 w-8 p-0 shrink-0"
+                  aria-label="More actions"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onSelect={() => setShowLogs(true)}>
+                  Logs
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => onEdit(camera.id)}>
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!isRunning || syncing}
+                  onSelect={(e) => {
+                    e.preventDefault();
+                    handleSyncName();
+                  }}
+                >
+                  {syncing ? 'Syncing name…' : 'Sync name to Protect'}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={handleDeleteSelect}
+                  className={
+                    confirming
+                      ? 'bg-red-500/15 text-red-400 focus:bg-red-500/20 focus:text-red-300'
+                      : 'text-red-400 focus:bg-red-500/10 focus:text-red-300'
+                  }
+                >
+                  {confirming ? 'Confirm delete?' : 'Delete camera'}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </CardContent>
       </Card>
