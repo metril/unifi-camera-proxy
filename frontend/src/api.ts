@@ -58,6 +58,20 @@ export const api = {
   restartCamera: (id: string) =>
     request<{ status: string }>(`/cameras/${id}/restart`, { method: 'POST' }),
 
+  syncCameraName: async (id: string) => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/cameras/${id}/sync-name`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (res.status === 401) throw new Error('Unauthorized');
+    const body = await res.json().catch(() => ({ status: 'error', detail: res.statusText }));
+    return { httpOk: res.ok, ...body } as { httpOk: boolean; status: string; detail?: string };
+  },
+
   startAll: () => request<{ status: string }>('/cameras/start-all'),
   stopAll: () => request<{ status: string }>('/cameras/stop-all'),
 

@@ -14,6 +14,7 @@ interface CameraCardProps {
   onRestart: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onSyncName: (id: string) => void;
 }
 
 function formatUptime(seconds: number | null): string {
@@ -38,9 +39,19 @@ const TYPE_COLORS: Record<string, string> = {
   tapo:        'bg-pink-500/15 text-pink-400 border-pink-500/30 hover:bg-pink-500/15',
 };
 
-export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit, onDelete }: CameraCardProps) {
+export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit, onDelete, onSyncName }: CameraCardProps) {
   const [showLogs, setShowLogs] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncName = async () => {
+    setSyncing(true);
+    try {
+      await onSyncName(camera.id);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const config = camera.config;
   const typeColor = TYPE_COLORS[config.type] ?? 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30 hover:bg-zinc-500/15';
@@ -165,6 +176,20 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
               onClick={() => onEdit(camera.id)}
             >
               Edit
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={handleSyncName}
+              disabled={syncing || camera.status !== 'running'}
+              title={
+                camera.status !== 'running'
+                  ? 'Camera must be running to sync name to Protect'
+                  : 'Push the configured name to UniFi Protect'
+              }
+            >
+              {syncing ? 'Syncing…' : 'Sync Name'}
             </Button>
             <Button
               variant={confirming ? 'destructive' : 'ghost'}

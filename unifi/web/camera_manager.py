@@ -65,6 +65,7 @@ class CameraInstance:
     next_restart_at: Optional[float] = None
     _restart_task: Optional[asyncio.Task] = None
     _stability_task: Optional[asyncio.Task] = None
+    _name_sync_task: Optional[asyncio.Task] = None
     manually_stopped: bool = False
 
 
@@ -116,6 +117,10 @@ class CameraManager:
         if instance._stability_task and not instance._stability_task.done():
             instance._stability_task.cancel()
 
+        # Cancel a previous auto name-sync task if still pending
+        if instance._name_sync_task and not instance._name_sync_task.done():
+            instance._name_sync_task.cancel()
+
         global_config = self.config.get("global", {})
         diag_port = CameraManager._next_diag_port
         CameraManager._next_diag_port += 1
@@ -162,6 +167,13 @@ class CameraManager:
             # Reset backoff counter after 5 min of stable running
             instance._stability_task = asyncio.create_task(
                 self._reset_backoff_after_stable_run(instance)
+            )
+
+            # Auto-sync name to Protect after the camera has stabilized.
+            # Guarded inside _delayed_name_sync so a freshly adopted camera
+            # only gets its default "Camera" name rewritten once.
+            instance._name_sync_task = asyncio.create_task(
+                self._delayed_name_sync(instance)
             )
         except Exception as e:
             instance.status = "error"
@@ -242,6 +254,34 @@ class CameraManager:
         except asyncio.CancelledError:
             pass
 
+    async def _delayed_name_sync(self, instance: CameraInstance) -> None:
+        """Sync the configured name to Protect ~3 min after adoption.
+
+        Protect ignores the name in the adoption payload and seeds new
+        devices as "Camera". A REST PATCH fixes it, but patching during the
+        fragile just-adopted window caused Protect to drop the device
+        (see commit 4ee06a9). Waiting 180s lets Protect settle, and the
+        ``force=False`` path inside ``_update_protect_device`` skips the
+        PATCH entirely when the name is already non-default — so this is a
+        no-op on every restart after the first successful sync.
+        """
+        try:
+            await asyncio.sleep(180)
+            if instance.status != "running":
+                return
+            result = await self._update_protect_device(instance, force=False)
+            status = result.get("status")
+            if status in ("updated", "already_synced", "skipped_non_default"):
+                logger.debug(
+                    f"Auto name-sync for {instance.id}: {status} ({result.get('detail')})"
+                )
+            else:
+                logger.info(
+                    f"Auto name-sync for {instance.id}: {status} ({result.get('detail')})"
+                )
+        except asyncio.CancelledError:
+            pass
+
     def _is_auto_restart_enabled(self, instance: CameraInstance) -> bool:
         cam_val = instance.config.get("auto_restart_enabled")
         if cam_val is not None:
@@ -311,37 +351,63 @@ class CameraManager:
             instance.status = "error"
             instance.error_message = f"Auto-restart failed: {e}"
 
-    async def _update_protect_device(self, instance: CameraInstance) -> None:
-        """Update camera name/model in Protect after adoption."""
+    async def _update_protect_device(
+        self, instance: CameraInstance, force: bool = True
+    ) -> dict:
+        """Update camera name in Protect after adoption.
+
+        When ``force`` is False, only patches if Protect's current name is the
+        literal default ``"Camera"`` — used by the auto-sync path so repeated
+        restarts of an already-synced camera never re-issue the PATCH.
+
+        Returns a dict describing the outcome. ``status`` is one of:
+        ``updated``, ``already_synced``, ``skipped_non_default``,
+        ``not_connected``, ``no_credentials``, ``missing_config``,
+        ``not_found``, ``error``.
+        """
         global_config = self.config.get("global", {})
         host = global_config.get("host")
         username = global_config.get("nvr_username")
         password = global_config.get("nvr_password")
         if not host or not username or not password:
-            return
+            return {
+                "status": "no_credentials",
+                "detail": "Protect host/username/password not configured",
+            }
 
         cam_config = instance.config
         cam_name = cam_config.get("name") or cam_config.get("frigate_camera") or ""
         cam_mac = cam_config.get("mac", "").upper().replace(":", "")
         if not cam_name or not cam_mac:
-            return
+            return {
+                "status": "missing_config",
+                "detail": "Camera name or MAC not set",
+            }
 
         # Wait for camera to connect to Protect
+        connected = False
         for _ in range(30):
             await asyncio.sleep(2)
             if instance.status != "running":
-                return
+                return {
+                    "status": "not_connected",
+                    "detail": "Camera stopped before connecting",
+                }
             try:
                 diag = await self.get_diagnostics(instance.id)
                 if diag.get("connected"):
+                    connected = True
                     break
             except Exception:
                 pass
-        else:
+        if not connected:
             logger.debug(
                 f"Camera {instance.id} did not connect within 60s, skipping Protect update"
             )
-            return
+            return {
+                "status": "not_connected",
+                "detail": "Camera did not report connected within 60s",
+            }
 
         # Give Protect a moment to register the device
         await asyncio.sleep(3)
@@ -359,34 +425,58 @@ class CameraManager:
             )
             await protect.authenticate()
 
-            # Find camera by MAC
-            cameras = await protect.api_request("cameras")
-            target = None
-            for cam in cameras:
-                if cam.get("mac", "").upper().replace(":", "") == cam_mac:
-                    target = cam
-                    break
+            try:
+                cameras = await protect.api_request("cameras")
+                target = None
+                for cam in cameras:
+                    if cam.get("mac", "").upper().replace(":", "") == cam_mac:
+                        target = cam
+                        break
 
-            if not target:
-                logger.debug(
-                    f"Camera {instance.id} (MAC {cam_mac}) not found in Protect"
-                )
-                return
+                if not target:
+                    logger.debug(
+                        f"Camera {instance.id} (MAC {cam_mac}) not found in Protect"
+                    )
+                    return {
+                        "status": "not_found",
+                        "detail": f"No Protect device with MAC {cam_mac}",
+                    }
 
-            # Update name if different
-            protect_id = target["id"]
-            updates = {}
-            if target.get("name") != cam_name:
-                updates["name"] = cam_name
-            if updates:
+                current_name = target.get("name")
+                if current_name == cam_name:
+                    return {
+                        "status": "already_synced",
+                        "detail": f"Protect name already '{cam_name}'",
+                    }
+
+                # Auto-sync path: only touch cameras still on the default name.
+                if not force and current_name != "Camera":
+                    return {
+                        "status": "skipped_non_default",
+                        "detail": (
+                            f"Protect name is '{current_name}', not the "
+                            "default 'Camera'; leaving untouched"
+                        ),
+                    }
+
+                protect_id = target["id"]
                 await protect.api_request(
-                    f"cameras/{protect_id}", method="patch", data=updates
+                    f"cameras/{protect_id}",
+                    method="patch",
+                    data={"name": cam_name},
                 )
-                logger.info(f"Updated Protect device {protect_id}: {updates}")
-
-            await protect.close_session()
+                logger.info(
+                    f"Updated Protect device {protect_id}: name '{current_name}' -> '{cam_name}'"
+                )
+                return {
+                    "status": "updated",
+                    "detail": f"Renamed '{current_name}' -> '{cam_name}'",
+                }
+            finally:
+                await protect.close_session()
         except Exception as e:
             logger.debug(f"Failed to update Protect device for {instance.id}: {e}")
+            return {"status": "error", "detail": str(e)}
 
     async def stop_camera(self, camera_id: str) -> None:
         instance = self.instances.get(camera_id)
@@ -400,6 +490,11 @@ class CameraManager:
             instance._restart_task.cancel()
             instance._restart_task = None
         instance.next_restart_at = None
+
+        # Cancel the delayed auto name-sync if still pending
+        if instance._name_sync_task and not instance._name_sync_task.done():
+            instance._name_sync_task.cancel()
+            instance._name_sync_task = None
 
         if instance.status not in ("running", "restarting") or not instance.process:
             instance.status = "stopped"
