@@ -114,6 +114,23 @@ function App() {
     }
   };
 
+  const handleSyncName = async (id: string) => {
+    try {
+      const res = await api.syncCameraName(id);
+      const cam = cameras.find((c) => c.id === id);
+      const label = cam?.config.name || 'camera';
+      if (res.status === 'updated') {
+        addToast(`Synced name to Protect: ${res.detail ?? label}`, 'success');
+      } else if (res.status === 'already_synced') {
+        addToast(`"${label}" already in sync with Protect`, 'success');
+      } else {
+        addToast(`Sync name failed: ${res.detail ?? res.status}`);
+      }
+    } catch (err) {
+      addToast(`Sync name failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  };
+
   const handleDelete = async (id: string) => {
     await api.deleteCamera(id);
     fetchCameras();
@@ -205,6 +222,7 @@ function App() {
         onRestart={handleRestart}
         onEdit={handleEdit}
         onDelete={handleDelete}
+        onSyncName={handleSyncName}
         onAdd={handleAddCamera}
       />
 

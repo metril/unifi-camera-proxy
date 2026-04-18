@@ -173,6 +173,25 @@ async def restart_camera(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=404)
 
 
+async def sync_camera_name(request: web.Request) -> web.Response:
+    manager = get_manager(request)
+    camera_id = request.match_info["id"]
+    instance = manager.instances.get(camera_id)
+    if not instance:
+        return web.json_response({"error": f"Camera {camera_id} not found"}, status=404)
+    if instance.status != "running":
+        return web.json_response(
+            {
+                "status": "not_running",
+                "detail": "Camera must be running to sync name to Protect",
+            },
+            status=409,
+        )
+    result = await manager._update_protect_device(instance, force=True)
+    http_status = 200 if result.get("status") in ("updated", "already_synced") else 502
+    return web.json_response(result, status=http_status)
+
+
 async def start_all(request: web.Request) -> web.Response:
     manager = get_manager(request)
     results = await manager.start_all()
@@ -964,6 +983,7 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_post("/api/cameras/{id}/start", start_camera)
     app.router.add_post("/api/cameras/{id}/stop", stop_camera)
     app.router.add_post("/api/cameras/{id}/restart", restart_camera)
+    app.router.add_post("/api/cameras/{id}/sync-name", sync_camera_name)
     app.router.add_get("/api/cameras/{id}/logs", get_camera_logs)
     app.router.add_get("/api/cameras/{id}/diagnostics", get_camera_diagnostics)
     app.router.add_get("/api/cameras/{id}/snapshot", camera_snapshot)
