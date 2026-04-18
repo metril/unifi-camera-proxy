@@ -230,9 +230,7 @@ class CameraManager:
                     )
                     await self._maybe_schedule_restart(instance)
 
-    async def _reset_backoff_after_stable_run(
-        self, instance: CameraInstance
-    ) -> None:
+    async def _reset_backoff_after_stable_run(self, instance: CameraInstance) -> None:
         """Reset restart_attempt to 0 after camera runs stably for 5 minutes."""
         try:
             await asyncio.sleep(300)
@@ -298,9 +296,7 @@ class CameraManager:
             self._auto_restart(instance, delay)
         )
 
-    async def _auto_restart(
-        self, instance: CameraInstance, delay: float
-    ) -> None:
+    async def _auto_restart(self, instance: CameraInstance, delay: float) -> None:
         """Wait for delay then restart the camera."""
         try:
             await asyncio.sleep(delay)
