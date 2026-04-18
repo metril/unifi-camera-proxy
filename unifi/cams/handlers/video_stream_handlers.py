@@ -4,6 +4,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -120,16 +121,14 @@ class VideoStreamHandlers:
 
         if not has_spawned or is_dead:
             source = await self.get_stream_source(stream_index)
-            mac_safe = self.args.mac.replace(":", "-")
-            log_path = f"/tmp/unifi-ffmpeg-{mac_safe}-{stream_index}.log"
             cmd = (
-                f"( AV_LOG_FORCE_NOCOLOR=1 ffmpeg -nostdin -loglevel level+{self.args.loglevel} -y"
+                f"AV_LOG_FORCE_NOCOLOR=1 ffmpeg -nostdin -loglevel level+{self.args.loglevel} -y"
                 f" {self.get_base_ffmpeg_args(stream_index)} -rtsp_transport"
                 f' {self.args.rtsp_transport} -i "{source}"'
                 f" {self.get_extra_ffmpeg_args(stream_index)} -metadata"
-                f" streamName={stream_name} -f {self.args.format} - 2>>{log_path} )"
-                f" | ( {sys.executable} -m unifi.clock_sync --timestamp-modifier {self.args.timestamp_modifier} 2>>{log_path} )"
-                f" | ( nc {destination[0]} {destination[1]} 2>>{log_path} )"
+                f" streamName={stream_name} -f {self.args.format} -"
+                f" | {sys.executable} -m unifi.clock_sync --timestamp-modifier {self.args.timestamp_modifier}"
+                f" | nc {destination[0]} {destination[1]}"
             )
 
             # Preserve restart tracking from previous state
@@ -148,16 +147,24 @@ class VideoStreamHandlers:
 
             self.logger.info(
                 f"Spawning ffmpeg for {stream_index} ({stream_name}) "
-                f"destination={destination[0]}:{destination[1]} stderr={log_path}: {mask_url(cmd)}"
+                f"destination={destination[0]}:{destination[1]}: {mask_url(cmd)}"
             )
             # Start process in a new process group so we can kill the entire pipeline
             proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
                 shell=True,
                 preexec_fn=os.setsid,  # Create new process group
             )
+            # Drain pipeline stderr (all three stages inherit the shell's fd 2)
+            # through the camera logger so it reaches the web UI log viewer.
+            # Daemon thread exits naturally when the pipe closes on process exit.
+            threading.Thread(
+                target=self._drain_ffmpeg_stderr,
+                args=(proc.stderr, stream_index),
+                daemon=True,
+            ).start()
             self._ffmpeg_handles[stream_index] = StreamState(
                 process=proc,
                 stream_name=stream_name,
@@ -165,6 +172,20 @@ class VideoStreamHandlers:
                 restart_count=prev_restart_count,
                 restart_timestamps=prev_restart_timestamps,
             )
+
+    def _drain_ffmpeg_stderr(self, stream, stream_index: str) -> None:
+        try:
+            for line in iter(stream.readline, b""):
+                decoded = line.decode("utf-8", errors="replace").rstrip()
+                if decoded:
+                    self.logger.warning(f"[{stream_index}] {decoded}")
+        except Exception:
+            self.logger.exception(f"ffmpeg stderr reader failed for {stream_index}")
+        finally:
+            try:
+                stream.close()
+            except Exception:
+                pass
 
     def stop_video_stream(self, stream_index: str):
         if stream_index in self._ffmpeg_handles:
