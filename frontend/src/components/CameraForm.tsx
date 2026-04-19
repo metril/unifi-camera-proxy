@@ -14,6 +14,8 @@ interface CameraFormProps {
   schemas: CameraTypeSchemas | null;
   editCamera?: CameraConfig | null;
   globalConfig: GlobalConfig;
+  cameraStatus?: string;
+  onSyncName?: (id: string) => void | Promise<void>;
 }
 
 function generateMac(): string {
@@ -83,13 +85,14 @@ const FRIGATE_API_FIELDS = new Set([
 
 const SELECT_CLASS = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
-export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamera, globalConfig }: CameraFormProps) {
+export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamera, globalConfig, cameraStatus, onSyncName }: CameraFormProps) {
   const [form, setForm] = useState<CameraConfig>({ ...DEFAULT_CAMERA });
   const [rtspTest, setRtspTest] = useState<Record<string, { type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>>({});
   const [showCustomMqtt, setShowCustomMqtt] = useState(false);
   const [autoDetectStatus, setAutoDetectStatus] = useState<{ type: 'idle' | 'loading' | 'success' | 'error'; message?: string }>({ type: 'idle' });
   const [frigateCameras, setFrigateCameras] = useState<string[]>([]);
   const [frigateCamerasLoading, setFrigateCamerasLoading] = useState(false);
+  const [syncingName, setSyncingName] = useState(false);
 
   useEffect(() => {
     if (editCamera) {
@@ -352,12 +355,52 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="cam-name">Camera Name<span className="text-destructive ml-1">*</span></Label>
-                <Input
-                  id="cam-name"
-                  value={form.name}
-                  onChange={(e) => handleChange('name', e.target.value)}
-                  required
-                />
+                {(() => {
+                  const isEditing = !!editCamera?.id;
+                  const nameDirty = isEditing && form.name !== editCamera?.name;
+                  const isRunning = cameraStatus === 'running';
+                  const syncDisabled = !isEditing || !isRunning || nameDirty || syncingName;
+                  const syncTitle = !isEditing
+                    ? 'Save the camera first'
+                    : !isRunning
+                    ? 'Start the camera first — Protect only accepts the rename while the device is connected'
+                    : nameDirty
+                    ? 'Save your changes first, then click Sync'
+                    : 'Push this name to UniFi Protect';
+                  const handleSync = async () => {
+                    if (!editCamera?.id || !onSyncName) return;
+                    setSyncingName(true);
+                    try {
+                      await onSyncName(editCamera.id);
+                    } finally {
+                      setSyncingName(false);
+                    }
+                  };
+                  return (
+                    <div className="flex gap-2">
+                      <Input
+                        id="cam-name"
+                        value={form.name}
+                        onChange={(e) => handleChange('name', e.target.value)}
+                        required
+                        className="flex-1"
+                      />
+                      {isEditing && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleSync}
+                          disabled={syncDisabled}
+                          title={syncTitle}
+                          className="whitespace-nowrap"
+                        >
+                          {syncingName ? 'Syncing…' : 'Sync to Protect'}
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="cam-type">Camera Type</Label>

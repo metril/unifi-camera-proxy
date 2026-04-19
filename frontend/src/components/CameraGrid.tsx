@@ -9,11 +9,10 @@ interface CameraGridProps {
   onRestart: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
-  onSyncName: (id: string) => void;
   onAdd: () => void;
 }
 
-export default function CameraGrid({ cameras, onStart, onStop, onRestart, onEdit, onDelete, onSyncName, onAdd }: CameraGridProps) {
+export default function CameraGrid({ cameras, onStart, onStop, onRestart, onEdit, onDelete, onAdd }: CameraGridProps) {
   if (cameras.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
@@ -38,7 +37,6 @@ export default function CameraGrid({ cameras, onStart, onStop, onRestart, onEdit
           onRestart={onRestart}
           onEdit={onEdit}
           onDelete={onDelete}
-          onSyncName={onSyncName}
         />
       ))}
     </div>

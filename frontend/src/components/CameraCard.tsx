@@ -22,7 +22,6 @@ interface CameraCardProps {
   onRestart: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
-  onSyncName: (id: string) => void;
 }
 
 function formatUptime(seconds: number | null): string {
@@ -47,23 +46,13 @@ const TYPE_COLORS: Record<string, string> = {
   tapo:        'bg-pink-500/15 text-pink-400 border-pink-500/30 hover:bg-pink-500/15',
 };
 
-export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit, onDelete, onSyncName }: CameraCardProps) {
+export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit, onDelete }: CameraCardProps) {
   const [showLogs, setShowLogs] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [syncing, setSyncing] = useState(false);
 
   const config = camera.config;
   const typeColor = TYPE_COLORS[config.type] ?? 'bg-zinc-500/15 text-zinc-400 border-zinc-500/30 hover:bg-zinc-500/15';
   const isRunning = camera.status === 'running';
-
-  const handleSyncName = async () => {
-    setSyncing(true);
-    try {
-      await onSyncName(camera.id);
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const handleDeleteSelect = (e: Event) => {
     if (!confirming) {
@@ -195,15 +184,6 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
               <DropdownMenuContent align="end" className="w-40">
                 <DropdownMenuItem onSelect={() => onEdit(camera.id)}>
                   Edit
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={!isRunning || syncing}
-                  onSelect={(e) => {
-                    e.preventDefault();
-                    handleSyncName();
-                  }}
-                >
-                  {syncing ? 'Syncing…' : 'Sync name'}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
