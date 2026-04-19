@@ -172,6 +172,15 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
               </Button>
             )}
 
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => setShowLogs(true)}
+            >
+              Logs
+            </Button>
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -183,10 +192,7 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuItem onSelect={() => setShowLogs(true)}>
-                  Logs
-                </DropdownMenuItem>
+              <DropdownMenuContent align="end" className="w-40">
                 <DropdownMenuItem onSelect={() => onEdit(camera.id)}>
                   Edit
                 </DropdownMenuItem>
@@ -197,7 +203,7 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
                     handleSyncName();
                   }}
                 >
-                  {syncing ? 'Syncing name…' : 'Sync name to Protect'}
+                  {syncing ? 'Syncing…' : 'Sync name'}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -208,7 +214,7 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
                       : 'text-red-400 focus:bg-red-500/10 focus:text-red-300'
                   }
                 >
-                  {confirming ? 'Confirm delete?' : 'Delete camera'}
+                  {confirming ? 'Confirm delete?' : 'Delete'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
