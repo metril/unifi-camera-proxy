@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import type { CameraConfig, CameraTypeSchemas, FieldSchema, GlobalConfig } from '../types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -393,9 +394,10 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                           onClick={handleSync}
                           disabled={syncDisabled}
                           title={syncTitle}
-                          className="whitespace-nowrap"
+                          aria-label="Sync name to Protect"
+                          className="h-10 w-10 p-0 shrink-0"
                         >
-                          {syncingName ? 'Syncing…' : 'Sync to Protect'}
+                          <RefreshCw className={syncingName ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} />
                         </Button>
                       )}
                     </div>
