@@ -222,7 +222,6 @@ function App() {
         onRestart={handleRestart}
         onEdit={handleEdit}
         onDelete={handleDelete}
-        onSyncName={handleSyncName}
         onAdd={handleAddCamera}
       />
 
@@ -233,6 +232,8 @@ function App() {
         schemas={schemas}
         editCamera={editCamera}
         globalConfig={globalConfig}
+        cameraStatus={editCamera?.id ? cameras.find((c) => c.id === editCamera.id)?.status : undefined}
+        onSyncName={handleSyncName}
       />
 
       <GlobalSettings
