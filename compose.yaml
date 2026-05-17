@@ -1,0 +1,19 @@
+services:
+  # Web UI - manages all cameras from a single container
+  unifi-camera-proxy-web:
+    container_name: unifi-camera-proxy-web
+    restart: unless-stopped
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - "./data:/app/data"
+    environment:
+      - BIND_PORT=8080          # web server port (must match ports mapping above)
+      - BIND_ADDRESS=0.0.0.0    # set to a specific IP to restrict which interface is used
+    # Uncomment for local hostname resolution (e.g., unifi.local):
+    # dns:
+    #   - 192.168.1.1  # Your router/DNS server
+    # Or use host networking (exposes all ports directly):
+    # network_mode: host
+
