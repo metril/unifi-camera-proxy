@@ -4,5 +4,7 @@ default: true
 MD013:
   line_length: 100
   code_block_line_length: 120
+  # Table rows cannot be wrapped; exempt them from the line-length check.
+  tables: false
 
 MD041: false
