@@ -6,8 +6,8 @@ sidebar_position: 1
 
 ## Overview
 
-The Web UI (`unifi-camera-proxy-web`) is the recommended way to
-run unifi-camera-proxy. It provides a browser-based interface to
+The Web UI (`unifi-camera-proxy-web`) is how you run and manage
+unifi-camera-proxy. It provides a browser-based interface to
 manage multiple cameras from a single container. Configuration
 is persisted to a YAML file, and cameras are started as managed
 subprocesses.
@@ -112,7 +112,61 @@ Global settings (host, cert, token, MQTT, Frigate, RTSP
 credentials) apply to all cameras unless overridden per camera.
 Each camera entry specifies a `type` (e.g., `rtsp`, `frigate`,
 `reolink`, `dahua`, `hikvision`, `tapo`, `reolink_nvr`,
-`amcrest`, `lorex`) and its type-specific arguments.
+`amcrest`, `lorex`) and its type-specific fields.
+
+## Per-Camera Common Fields
+
+Every entry in the `cameras` list shares these fields, regardless of type.
+They are set in the web UI's **Add/Edit Camera** form.
+
+| Field | Default | Description |
+|---|---|---|
+| `id` | (generated) | Unique camera identifier, assigned by the web UI |
+| `name` | `unifi-camera-proxy` | Camera name shown in UniFi Protect |
+| `type` | `rtsp` | Integration type: `rtsp`, `frigate`, `hikvision`, `dahua`, `amcrest`, `lorex`, `reolink`, `reolink_nvr`, or `tapo` |
+| `enabled` | `true` | Whether the camera starts automatically |
+| `mac` | (generated) | MAC address for the virtual camera — must be unique per camera |
+| `ip` | — | Camera IP address — required for types that connect directly to the camera (Hikvision, Dahua/Lorex/Amcrest, Reolink, Reolink NVR, Tapo) |
+| `model` | `UVC G4 Bullet` | Hardware model the virtual camera identifies as (see [Supported Camera Models](#supported-camera-models)) |
+| `fw_version` | (default string) | Firmware version string reported to Protect |
+
+## Common Camera Fields
+
+These fields are available on **every** camera type, in addition to its
+type-specific fields. They control transcoding and the three quality streams
+UniFi Protect expects.
+
+| Field | Default | Description |
+|---|---|---|
+| `ffmpeg_args` | `-c:v copy -ar 32000 -ac 1 -codec:a aac -b:a 32k` | Transcoding args for `ffmpeg -i <src> <args> <dst>` |
+| `ffmpeg_base_args` | — | Base args for `ffmpeg <base_args> -i <src> <args> <dst>` |
+| `rtsp_transport` | `tcp` | RTSP transport protocol: `tcp`, `udp`, `http`, or `udp_multicast` |
+| `format` | `flv` | ffmpeg output format |
+| `loglevel` | `error` | ffmpeg log level: `trace`, `debug`, `verbose`, `info`, `warning`, `error`, `fatal`, `panic`, or `quiet` |
+| `timestamp_modifier` | `90` | Timestamp correction factor |
+| `video1_bitrate` | `6000` | Max bitrate (kbps) for the high-quality stream |
+| `video1_fps` | `30` | FPS for the high-quality stream |
+| `video2_bitrate` | `1500` | Max bitrate (kbps) for the medium-quality stream |
+| `video2_fps` | `15` | FPS for the medium-quality stream |
+| `video3_bitrate` | `750` | Max bitrate (kbps) for the low-quality stream |
+| `video3_fps` | `15` | FPS for the low-quality stream |
+
+## Supported Camera Models
+
+The `model` field accepts the following values:
+
+- **G6 Series (8MP/4K):** UVC G6 Bullet, UVC G6 Dome, UVC G6 Turret,
+  UVC G6 Instant, UVC G6 PTZ, UVC G6 Pro Bullet, UVC G6 180
+- **AI Series:** UVC AI 360, UVC AI Bullet, UVC AI Pro, UVC AI THETA,
+  UVC AI DSLR
+- **G5 Series (5-8MP):** UVC G5 Bullet, UVC G5 Dome, UVC G5 Dome Ultra,
+  UVC G5 Turret Ultra, UVC G5 Flex, UVC G5 Pro, UVC G5 PTZ
+- **G4 Series (4-8MP):** UVC G4 Bullet, UVC G4 Pro, UVC G4 PTZ,
+  UVC G4 Doorbell, UVC G4 Doorbell Pro, UVC G4 Doorbell Pro PoE,
+  UVC G4 Dome, UVC G4 Instant
+- **G3 Series (2MP/1080p):** UVC G3, UVC G3 Battery, UVC G3 Dome,
+  UVC G3 Micro, UVC G3 Mini, UVC G3 Instant, UVC G3 Pro, UVC G3 Flex
+- **Legacy:** UVC, UVC Pro, UVC Dome, UVC Micro, AFi VC, Vision Pro
 
 ## OIDC Authentication
 
@@ -170,6 +224,7 @@ token in the `Authorization` header.
 | `POST` | `/api/cameras/{id}/start` | Start a camera |
 | `POST` | `/api/cameras/{id}/stop` | Stop a camera |
 | `POST` | `/api/cameras/{id}/restart` | Restart a camera |
+| `POST` | `/api/cameras/{id}/sync-name` | Push the camera's name to its UniFi Protect device |
 | `GET` | `/api/cameras/start-all` | Start all cameras |
 | `GET` | `/api/cameras/stop-all` | Stop all cameras |
 

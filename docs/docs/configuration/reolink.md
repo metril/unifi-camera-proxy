@@ -4,53 +4,46 @@ sidebar_position: 4
 
 # Reolink
 
-## Generic
+Add a camera of type **Reolink** from the web UI's **Add Camera** form. The
+proxy connects to the camera at its `ip` address using the credentials below.
 
-If your camera model is not listed specifically below, try the following:
+## Configuration fields
 
-```sh
-unifi-camera-proxy -H {NVR IP} -i {camera IP} -c /client.pem -t {Adoption token} \
-    reolink \
-    -u {username} \
-    -p {password} \
-    -s "main" \
-    --ffmpeg-args='-c:v copy -bsf:v "h264_metadata=tick_rate=60000/1001" -ar 32000 -ac 1 -codec:a aac -b:a 32k'
-```
+| Field | Default | Description |
+|---|---|---|
+| `username` | — | Camera username (required) |
+| `password` | — | Camera password (required) |
+| `channel` | `0` | Camera channel (not currently used) |
+| `stream` | `main` | Stream profile for the higher-quality stream: `main` or `sub` |
+| `substream` | `sub` | Stream profile for the lower-quality stream: `main` or `sub` |
 
-## Options
+Reolink cameras also support all
+[Common Camera Fields](./web-ui.md#common-camera-fields) and
+[Per-Camera Common Fields](./web-ui.md#per-camera-common-fields) — set the
+camera's `ip` so the proxy can reach it.
 
-```text
-optional arguments:
-  -h, --help            show this help message and exit
-  --ffmpeg-args FFMPEG_ARGS, -f FFMPEG_ARGS
-                        Transcoding args for `ffmpeg -i <src> <args> <dst>`
-  --rtsp-transport {tcp,udp,http,udp_multicast}
-                        RTSP transport protocol used by stream
-  --username USERNAME, -u USERNAME
-                        Camera username
-  --password PASSWORD, -p PASSWORD
-                        Camera password
-  --stream {main,sub}, -m {main,sub}
-                        Stream profile to use for the higher quality stream (default: main)
-  --substream {main,sub}, -s {main,sub}
-                        Stream profile to use for the lower quality stream (default: sub)
+## Example
+
+```yaml
+cameras:
+  - id: "e5f6a7b8"
+    name: "Side Gate"
+    type: "reolink"
+    mac: "AA:BB:CC:00:11:66"
+    ip: "192.168.1.40"
+    model: "UVC G4 Bullet"
+    enabled: true
+    username: "admin"
+    password: "your-password"
+    stream: "main"
 ```
 
 ## RLC-410-5MP
 
-- [x] Supports full time recording
+- [x] Supports full-time recording
 - [x] Supports motion events
 - [ ] Supports smart detection
 - Notes:
-  - When using 'sub' substream, set `tick_rate=30000/1001` since the stream is limited to a max of `15fps`
-
-```sh
-unifi-camera-proxy --mac '{unique MAC}' -H {NVR IP} -i {camera IP} -c /client.pem -t {Adoption token} \
-    reolink \
-    -u {username} \
-    -p {password} \
-    -s "main" \
-    --ffmpeg-args='-c:v copy -bsf:v "h264_metadata=tick_rate=60000/1001" -ar 32000 -ac 1 -codec:a aac -b:a 32k'
-```
-
-For common arguments shared by all camera types, see [Common Arguments](common).
+  - When using the `sub` substream, set `tick_rate=30000/1001` in `ffmpeg_args`
+    since the stream is limited to a max of 15 fps. For example:
+    `-c:v copy -bsf:v "h264_metadata=tick_rate=60000/1001" -ar 32000 -ac 1 -codec:a aac -b:a 32k`

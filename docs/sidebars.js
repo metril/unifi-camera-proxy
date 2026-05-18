@@ -20,7 +20,6 @@ const sidebars = {
       label: 'Configuration',
       items: [
         'configuration/web-ui',
-        'configuration/common',
         'configuration/rtsp',
         'configuration/frigate',
         'configuration/hikvision',

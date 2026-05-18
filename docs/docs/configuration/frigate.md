@@ -4,93 +4,65 @@ sidebar_position: 2
 
 # Frigate
 
-If your camera model is not listed specifically below, try the following:
+The Frigate integration bridges
+[Frigate](https://github.com/blakeblackshear/frigate) motion and
+smart-detection events into UniFi Protect over MQTT, and can pull event
+snapshots from Frigate's HTTP API.
 
-- [x] Supports full time recording
-- [ ] Supports motion events
-- [x] Supports smart detection
+- [x] Supports full-time recording
+- [x] Supports motion events
+- [x] Supports smart detection (person, vehicle)
 
-```sh
-unifi-camera-proxy --mac '{unique MAC}' -H {NVR IP} -i {camera IP} -c /client.pem -t {Adoption token} \
-    frigate \
-    -s {rtsp source} \
-    --mqtt-host {mqtt host} \
-    --frigate-camera {Name of camera in frigate}
-```
+Add a camera of type **Frigate** from the web UI's **Add Camera** form. MQTT
+and Frigate connection settings can be set once in **Global Settings** and
+overridden per camera.
 
-## Options
+## Configuration fields
 
-```text
-optional arguments:
-  --ffmpeg-args FFMPEG_ARGS, -f FFMPEG_ARGS
-                        Transcoding args for `ffmpeg -i <src> <args> <dst>`
-  --rtsp-transport {tcp,udp,http,udp_multicast}
-                        RTSP transport protocol used by stream
-  --source SOURCE, -s SOURCE
-                        Stream source
-  --video1 URL          High-quality stream source (preferred over --source)
-  --video2 URL          Medium-quality stream source
-  --video3 URL          Low-quality stream source
-  --http-api HTTP_API   Specify a port number to enable the HTTP API (default: disabled)
-  --snapshot-url SNAPSHOT_URL, -i SNAPSHOT_URL
-                        HTTP endpoint to fetch snapshot image from
-  --mqtt-host MQTT_HOST
-                        MQTT server
-  --mqtt-port MQTT_PORT
-                        MQTT port
-  --mqtt-prefix MQTT_PREFIX
-                        Topic prefix
-  --mqtt-ssl            Enable MQTT TLS/SSL
-  --frigate-camera FRIGATE_CAMERA
-                        Name of camera in frigate
-  --frigate-http-url URL
-                        Frigate HTTP API base URL for snapshot fetching and auto-detection
-  --frigate-username USER
-                        Frigate API authentication username (needed when behind reverse proxy)
-  --frigate-password PASS
-                        Frigate API authentication password (needed when behind reverse proxy)
-  --no-frigate-verify-ssl
-                        Skip SSL certificate verification for Frigate API requests
-  --mqtt-username USER  MQTT authentication username
-  --mqtt-password PASS  MQTT authentication password
-  --camera-width WIDTH  Camera frame width in pixels (default: 1920)
-  --camera-height HEIGHT
-                        Camera frame height in pixels (default: 1080)
-  --frigate-detect-width WIDTH
-                        Frigate detection frame width in pixels (default: 1280)
-  --frigate-detect-height HEIGHT
-                        Frigate detection frame height in pixels (default: 720)
-  --frigate-time-sync-ms MS
-                        Time synchronization offset in milliseconds (default: 0)
-```
+| Field | Default | Description |
+|---|---|---|
+| `frigate_camera` | — | Name of the camera in Frigate (required) |
+| `mqtt_host` | — | MQTT server host (required; may come from Global Settings) |
+| `mqtt_port` | `1883` | MQTT server port |
+| `mqtt_username` | — | MQTT authentication username |
+| `mqtt_password` | — | MQTT authentication password |
+| `mqtt_ssl` | `false` | Enable SSL/TLS for the MQTT connection |
+| `mqtt_prefix` | `frigate` | MQTT topic prefix |
+| `frigate_http_url` | — | Frigate HTTP API URL (e.g. `http://frigate:5000`). When set, snapshots are fetched over HTTP instead of MQTT |
+| `frigate_username` | — | Frigate HTTP API username |
+| `frigate_password` | — | Frigate HTTP API password |
+| `no_frigate_verify_ssl` | `false` | Trust self-signed SSL certificates for the Frigate HTTP API |
+| `camera_width` | `1920` | Camera frame width in pixels |
+| `camera_height` | `1080` | Camera frame height in pixels |
+| `frigate_detect_width` | `1280` | Frigate detection frame width in pixels |
+| `frigate_detect_height` | `720` | Frigate detection frame height in pixels |
+| `frigate_time_sync_ms` | `0` | Offset (ms) applied to Frigate event timestamps. Positive values shift timestamps backward to compensate for Frigate event delay relative to the video |
+
+Frigate cameras stream over RTSP, so they also use the RTSP
+[`video1`/`video2`/`video3` and snapshot fields](./rtsp.md#configuration-fields)
+— a `video1` stream URL is required — plus all
+[Common Camera Fields](./web-ui.md#common-camera-fields) and
+[Per-Camera Common Fields](./web-ui.md#per-camera-common-fields).
 
 ## Auto-detection
 
-When `--frigate-http-url` is set, camera settings such as detect
-dimensions, FPS, and stream URLs are automatically fetched from
-Frigate's config API. This means you can omit `--source` /
-`--video1` and let the proxy discover stream URLs from your
-Frigate configuration.
+When `frigate_http_url` is set, the detection frame dimensions and FPS are
+fetched automatically from Frigate's config API, overriding the
+`frigate_detect_width` / `frigate_detect_height` defaults and the per-stream
+FPS values.
 
-## Docker Compose
+## Example
 
 ```yaml
-services:
-  unifi-camera-proxy:
-    image: ghcr.io/metril/unifi-camera-proxy:latest
-    restart: unless-stopped
-    volumes:
-      - "./client.pem:/client.pem"
-    command: >-
-        unifi-camera-proxy
-        --host {NVR IP}
-        --mac '{unique MAC}'
-        --cert /client.pem
-        --token {Adoption token}
-        frigate
-        -s {rtsp source}
-        --mqtt-host {mqtt host}
-        --frigate-camera {camera name}
+cameras:
+  - id: "b2c3d4e5"
+    name: "Front Door"
+    type: "frigate"
+    mac: "AA:BB:CC:00:11:33"
+    model: "UVC G4 Bullet"
+    enabled: true
+    frigate_camera: "front_door"
+    mqtt_host: "mqtt.local"
+    frigate_http_url: "http://frigate:5000"
+    video1: "rtsp://192.168.1.10:554/main"
 ```
-
-For common arguments shared by all camera types, see [Common Arguments](common).

@@ -4,37 +4,43 @@ sidebar_position: 5
 
 # Reolink NVR
 
-## Options
+Add a camera of type **Reolink NVR** from the web UI's **Add Camera** form. The
+proxy connects to the Reolink NVR at its `ip` address and proxies one of its
+channels.
 
-```text
-optional arguments:
-  -h, --help            show this help message and exit
-  --ffmpeg-args FFMPEG_ARGS, -f FFMPEG_ARGS
-                        Transcoding args for `ffmpeg -i <src> <args> <dst>`
-  --rtsp-transport {tcp,udp,http,udp_multicast}
-                        RTSP transport protocol used by stream
-  --username USERNAME, -u USERNAME
-                        NVR username
-  --password PASSWORD, -p PASSWORD
-                        NVR password
-  --channel CHANNEL, -c CHANNEL
-                        NVR camera channel
-```  
+## Configuration fields
+
+| Field | Default | Description |
+|---|---|---|
+| `username` | — | NVR username (required) |
+| `password` | — | NVR password (required) |
+| `channel` | — | NVR camera channel (required) |
+
+Reolink NVR cameras also support all
+[Common Camera Fields](./web-ui.md#common-camera-fields) and
+[Per-Camera Common Fields](./web-ui.md#per-camera-common-fields) — set the
+`ip` to the NVR's address.
+
+## Example
+
+```yaml
+cameras:
+  - id: "f6a7b8c9"
+    name: "Shop Camera 3"
+    type: "reolink_nvr"
+    mac: "AA:BB:CC:00:11:77"
+    ip: "192.168.1.50"
+    model: "UVC G4 Bullet"
+    enabled: true
+    username: "admin"
+    password: "your-password"
+    channel: 3
+```
 
 ## NVR (Reolink RLN16-410)
 
-- [x] Supports full time recording
+- [x] Supports full-time recording
 - [x] Supports motion events
 - [ ] Supports smart detection
 - Notes:
-  - Camera/channel IDs are zero-based
-
-```sh
-unifi-camera-proxy --mac '{unique MAC}' -H {Protect IP} -i {Reolink NVR IP} -c /client.pem -t {Adoption token} \
-    reolink_nvr \
-    -u {username} \
-    -p {password} \
-    -c {Camera channel}
-```
-
-For common arguments shared by all camera types, see [Common Arguments](common).
+  - Camera/channel IDs are zero-based.

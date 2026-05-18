@@ -36,30 +36,10 @@ token, then add cameras.
 
 ## Environment Variables
 
-### Web UI (`unifi-camera-proxy-web`)
-
 | Variable | Default | Description |
 |---|---|---|
 | `BIND_PORT` | `8080` | Port the web server listens on |
 | `BIND_ADDRESS` | `0.0.0.0` | IP address the web server binds to |
-
-### Legacy single-camera mode (`unifi-camera-proxy`)
-
-These variables are used by the entrypoint when running a single
-RTSP camera without the web UI (the old per-container approach).
-**The web UI is recommended instead.**
-
-| Variable | Default | Required | Description |
-|---|---|---|---|
-| `HOST` | — | Yes | UniFi Protect host IP or hostname |
-| `TOKEN` | — | Yes | Adoption token from Protect |
-| `RTSP_URL` | — | Yes | RTSP stream URL for the camera |
-| `NAME` | `unifi-camera-proxy` | No | Display name shown in Protect |
-| `MAC` | `AA:BB:CC:00:11:22` | No | MAC address for the virtual camera (unique) |
-
-> **Note:** All three of `HOST`, `TOKEN`, and `RTSP_URL` must be
-> set for legacy mode to activate. If any is missing the container
-> falls through to `exec "$@"`.
 
 ## Authentication (OIDC)
 

@@ -4,70 +4,46 @@ sidebar_position: 1
 
 # RTSP
 
-Most generic cameras are supported via the RTSP integration.
-Depending on your camera, you might need specific flags to make live-streaming smoother.
-Check for your specific camera model in the docs before trying this.
+Most generic cameras are supported via the RTSP integration. Add a camera of
+type **RTSP** from the web UI's **Add Camera** form, then fill in the fields
+below. Depending on your camera you may need specific transcoding settings to
+make live streaming smooth — check whether your camera model has a dedicated
+page in the Configuration section first.
 
-```sh
-unifi-camera-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} \
-  rtsp \
-  -s {rtsp stream}
-```
+## Configuration fields
 
-## Options
+| Field | Default | Description |
+|---|---|---|
+| `video1` | — | RTSP source URL for the high-quality stream (required) |
+| `video2` | — | RTSP source URL for the medium-quality stream (optional, defaults to `video1`) |
+| `video3` | — | RTSP source URL for the low-quality stream (optional, defaults to `video1`) |
+| `snapshot_url` | — | HTTP endpoint to fetch snapshot images from (optional; if unset, snapshots are captured from `video3`) |
+| `http_api` | `0` | Port that exposes an HTTP API for motion triggers — `0` disables it. Endpoints: `GET /start_motion`, `GET /stop_motion` |
 
-```text
-optional arguments:
-  --source SOURCE, -s SOURCE
-                        Stream source (deprecated, use --video1/2/3 instead)
-  --video1 URL          High-quality stream source (preferred over --source)
-  --video2 URL          Medium-quality stream source
-  --video3 URL          Low-quality stream source
-  --snapshot-url URL    Custom HTTP endpoint for snapshots
-  --http-api PORT       Enable HTTP API for motion triggers on the given port
-                        (endpoints: GET /start_motion, GET /stop_motion)
-  --ffmpeg-args FFMPEG_ARGS, -f FFMPEG_ARGS
-                        Transcoding args for `ffmpeg -i <src> <args> <dst>`
-  --rtsp-transport {tcp,udp,http,udp_multicast}
-                        RTSP transport protocol used by stream
-```
+RTSP cameras also support all the
+[Common Camera Fields](./web-ui.md#common-camera-fields) (transcoding and stream
+quality) and the [Per-Camera Common Fields](./web-ui.md#per-camera-common-fields).
 
-:::note
-
-`--source` is deprecated. Use `--video1`, `--video2`, and
-`--video3` to specify individual stream sources. This gives you
-explicit control over which streams map to each quality level
-in UniFi Protect.
-
-:::
-
-## Docker Compose
+## Example
 
 ```yaml
-services:
-  unifi-camera-proxy:
-    image: ghcr.io/metril/unifi-camera-proxy:latest
-    restart: unless-stopped
-    volumes:
-      - "./client.pem:/client.pem"
-    command: >-
-        unifi-camera-proxy
-        --host {NVR IP}
-        --cert /client.pem
-        --token {Adoption token}
-        rtsp
-        --video1 rtsp://192.168.1.10:554/stream1
-        --video2 rtsp://192.168.1.10:554/stream2
-        --video3 rtsp://192.168.1.10:554/stream3
+cameras:
+  - id: "a1b2c3d4"
+    name: "Driveway"
+    type: "rtsp"
+    mac: "AA:BB:CC:00:11:22"
+    model: "UVC G4 Bullet"
+    enabled: true
+    video1: "rtsp://192.168.1.10:554/stream1"
+    video2: "rtsp://192.168.1.10:554/stream2"
+    video3: "rtsp://192.168.1.10:554/stream3"
 ```
 
-## Hardware Acceleration
+## Hardware acceleration
 
-```sh
-unifi-camera-proxy -H {NVR IP} -i {Camera IP} -c /client.pem -t {Adoption token} \
-  rtsp \
-  -s {rtsp stream} \
-  --ffmpeg-args='-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format yuv420p'
+To offload transcoding to a GPU, set the `ffmpeg_args`
+[Common Camera Field](./web-ui.md#common-camera-fields) to something like:
+
+```text
+-hwaccel vaapi -hwaccel_device /dev/dri/renderD128 -hwaccel_output_format yuv420p
 ```
-
-For common arguments shared by all camera types, see [Common Arguments](common).
