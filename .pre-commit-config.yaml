@@ -20,7 +20,7 @@ repos:
     hooks:
       - id: codespell
         args:
-          - --skip=docs/package-lock.json
+          - --skip=docs/package-lock.json,frontend/src/vendor/*
           - --ignore-words-list=te
 
   - repo: https://github.com/psf/black
