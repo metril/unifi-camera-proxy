@@ -7,7 +7,6 @@ import CameraForm from './components/CameraForm';
 import GlobalSettings from './components/GlobalSettings';
 import Toast, { type ToastMessage } from './components/Toast';
 import LoginPage from './components/LoginPage';
-import { Button } from '@/components/ui/button';
 
 const DEFAULT_GLOBAL: GlobalConfig = {
   host: '',
@@ -226,21 +225,9 @@ function App() {
       runningCount={runningCount}
       hasOidc={globalConfig.has_oidc ?? false}
       onLogout={handleLogout}
+      showPreview={showPreview}
+      onTogglePreview={togglePreview}
     >
-      {cameras.length > 0 && (
-        <div className="flex justify-end mb-4">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 text-xs"
-            onClick={togglePreview}
-            aria-pressed={showPreview}
-          >
-            {showPreview ? 'Hide live preview' : 'Show live preview'}
-          </Button>
-        </div>
-      )}
-
       <CameraGrid
         cameras={cameras}
         showPreview={showPreview}

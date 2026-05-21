@@ -13,6 +13,8 @@ interface LayoutProps {
   runningCount: number;
   hasOidc?: boolean;
   onLogout?: () => void;
+  showPreview?: boolean;
+  onTogglePreview?: () => void;
 }
 
 export default function Layout({
@@ -25,6 +27,8 @@ export default function Layout({
   runningCount,
   hasOidc,
   onLogout,
+  showPreview,
+  onTogglePreview,
 }: LayoutProps) {
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -68,6 +72,22 @@ export default function Layout({
                   </Button>
                   <Separator orientation="vertical" className="h-5 mx-1" />
                 </>
+              )}
+              {cameraCount > 0 && onTogglePreview && (
+                <Button
+                  variant={showPreview ? 'secondary' : 'ghost'}
+                  size="sm"
+                  className="h-8 text-xs text-muted-foreground hover:text-foreground data-[active=true]:text-foreground"
+                  data-active={showPreview}
+                  aria-pressed={showPreview}
+                  onClick={onTogglePreview}
+                  title={showPreview ? 'Hide live preview' : 'Show live preview'}
+                >
+                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                  </svg>
+                  Preview
+                </Button>
               )}
               <Button size="sm" className="h-8 text-xs" onClick={onAddCamera}>
                 + Add Camera

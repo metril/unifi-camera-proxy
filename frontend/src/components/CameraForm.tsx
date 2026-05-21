@@ -51,6 +51,23 @@ const COMMON_KEYS = new Set([
 
 const RTSP_FIELDS = new Set(['video1', 'video2', 'video3', 'source', 'rtsp']);
 
+// Internal fields managed automatically — never shown in the form.
+const HIDDEN_FIELDS = new Set(['stream-name', 'go2rtc-rtsp']);
+
+// Friendly labels for the Camera Type dropdown.
+const TYPE_LABELS: Record<string, string> = {
+  rtsp: 'RTSP (generic camera)',
+  frigate: 'Frigate',
+  amcrest: 'Amcrest',
+  dahua: 'Dahua',
+  hikvision: 'Hikvision',
+  lorex: 'Lorex',
+  mosaic: 'Mosaic (combine multiple cameras)',
+  reolink: 'Reolink',
+  reolink_nvr: 'Reolink NVR',
+  tapo: 'TP-Link Tapo',
+};
+
 // Camera model resolution tiers for smart sorting
 const MODEL_TIERS: Record<string, string> = {
   "UVC G6 Bullet": "4K", "UVC G6 Dome": "4K", "UVC G6 Turret": "4K",
@@ -321,7 +338,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
   const mqttFields = typeFields.filter((f) => MQTT_FIELDS.has(f.name));
   const frigateApiFields = typeFields.filter((f) => FRIGATE_API_FIELDS.has(f.name));
   const specificFields = typeFields.filter((f) =>
-    !COMMON_HANDLED.has(f.name) && !MQTT_FIELDS.has(f.name) && !FRIGATE_API_FIELDS.has(f.name) && f.name !== 'frigate-camera'
+    !COMMON_HANDLED.has(f.name) && !MQTT_FIELDS.has(f.name) && !FRIGATE_API_FIELDS.has(f.name) && !HIDDEN_FIELDS.has(f.name) && f.name !== 'frigate-camera'
   );
 
   const handleAutoDetect = async () => {
@@ -466,7 +483,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                   className={SELECT_CLASS}
                 >
                   {Object.keys(schemas.types).map((t) => (
-                    <option key={t} value={t}>{t}</option>
+                    <option key={t} value={t}>{TYPE_LABELS[t] ?? t}</option>
                   ))}
                 </select>
               </div>
