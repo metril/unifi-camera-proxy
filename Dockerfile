@@ -43,6 +43,21 @@ COPY --from=builder \
 
 RUN apk add --update curl ffmpeg netcat-openbsd libusb-dev openssl
 
+# Bundle go2rtc (streaming server for live preview + mosaic fan-out).
+ARG TARGETARCH
+ARG GO2RTC_VERSION=1.9.9
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64) GO2RTC_ARCH="amd64" ;; \
+      arm64) GO2RTC_ARCH="arm64" ;; \
+      arm)   GO2RTC_ARCH="arm" ;; \
+      *)     GO2RTC_ARCH="amd64" ;; \
+    esac; \
+    curl -fsSL -o /usr/local/bin/go2rtc \
+      "https://github.com/AlexxIT/go2rtc/releases/download/v${GO2RTC_VERSION}/go2rtc_linux_${GO2RTC_ARCH}"; \
+    chmod +x /usr/local/bin/go2rtc; \
+    go2rtc --version || true
+
 COPY . .
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 RUN pip install -e . --no-cache-dir

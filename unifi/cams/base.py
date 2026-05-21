@@ -3,7 +3,10 @@ import asyncio
 import atexit
 import json
 import logging
+import os
+import signal
 import ssl
+import subprocess
 import time
 from abc import ABCMeta, abstractmethod
 from enum import Enum
@@ -138,6 +141,9 @@ class UnifiCamBase(
 
         self._ffmpeg_handles: dict[str, "StreamState"] = {}
 
+        # Two-way audio (talkback) ffmpeg pump, spawned on ChangeTalkbackSettings.
+        self._talkback_proc: Optional[subprocess.Popen] = None
+
         # Video resolution detected from source (will be probed during init_adoption)
         # Store separate resolutions for each stream with defaults
         self._detected_resolutions: dict[str, tuple[int, int]] = {
@@ -252,6 +258,25 @@ class UnifiCamBase(
             type=int,
             default=0,
             help="Port for diagnostics HTTP API (0 = disabled)",
+        )
+        parser.add_argument(
+            "--talkback-url",
+            type=str,
+            default=None,
+            help=(
+                "Two-way audio: endpoint to push Protect's talkback audio to "
+                "(e.g. an RTSP back-channel or HTTP/RTMP audio-in URL on the "
+                "camera). Leave unset to disable talkback."
+            ),
+        )
+        parser.add_argument(
+            "--talkback-options",
+            type=str,
+            default="-acodec aac -ac 1 -ar 16000 -f rtsp -rtsp_transport tcp",
+            help=(
+                "ffmpeg output args for the talkback pump, written before the "
+                "--talkback-url. Override to match the camera's audio-in format."
+            ),
         )
 
     async def _run(self, ws) -> None:
@@ -468,6 +493,80 @@ class UnifiCamBase(
             "videoMode": ["default"],
             "motionDetect": ["enhanced"],
         }
+
+    # --- Two-way audio (talkback) ---
+
+    async def process_talkback_settings(self, msg: dict[str, Any]) -> None:
+        """Handle a ChangeTalkbackSettings message from UniFi Protect.
+
+        Protect signals a talkback session by sending a source ``url`` (UDP/RTP)
+        plus the audio ``codec``/``samplingRate``. We pump that audio through
+        ffmpeg to the configured ``--talkback-url`` (the camera's speaker
+        endpoint). A message without a usable url tears any active pump down.
+        """
+        payload = msg.get("payload") or {}
+        url = payload.get("url")
+        talkback_url = getattr(self.args, "talkback_url", None)
+
+        # Any settings change restarts the pump cleanly.
+        self.stop_talkback()
+
+        if not url:
+            self.logger.debug(f"Talkback settings without url; payload={payload}")
+            return
+        if not talkback_url:
+            self.logger.warning(
+                "Protect requested talkback but no --talkback-url is configured "
+                "for this camera; ignoring"
+            )
+            return
+
+        self.start_talkback(payload, talkback_url)
+
+    def start_talkback(self, payload: dict[str, Any], talkback_url: str) -> None:
+        url = payload["url"]
+        sampling_rate = payload.get("samplingRate")
+        options = getattr(
+            self.args, "talkback_options", "-acodec aac -ac 1 -ar 16000 -f rtsp"
+        )
+
+        # Read Protect's audio session and re-encode to the camera's speaker.
+        rate_arg = f"-ar {sampling_rate} " if sampling_rate else ""
+        cmd = (
+            f"AV_LOG_FORCE_NOCOLOR=1 ffmpeg -nostdin "
+            f"-loglevel level+{self.args.loglevel} -y "
+            f"-protocol_whitelist file,udp,rtp,crypto,data "
+            f'{rate_arg}-i "{url}" '
+            f'{options} "{talkback_url}"'
+        )
+        from unifi.utils import mask_url
+
+        self.logger.info(f"Starting talkback pump: {mask_url(cmd)}")
+        self._talkback_proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=True,
+            preexec_fn=os.setsid,
+        )
+
+    def stop_talkback(self) -> None:
+        proc = self._talkback_proc
+        if proc is None:
+            return
+        self._talkback_proc = None
+        if proc.poll() is not None:
+            return
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+            proc.wait(timeout=2)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except (ProcessLookupError, OSError):
+                pass
 
     ###
 
@@ -1795,6 +1894,7 @@ class UnifiCamBase(
         elif fn == "UpdateFaceDBRequest":
             res = await self.process_update_face_db(m)
         elif fn == "ChangeTalkbackSettings":
+            await self.process_talkback_settings(m)
             res = self.gen_response(
                 "ChangeTalkbackSettings", response_to=m["messageId"]
             )
@@ -1825,6 +1925,7 @@ class UnifiCamBase(
         if hasattr(self, "_watchdog_task") and not self._watchdog_task.done():
             self._watchdog_task.cancel()
         await self.stop_all_motion_events()
+        self.stop_talkback()
         self.close_streams()
 
     # Legacy API for subclasses - backwards compatibility

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from unifi.web.config import config_to_args, load_config, save_config
+from unifi.web.go2rtc import Go2rtcManager
 from unifi.web.oidc import OIDCConfig, OIDCProvider
 
 logger = logging.getLogger("CameraManager")
@@ -77,6 +78,9 @@ class CameraManager:
         self.config = load_config(config_path)
         self.instances: dict[str, CameraInstance] = {}
         self._monitor_task: Optional[asyncio.Task] = None
+        self.go2rtc = Go2rtcManager(
+            data_dir=str(os.path.dirname(os.path.abspath(config_path)))
+        )
         self.valid_tokens: dict[str, float] = {}  # token -> expiry timestamp
         self.pending_auths: dict[str, PendingAuth] = {}
         self._oidc_cache: tuple[
@@ -87,6 +91,22 @@ class CameraManager:
         for cam_config in self.config.get("cameras", []):
             cam_id = cam_config["id"]
             self.instances[cam_id] = CameraInstance(id=cam_id, config=cam_config)
+
+    async def start_streaming_server(self) -> None:
+        """Start go2rtc and register a preview stream for each camera."""
+        await self.go2rtc.start()
+        await self.go2rtc.sync_streams(self.config)
+
+    async def stop_streaming_server(self) -> None:
+        await self.go2rtc.stop()
+
+    def _schedule_go2rtc_sync(self) -> None:
+        """Re-register go2rtc preview streams after a config change (fire-and-forget)."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        asyncio.create_task(self.go2rtc.sync_streams(self.config))
 
     def reload_config(self):
         self.config = load_config(self.config_path)
@@ -605,6 +625,7 @@ class CameraManager:
         save_config(self.config_path, self.config)
         cam_id = camera_config["id"]
         self.instances[cam_id] = CameraInstance(id=cam_id, config=camera_config)
+        self._schedule_go2rtc_sync()
         return camera_config
 
     def update_camera(self, camera_id: str, camera_config: dict) -> dict:
@@ -635,6 +656,7 @@ class CameraManager:
                 and instance.status == "running"
             ):
                 asyncio.create_task(self._update_protect_device(instance))
+        self._schedule_go2rtc_sync()
         return camera_config
 
     async def delete_camera(self, camera_id: str) -> None:
@@ -649,6 +671,7 @@ class CameraManager:
         ]
         save_config(self.config_path, self.config)
         self.instances.pop(camera_id, None)
+        asyncio.create_task(self.go2rtc.unregister_stream(camera_id))
 
     @property
     def oidc_provider(self) -> OIDCProvider | None:

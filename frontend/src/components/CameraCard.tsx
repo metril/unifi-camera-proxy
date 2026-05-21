@@ -14,9 +14,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import StatusBadge from './StatusBadge';
 import LogViewer from './LogViewer';
+import CameraVideo from './CameraVideo';
 
 interface CameraCardProps {
   camera: CameraStatus;
+  showPreview?: boolean;
   onStart: (id: string) => void;
   onStop: (id: string) => void;
   onRestart: (id: string) => void;
@@ -46,7 +48,7 @@ const TYPE_COLORS: Record<string, string> = {
   tapo:        'bg-pink-500/15 text-pink-400 border-pink-500/30 hover:bg-pink-500/15',
 };
 
-export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit, onDelete }: CameraCardProps) {
+export default function CameraCard({ camera, showPreview = false, onStart, onStop, onRestart, onEdit, onDelete }: CameraCardProps) {
   const [showLogs, setShowLogs] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
@@ -79,6 +81,12 @@ export default function CameraCard({ camera, onStart, onStop, onRestart, onEdit,
             </div>
           </div>
         </CardHeader>
+
+        {showPreview && isRunning && (
+          <div className="aspect-video w-full bg-black overflow-hidden">
+            <CameraVideo cameraId={camera.id} className="w-full h-full" />
+          </div>
+        )}
 
         <Separator className="opacity-50" />
 

@@ -6,6 +6,11 @@ services:
     build: .
     ports:
       - "8080:8080"
+      # Optional: expose go2rtc's WebRTC port for direct, lowest-latency live
+      # preview. Without it, playback falls back to MSE/MJPEG over the proxied
+      # /go2rtc/* path (still works, slightly higher latency).
+      # - "8555:8555/tcp"
+      # - "8555:8555/udp"
     volumes:
       - "./data:/app/data"
     environment:

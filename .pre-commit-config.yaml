@@ -21,6 +21,7 @@ repos:
       - id: codespell
         args:
           - --skip=docs/package-lock.json
+          - --ignore-words-list=te
 
   - repo: https://github.com/psf/black
     rev: 23.7.0

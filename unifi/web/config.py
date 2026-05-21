@@ -13,6 +13,7 @@ from unifi.cams import (
     DahuaCam,
     FrigateCam,
     HikvisionCam,
+    MosaicCam,
     Reolink,
     ReolinkNVRCam,
     RTSPCam,
@@ -27,6 +28,7 @@ CAMS = {
     "frigate": FrigateCam,
     "hikvision": HikvisionCam,
     "lorex": DahuaCam,
+    "mosaic": MosaicCam,
     "reolink": Reolink,
     "reolink_nvr": ReolinkNVRCam,
     "rtsp": RTSPCam,
@@ -169,6 +171,7 @@ def get_camera_type_schemas() -> dict[str, list[dict]]:
         "dahua": DahuaCam,
         "hikvision": HikvisionCam,
         "lorex": DahuaCam,
+        "mosaic": MosaicCam,
         "reolink": Reolink,
         "reolink_nvr": ReolinkNVRCam,
         "tapo": TapoCam,
@@ -281,6 +284,11 @@ def config_to_args(
     if diagnostics_port:
         args.extend(["--diagnostics-port", str(diagnostics_port)])
 
+    # Mosaic publishes to go2rtc under its camera id so the web UI preview can
+    # find the composed path without separate registration.
+    if cam_type == "mosaic" and camera_config.get("id"):
+        args.extend(["--stream-name", str(camera_config["id"])])
+
     # Type-specific args: get schema for this type and map config values
     schemas = get_camera_type_schemas()
     type_fields = schemas.get(cam_type, [])
@@ -293,6 +301,7 @@ def config_to_args(
         "loglevel",
         "format",
         "diagnostics-port",
+        "stream-name",
         "video1-bitrate",
         "video1-fps",
         "video2-bitrate",
@@ -406,12 +415,28 @@ def config_to_args(
         rtsp_pass = global_config.get("rtsp_password")
     if rtsp_user and rtsp_pass:
         video_flags = {"--video1", "--video2", "--video3", "--source", "-s"}
-        for i, arg in enumerate(args):
+        # nargs="+" flags whose every following value (until the next --flag) is
+        # an RTSP URL needing credentials.
+        multi_url_flags = {"--input-urls"}
+        i = 0
+        while i < len(args):
+            arg = args[i]
             if arg in video_flags and i + 1 < len(args):
                 original = args[i + 1]
                 args[i + 1] = inject_rtsp_credentials(args[i + 1], rtsp_user, rtsp_pass)
                 if args[i + 1] != original:
                     logger.info(f"Injected RTSP credentials into {arg} URL")
+                i += 2
+                continue
+            if arg in multi_url_flags:
+                j = i + 1
+                while j < len(args) and not args[j].startswith("--"):
+                    args[j] = inject_rtsp_credentials(args[j], rtsp_user, rtsp_pass)
+                    j += 1
+                logger.info(f"Injected RTSP credentials into {arg} URLs")
+                i = j
+                continue
+            i += 1
     else:
         logger.debug(
             f"No RTSP credentials to inject (user={rtsp_user is not None}, pass={rtsp_pass is not None})"

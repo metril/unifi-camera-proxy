@@ -161,7 +161,15 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(form);
+    // Drop empty entries left behind in array fields (e.g. mosaic input URLs).
+    const cleaned = { ...form };
+    for (const key of Object.keys(cleaned)) {
+      const val = cleaned[key];
+      if (Array.isArray(val)) {
+        cleaned[key] = (val as unknown[]).filter((v) => String(v).trim() !== '');
+      }
+    }
+    onSave(cleaned);
   };
 
   const renderField = (field: FieldSchema) => {
@@ -196,6 +204,51 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
+          {field.help && <p className="text-xs text-muted-foreground mt-1">{field.help}</p>}
+        </div>
+      );
+    }
+
+    if (field.type === 'array') {
+      const items: string[] = Array.isArray(value)
+        ? (value as string[])
+        : value
+          ? [String(value)]
+          : [];
+      const update = (next: string[]) => handleChange(configKey, next);
+      return (
+        <div key={field.name}>
+          <Label className="block mb-1.5">
+            {field.name}{field.required && <span className="text-destructive ml-1">*</span>}
+          </Label>
+          <div className="space-y-2">
+            {items.map((item, i) => (
+              <div key={i} className="flex gap-2">
+                <Input
+                  value={item}
+                  onChange={(e) => {
+                    const next = [...items];
+                    next[i] = e.target.value;
+                    update(next);
+                  }}
+                  placeholder={`URL ${i + 1}`}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => update(items.filter((_, j) => j !== i))}
+                  className="text-red-400 border-red-600/30 hover:bg-red-600/10 hover:text-red-300"
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+            <Button type="button" variant="outline" size="sm" onClick={() => update([...items, ''])}>
+              Add URL
+            </Button>
+          </div>
           {field.help && <p className="text-xs text-muted-foreground mt-1">{field.help}</p>}
         </div>
       );

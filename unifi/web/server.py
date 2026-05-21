@@ -72,6 +72,7 @@ VALID_CAMERA_TYPES = {
     "dahua",
     "hikvision",
     "lorex",
+    "mosaic",
     "reolink",
     "reolink_nvr",
     "tapo",
@@ -236,10 +237,31 @@ async def camera_snapshot(request: web.Request) -> web.Response:
     cam_config = instance.config
     global_config = manager.config.get("global", {})
 
+    # Non-Frigate cameras: grab a still frame from go2rtc (works for every type
+    # registered for live preview, including mosaics).
     if cam_config.get("type") != "frigate":
-        return web.json_response(
-            {"error": "Snapshots only available for Frigate cameras"}, status=400
-        )
+        from unifi.web.go2rtc import API_BASE
+
+        try:
+            async with aiohttp_client.ClientSession() as session:
+                async with session.get(
+                    f"{API_BASE}/api/frame.jpeg",
+                    params={"src": camera_id},
+                    timeout=aiohttp_client.ClientTimeout(total=5),
+                ) as resp:
+                    if resp.status != 200:
+                        return web.json_response(
+                            {"error": "Snapshot unavailable"}, status=502
+                        )
+                    data = await resp.read()
+                    return web.Response(
+                        body=data,
+                        content_type="image/jpeg",
+                        headers={"Cache-Control": "no-cache, no-store"},
+                    )
+        except Exception as e:
+            logger.debug(f"go2rtc snapshot failed for {camera_id}: {e}")
+            return web.json_response({"error": str(e)}, status=502)
 
     # Resolve Frigate connection with per-camera → global fallback
     frigate_url = cam_config.get("frigate_http_url") or global_config.get(
@@ -751,6 +773,7 @@ async def security_headers_middleware(request: web.Request, handler):
         "script-src 'self'; "
         "style-src 'self' 'unsafe-inline'; "
         "img-src 'self' data:; "
+        "media-src 'self' blob: data:; "
         "connect-src 'self' wss: ws:; "
         "font-src 'self'; "
         "frame-ancestors 'none'"
@@ -807,7 +830,8 @@ async def rate_limit_middleware(request: web.Request, handler):
 
 @web.middleware
 async def auth_middleware(request: web.Request, handler):
-    if request.path.startswith("/api/auth/") or not request.path.startswith("/api/"):
+    protected = request.path.startswith("/api/") or request.path.startswith("/go2rtc/")
+    if request.path.startswith("/api/auth/") or not protected:
         return await handler(request)
 
     manager: CameraManager | None = request.app.get("manager")
@@ -929,11 +953,108 @@ async def serve_index(request: web.Request) -> web.Response:
     )
 
 
+# --- go2rtc reverse proxy ---
+
+# Hop-by-hop headers that must not be forwarded across a proxy.
+_HOP_BY_HOP = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailers",
+    "transfer-encoding",
+    "upgrade",
+}
+
+
+async def go2rtc_proxy(request: web.Request) -> web.StreamResponse:
+    """Reverse-proxy go2rtc's HTTP/WS API under /go2rtc/* so it shares the
+    web server's single port, OIDC auth, and CSP headers.
+
+    WebSocket upgrades (used for go2rtc's WebRTC/MSE signaling) are proxied
+    bidirectionally; everything else is streamed through transparently.
+    """
+    from unifi.web.go2rtc import API_BASE
+
+    tail = request.match_info.get("path", "")
+    target = f"{API_BASE}/{tail}"
+    if request.query_string:
+        target = f"{target}?{request.query_string}"
+
+    # WebSocket upgrade path (WebRTC/MSE signaling)
+    if request.headers.get("Upgrade", "").lower() == "websocket":
+        client_ws = web.WebSocketResponse()
+        await client_ws.prepare(request)
+        session = aiohttp_client.ClientSession()
+        try:
+            async with session.ws_connect(target) as upstream_ws:
+
+                async def client_to_upstream():
+                    async for msg in client_ws:
+                        if msg.type == aiohttp_client.WSMsgType.TEXT:
+                            await upstream_ws.send_str(msg.data)
+                        elif msg.type == aiohttp_client.WSMsgType.BINARY:
+                            await upstream_ws.send_bytes(msg.data)
+                        elif msg.type == aiohttp_client.WSMsgType.CLOSE:
+                            break
+
+                async def upstream_to_client():
+                    async for msg in upstream_ws:
+                        if msg.type == aiohttp_client.WSMsgType.TEXT:
+                            await client_ws.send_str(msg.data)
+                        elif msg.type == aiohttp_client.WSMsgType.BINARY:
+                            await client_ws.send_bytes(msg.data)
+                        elif msg.type == aiohttp_client.WSMsgType.CLOSE:
+                            break
+
+                await asyncio.gather(
+                    client_to_upstream(), upstream_to_client(), return_exceptions=True
+                )
+        except Exception as e:
+            logger.debug(f"go2rtc ws proxy error: {e}")
+        finally:
+            await session.close()
+            if not client_ws.closed:
+                await client_ws.close()
+        return client_ws
+
+    # Plain HTTP proxy (streamed)
+    req_headers = {
+        k: v for k, v in request.headers.items() if k.lower() not in _HOP_BY_HOP
+    }
+    body = await request.read()
+    try:
+        async with aiohttp_client.ClientSession() as session:
+            async with session.request(
+                request.method,
+                target,
+                headers=req_headers,
+                data=body if body else None,
+                allow_redirects=False,
+                timeout=aiohttp_client.ClientTimeout(total=None, sock_read=60),
+            ) as upstream:
+                resp = web.StreamResponse(status=upstream.status)
+                for k, v in upstream.headers.items():
+                    if k.lower() not in _HOP_BY_HOP and k.lower() != "content-length":
+                        resp.headers[k] = v
+                await resp.prepare(request)
+                async for chunk in upstream.content.iter_chunked(8192):
+                    await resp.write(chunk)
+                await resp.write_eof()
+                return resp
+    except Exception as e:
+        logger.debug(f"go2rtc http proxy error: {e}")
+        return web.json_response({"error": "go2rtc unavailable"}, status=502)
+
+
 # --- App factory ---
 
 
 async def on_startup(app: web.Application) -> None:
     manager: CameraManager = app["manager"]
+    logger.info("Starting go2rtc streaming server...")
+    await manager.start_streaming_server()
     logger.info("Starting all enabled cameras...")
     asyncio.create_task(manager.start_all_enabled())
 
@@ -942,6 +1063,8 @@ async def on_shutdown(app: web.Application) -> None:
     manager: CameraManager = app["manager"]
     logger.info("Stopping all cameras...")
     await manager.stop_all()
+    logger.info("Stopping go2rtc streaming server...")
+    await manager.stop_streaming_server()
 
 
 def create_app(config_path: str) -> web.Application:
@@ -996,13 +1119,16 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_post("/api/test-frigate", test_frigate)
     app.router.add_post("/api/detect-frigate-camera", detect_frigate_camera)
 
+    # go2rtc reverse proxy (live preview + mosaic playback)
+    app.router.add_route("*", "/go2rtc/{path:.*}", go2rtc_proxy)
+
     # Static files (built frontend)
     dist = find_frontend_dist()
     if dist:
         app.router.add_static("/assets", dist / "assets")
 
-    # Catch-all: serve index.html for SPA routing (exclude /api/ and /assets/)
-    app.router.add_get("/{path:(?!api/|assets/).*}", serve_index)
+    # Catch-all: serve index.html for SPA routing (exclude /api/, /assets/, /go2rtc/)
+    app.router.add_get("/{path:(?!api/|assets/|go2rtc/).*}", serve_index)
 
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)
