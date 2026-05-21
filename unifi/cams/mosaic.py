@@ -1,13 +1,18 @@
-"""Mosaic composer camera: tile N RTSP feeds into one UniFi camera.
+"""GridFusion composer camera: a free-positioning multi-camera matrix.
 
-A single ffmpeg ``filter_complex`` scales each input to a grid cell and stacks
-them into one composited stream that is *published once* to the bundled go2rtc
-server. UniFi Protect and the web UI's live preview both pull that single
-go2rtc path, so the expensive compose+encode runs only once regardless of how
-many consumers attach (see ``unifi/web/go2rtc.py``).
+Each tile has its own position and size (in output-resolution pixels), so the
+layout can be any arrangement — not just a uniform grid — and tiles may overlap
+(tile order is z-order). A single ffmpeg ``filter_complex`` paints each input
+onto a black base canvas with ``scale`` + ``overlay`` and publishes the result
+once to the bundled go2rtc server. UniFi Protect and the web UI's live preview
+both pull that single composed path (see ``unifi/web/go2rtc.py``).
+
+The web UI presents this as **GridFusion** with a drag-and-drop editor; the
+camera type key stays ``mosaic`` for compatibility.
 """
 
 import argparse
+import json
 import logging
 import subprocess
 import tempfile
@@ -24,46 +29,68 @@ class MosaicCam(UnifiCamBase):
         self.snapshot_dir = tempfile.mkdtemp()
         self.compose_proc: subprocess.Popen | None = None
 
-        self.input_urls: list[str] = list(args.input_urls or [])
-        if not self.input_urls:
-            raise ValueError("--input-urls requires at least one RTSP URL")
+        self.tiles = self._load_tiles(args)
+        if not self.tiles:
+            raise ValueError("GridFusion requires at least one tile (--tiles)")
 
-        cols = max(1, int(args.grid_cols))
-        rows = max(1, int(args.grid_rows))
-        if cols * rows < len(self.input_urls):
-            # Grow rows to fit all inputs rather than dropping feeds silently.
-            rows = -(-len(self.input_urls) // cols)
-            self.logger.warning(
-                f"grid {args.grid_cols}x{args.grid_rows} too small for "
-                f"{len(self.input_urls)} inputs; using {cols}x{rows}"
-            )
-        self.cols, self.rows = cols, rows
-
-        # The go2rtc RTSP path this mosaic publishes to (named by camera id so
-        # the web server's preview can find it without extra registration).
         self.stream_name = args.stream_name
         self.publish_url = f"{args.go2rtc_rtsp.rstrip('/')}/{self.stream_name}"
+
+    def _load_tiles(self, args: argparse.Namespace) -> list[dict]:
+        """Return a normalized list of {url, x, y, w, h} tiles.
+
+        Prefers the ``--tiles`` JSON model. Falls back to the legacy
+        ``--input-urls`` + grid args (1.1.x configs) by laying them out in a
+        uniform grid, so older mosaics keep working.
+        """
+        raw = getattr(args, "tiles", None)
+        if raw:
+            try:
+                tiles = json.loads(raw)
+            except (ValueError, TypeError) as e:
+                raise ValueError(f"--tiles must be valid JSON: {e}")
+            return [self._normalize_tile(t) for t in tiles if t.get("url")]
+
+        # Legacy shim: uniform grid from --input-urls.
+        urls = list(getattr(args, "input_urls", None) or [])
+        if not urls:
+            return []
+        cols = max(1, int(getattr(args, "grid_cols", 2) or 2))
+        rows = max(1, -(-len(urls) // cols))  # ceil
+        tile_w = args.output_width // cols
+        tile_h = args.output_height // rows
+        return [
+            {
+                "url": url,
+                "x": (i % cols) * tile_w,
+                "y": (i // cols) * tile_h,
+                "w": tile_w,
+                "h": tile_h,
+            }
+            for i, url in enumerate(urls)
+        ]
+
+    @staticmethod
+    def _normalize_tile(t: dict) -> dict:
+        return {
+            "url": t["url"],
+            "x": int(t.get("x", 0)),
+            "y": int(t.get("y", 0)),
+            "w": int(t.get("w", 0)),
+            "h": int(t.get("h", 0)),
+        }
 
     @classmethod
     def add_parser(cls, parser: argparse.ArgumentParser) -> None:
         super().add_parser(parser)
         parser.add_argument(
-            "--input-urls",
-            nargs="+",
-            required=True,
-            help="RTSP source URLs to tile into the mosaic (one per cell)",
-        )
-        parser.add_argument(
-            "--grid-cols",
-            type=int,
-            default=2,
-            help="Number of mosaic columns (default: 2)",
-        )
-        parser.add_argument(
-            "--grid-rows",
-            type=int,
-            default=2,
-            help="Number of mosaic rows (default: 2)",
+            "--tiles",
+            type=str,
+            default=None,
+            help=(
+                "GridFusion layout as a JSON array of "
+                '{"url","x","y","w","h"} tiles (output-resolution pixels)'
+            ),
         )
         parser.add_argument(
             "--output-width",
@@ -81,7 +108,7 @@ class MosaicCam(UnifiCamBase):
             "--tile-fps",
             type=int,
             default=10,
-            help="Frame rate per tile (default: 10)",
+            help="Frame rate of the composited output (default: 10)",
         )
         parser.add_argument(
             "--stream-name",
@@ -95,37 +122,36 @@ class MosaicCam(UnifiCamBase):
             default="rtsp://127.0.0.1:8554",
             help="Base RTSP URL of the bundled go2rtc server",
         )
+        # Legacy (1.1.x) uniform-grid args, kept for back-compat.
+        parser.add_argument("--input-urls", nargs="+", help=argparse.SUPPRESS)
+        parser.add_argument("--grid-cols", type=int, default=2, help=argparse.SUPPRESS)
+        parser.add_argument("--grid-rows", type=int, default=2, help=argparse.SUPPRESS)
 
     def _build_compose_cmd(self) -> str:
-        n = len(self.input_urls)
-        tile_w = self.args.output_width // self.cols
-        tile_h = self.args.output_height // self.rows
         fps = self.args.tile_fps
+        width, height = self.args.output_width, self.args.output_height
 
         inputs = " ".join(
-            f"-rtsp_transport {self.args.rtsp_transport} " f'-i "{url}"'
-            for url in self.input_urls
+            f'-rtsp_transport {self.args.rtsp_transport} -i "{t["url"]}"'
+            for t in self.tiles
         )
 
-        # Scale each input to a cell, then xstack them onto the grid using
-        # absolute pixel offsets (all cells are equal-sized).
-        scales = ";".join(
-            f"[{i}:v]scale={tile_w}:{tile_h}:force_original_aspect_ratio=decrease,"
-            f"pad={tile_w}:{tile_h}:(ow-iw)/2:(oh-ih)/2,fps={fps},setsar=1[v{i}]"
-            for i in range(n)
-        )
-        refs = "".join(f"[v{i}]" for i in range(n))
-        layout = "|".join(
-            f"{(i % self.cols) * tile_w}_{(i // self.cols) * tile_h}" for i in range(n)
-        )
-        filter_complex = (
-            f"{scales};{refs}xstack=inputs={n}:layout={layout}:fill=black[out]"
-        )
+        # Black base canvas, then scale + overlay each tile at its own position.
+        # Tile order is z-order, so later tiles paint over earlier ones.
+        parts = [f"color=c=black:s={width}x{height}:r={fps}[bg]"]
+        prev = "bg"
+        for i, tile in enumerate(self.tiles):
+            parts.append(f'[{i}:v]scale={tile["w"]}:{tile["h"]},setsar=1[v{i}]')
+            out = f"t{i}"
+            parts.append(f'[{prev}][v{i}]overlay={tile["x"]}:{tile["y"]}[{out}]')
+            prev = out
+        filter_complex = ";".join(parts)
 
         return (
-            f"AV_LOG_FORCE_NOCOLOR=1 ffmpeg -nostdin -loglevel level+{self.args.loglevel} -y "
+            f"AV_LOG_FORCE_NOCOLOR=1 ffmpeg -nostdin "
+            f"-loglevel level+{self.args.loglevel} -y "
             f"{inputs} "
-            f'-filter_complex "{filter_complex}" -map "[out]" '
+            f'-filter_complex "{filter_complex}" -map "[{prev}]" '
             f"-map 0:a? -c:a aac -ar 32000 -ac 1 -b:a 32k "
             f"-c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p "
             f"-g {fps * 2} -f rtsp -rtsp_transport tcp {self.publish_url}"
@@ -135,7 +161,7 @@ class MosaicCam(UnifiCamBase):
         if self.compose_proc and self.compose_proc.poll() is None:
             return
         cmd = self._build_compose_cmd()
-        self.logger.info(f"Spawning mosaic compose: {mask_url(cmd)}")
+        self.logger.info(f"Spawning GridFusion compose: {mask_url(cmd)}")
         self.compose_proc = subprocess.Popen(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True
         )

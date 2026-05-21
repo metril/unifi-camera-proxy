@@ -10,6 +10,17 @@ export interface CameraConfig {
   [key: string]: unknown;
 }
 
+/** A GridFusion tile: an existing camera (source) or a raw RTSP url, placed in
+ *  output-resolution pixel space. */
+export interface GridFusionTile {
+  source?: string; // existing camera id
+  url?: string;    // raw RTSP url
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface CameraStatus {
   id: string;
   config: CameraConfig;

@@ -4,6 +4,16 @@ const BASE = '/api';
 
 const getToken = () => localStorage.getItem('ui_token');
 
+/** Auth-aware snapshot URL for a camera (cache-busted), usable as an <img> src. */
+export function snapshotUrl(cameraId: string, bust?: number): string {
+  const token = getToken();
+  const params = new URLSearchParams();
+  if (bust != null) params.set('_t', String(bust));
+  if (token) params.set('token', token);
+  const qs = params.toString();
+  return `${BASE}/cameras/${cameraId}/snapshot${qs ? `?${qs}` : ''}`;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken();
   const res = await fetch(`${BASE}${path}`, {
@@ -96,6 +106,23 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ url, transport: transport || 'tcp', username, password }),
     }),
+
+  previewFrame: async (url: string, transport?: string, username?: string, password?: string): Promise<Blob> => {
+    const token = getToken();
+    const res = await fetch(`${BASE}/preview-frame`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ url, transport: transport || 'tcp', username, password }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    return res.blob();
+  },
 
   detectFrigateCamera: (url: string, cameraName: string, username?: string | null, password?: string | null, verifySsl?: boolean) =>
     request<{

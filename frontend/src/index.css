@@ -1,7 +1,10 @@
 @import "tailwindcss";
+/* Font faces are imported in main.tsx so Vite bundles the woff2 assets. */
 
 /* shadcn/ui CSS variable definitions for Tailwind v4 */
 @theme inline {
+  --font-sans: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", monospace;
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
   --color-card: hsl(var(--card));
@@ -59,5 +62,39 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv01";
+    /* NVR-console atmosphere: a faint signal grid + a cool top glow, fixed so
+       it reads as a backdrop the panels float over. */
+    background-image:
+      linear-gradient(to bottom, hsl(217 91% 60% / 0.05), transparent 38%),
+      linear-gradient(hsl(216 34% 17% / 0.30) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(216 34% 17% / 0.30) 1px, transparent 1px);
+    background-size: 100% 100%, 44px 44px, 44px 44px;
+    background-attachment: fixed;
   }
+  /* Technical data (MAC, IP, model codes, resolutions, coordinates) reads as
+     monospace — the single strongest "this is real tooling" signal. */
+  .font-data {
+    font-family: var(--font-mono);
+    font-feature-settings: "zero", "ss01";
+    letter-spacing: -0.01em;
+  }
+  /* Uppercase section/eyebrow labels. */
+  .label-eyebrow {
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    font-size: 0.6875rem;
+    font-weight: 500;
+  }
+}
+
+/* Live status pulse for running cameras. */
+@keyframes signal-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+.animate-signal {
+  animation: signal-pulse 1.8s ease-in-out infinite;
 }

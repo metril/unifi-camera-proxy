@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Plus, Grid2x2 } from 'lucide-react';
 import { api } from './api';
 import type { CameraConfig, CameraStatus, CameraTypeSchemas, GlobalConfig } from './types';
-import Layout from './components/Layout';
+import AppShell, { type View } from './components/AppShell';
 import CameraGrid from './components/CameraGrid';
 import CameraForm from './components/CameraForm';
 import GlobalSettings from './components/GlobalSettings';
+import LiveWall from './components/LiveWall';
+import GridFusionEditor from './components/gridfusion/GridFusionEditor';
 import Toast, { type ToastMessage } from './components/Toast';
 import LoginPage from './components/LoginPage';
+import { Button } from '@/components/ui/button';
 
 const DEFAULT_GLOBAL: GlobalConfig = {
   host: '',
@@ -39,21 +43,13 @@ function App() {
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig>(DEFAULT_GLOBAL);
   const [schemas, setSchemas] = useState<CameraTypeSchemas | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
   const [editCamera, setEditCamera] = useState<CameraConfig | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [needsLogin, setNeedsLogin] = useState(false);
-  const [showPreview, setShowPreview] = useState(
-    () => localStorage.getItem('ui_show_preview') === '1'
-  );
-
-  const togglePreview = useCallback(() => {
-    setShowPreview((prev) => {
-      const next = !prev;
-      localStorage.setItem('ui_show_preview', next ? '1' : '0');
-      return next;
-    });
-  }, []);
+  const [loadingCameras, setLoadingCameras] = useState(true);
+  const [view, setView] = useState<View>('cameras');
+  const [showGridFusion, setShowGridFusion] = useState(false);
+  const [editGridFusion, setEditGridFusion] = useState<CameraConfig | null>(null);
 
   const addToast = useCallback((text: string, type: ToastMessage['type'] = 'error') => {
     setToasts((prev) => [...prev, { id: Date.now(), text, type }]);
@@ -89,7 +85,11 @@ function App() {
 
   // Poll camera status
   const fetchCameras = useCallback(() => {
-    api.listCameras().then(setCameras).catch(() => {});
+    api
+      .listCameras()
+      .then(setCameras)
+      .catch(() => {})
+      .finally(() => setLoadingCameras(false));
   }, []);
 
   useEffect(() => {
@@ -149,9 +149,33 @@ function App() {
 
   const handleEdit = (id: string) => {
     const cam = cameras.find((c) => c.id === id);
-    if (cam) {
+    if (!cam) return;
+    if (cam.config.type === 'mosaic') {
+      setEditGridFusion(cam.config);
+      setShowGridFusion(true);
+    } else {
       setEditCamera(cam.config);
       setShowForm(true);
+    }
+  };
+
+  const handleNewGridFusion = () => {
+    setEditGridFusion(null);
+    setShowGridFusion(true);
+  };
+
+  const handleSaveGridFusion = async (config: CameraConfig) => {
+    try {
+      if (config.id) {
+        await api.updateCamera(config.id, config);
+      } else {
+        await api.addCamera(config);
+      }
+      setShowGridFusion(false);
+      setEditGridFusion(null);
+      fetchCameras();
+    } catch (err) {
+      addToast(`Failed to save composition: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   };
 
@@ -174,7 +198,7 @@ function App() {
     try {
       await api.updateGlobal(config);
       setGlobalConfig(config);
-      setShowSettings(false);
+      setView('cameras');
     } catch (err) {
       addToast(`Failed to save settings: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
@@ -215,33 +239,113 @@ function App() {
 
   if (needsLogin) return <LoginPage />;
 
+  const regularCameras = cameras.filter((c) => c.config.type !== 'mosaic');
+  const gridFusionCameras = cameras.filter((c) => c.config.type === 'mosaic');
+
+  const HEADERS: Record<View, { eyebrow: string; title: string; actions?: React.ReactNode }> = {
+    cameras: {
+      eyebrow: 'devices',
+      title: 'Cameras',
+      actions: (
+        <>
+          {cameras.length > 0 && (
+            <>
+              <Button variant="outline" size="sm" className="h-9 text-xs text-emerald-300 border-emerald-600/30 hover:bg-emerald-600/10" onClick={handleStartAll}>
+                Start all
+              </Button>
+              <Button variant="outline" size="sm" className="h-9 text-xs text-red-300 border-red-600/30 hover:bg-red-600/10" onClick={handleStopAll}>
+                Stop all
+              </Button>
+            </>
+          )}
+          <Button size="sm" className="h-9" onClick={handleAddCamera}>
+            <Plus className="w-4 h-4 mr-1.5" /> Add camera
+          </Button>
+        </>
+      ),
+    },
+    gridfusion: {
+      eyebrow: 'matrix composer',
+      title: 'GridFusion',
+      actions: (
+        <Button size="sm" className="h-9" onClick={handleNewGridFusion}>
+          <Grid2x2 className="w-4 h-4 mr-1.5" /> New composition
+        </Button>
+      ),
+    },
+    wall: { eyebrow: 'monitoring', title: 'Live Wall' },
+    settings: { eyebrow: 'configuration', title: 'Settings' },
+  };
+  const h = HEADERS[view];
+
   return (
-    <Layout
-      onOpenSettings={() => setShowSettings(true)}
-      onStartAll={handleStartAll}
-      onStopAll={handleStopAll}
-      onAddCamera={handleAddCamera}
-      cameraCount={cameras.length}
-      runningCount={runningCount}
-      hasOidc={globalConfig.has_oidc ?? false}
-      onLogout={handleLogout}
-      showPreview={showPreview}
-      onTogglePreview={togglePreview}
-    >
-      <CameraGrid
-        cameras={cameras}
-        showPreview={showPreview}
-        onStart={handleStart}
-        onStop={handleStop}
-        onRestart={handleRestart}
-        onEdit={handleEdit}
-        onDelete={handleDelete}
-        onAdd={handleAddCamera}
-      />
+    <>
+      <AppShell
+        view={view}
+        onNavigate={setView}
+        runningCount={runningCount}
+        cameraCount={cameras.length}
+        hasOidc={globalConfig.has_oidc ?? false}
+        onLogout={handleLogout}
+        eyebrow={h.eyebrow}
+        title={h.title}
+        actions={h.actions}
+      >
+        {view === 'cameras' &&
+          (loadingCameras ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="rounded-xl border border-border bg-card/40 overflow-hidden animate-pulse">
+                  <div className="aspect-video bg-muted/40" />
+                  <div className="p-4 space-y-3">
+                    <div className="h-4 w-2/3 bg-muted/40 rounded" />
+                    <div className="h-3 w-1/3 bg-muted/30 rounded" />
+                    <div className="h-8 bg-muted/20 rounded" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <CameraGrid
+              cameras={regularCameras}
+              onStart={handleStart}
+              onStop={handleStop}
+              onRestart={handleRestart}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              onAdd={handleAddCamera}
+            />
+          ))}
+
+        {view === 'gridfusion' && (
+          <CameraGrid
+            cameras={gridFusionCameras}
+            onStart={handleStart}
+            onStop={handleStop}
+            onRestart={handleRestart}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+            onAdd={handleNewGridFusion}
+            addLabel="New composition"
+            emptyTitle="No compositions yet"
+            emptyHint="Combine multiple cameras into one matrix stream"
+            emptyIcon={<Grid2x2 className="w-14 h-14" />}
+          />
+        )}
+
+        {view === 'wall' && <LiveWall cameras={cameras} />}
+
+        {view === 'settings' && (
+          <p className="text-sm text-muted-foreground">Configuration opens in a panel.</p>
+        )}
+      </AppShell>
 
       <CameraForm
         isOpen={showForm}
-        onClose={() => { setShowForm(false); setEditCamera(null); }}
+        onClose={() => {
+          setShowForm(false);
+          setEditCamera(null);
+        }}
         onSave={handleSaveCamera}
         schemas={schemas}
         editCamera={editCamera}
@@ -250,15 +354,26 @@ function App() {
         onSyncName={handleSyncName}
       />
 
+      <GridFusionEditor
+        isOpen={showGridFusion}
+        onClose={() => {
+          setShowGridFusion(false);
+          setEditGridFusion(null);
+        }}
+        onSave={handleSaveGridFusion}
+        cameras={cameras}
+        editCamera={editGridFusion}
+      />
+
       <GlobalSettings
-        isOpen={showSettings}
-        onClose={() => setShowSettings(false)}
+        isOpen={view === 'settings'}
+        onClose={() => setView('cameras')}
         config={globalConfig}
         onSave={handleSaveGlobal}
       />
 
       <Toast messages={toasts} onDismiss={dismissToast} />
-    </Layout>
+    </>
   );
 }
 

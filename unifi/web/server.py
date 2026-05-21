@@ -667,6 +667,60 @@ async def test_rtsp(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
+async def preview_frame(request: web.Request) -> web.Response:
+    """Grab a single JPEG frame from an RTSP URL for GridFusion tile thumbnails.
+
+    Used by the editor for raw-URL tiles; existing cameras use their snapshot
+    endpoint instead. Mirrors test_rtsp's credential handling.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid request body"}, status=400)
+
+    url = body.get("url")
+    transport = body.get("transport", "tcp")
+    if not url:
+        return web.json_response({"error": "RTSP URL is required"}, status=400)
+    url = inject_rtsp_credentials(url, body.get("username"), body.get("password"))
+
+    out_path = Path(tempfile.gettempdir()) / f"gf-preview-{secrets.token_hex(8)}.jpg"
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-rtsp_transport",
+            transport,
+            "-i",
+            url,
+            "-frames:v",
+            "1",
+            "-y",
+            str(out_path),
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+        if proc.returncode != 0 or not out_path.exists():
+            msg = stderr.decode().strip() or "Could not capture a frame"
+            return web.json_response({"error": msg}, status=502)
+        data = out_path.read_bytes()
+        return web.Response(
+            body=data,
+            content_type="image/jpeg",
+            headers={"Cache-Control": "no-cache, no-store"},
+        )
+    except asyncio.TimeoutError:
+        return web.json_response({"error": "Connection timed out"}, status=504)
+    except Exception as e:
+        logger.debug(f"preview-frame failed: {e}")
+        return web.json_response({"error": str(e)}, status=502)
+    finally:
+        out_path.unlink(missing_ok=True)
+
+
 async def generate_cert(request: web.Request) -> web.Response:
     """Generate a UniFi-compatible SSL certificate."""
     manager = get_manager(request)
@@ -775,7 +829,7 @@ async def security_headers_middleware(request: web.Request, handler):
         "img-src 'self' data:; "
         "media-src 'self' blob: data:; "
         "connect-src 'self' wss: ws:; "
-        "font-src 'self'; "
+        "font-src 'self' data:; "
         "frame-ancestors 'none'"
     )
     if request.secure or request.headers.get("X-Forwarded-Proto") == "https":
@@ -1116,6 +1170,7 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_post("/api/fetch-token", fetch_token)
     app.router.add_post("/api/test-mqtt", test_mqtt)
     app.router.add_post("/api/test-rtsp", test_rtsp)
+    app.router.add_post("/api/preview-frame", preview_frame)
     app.router.add_post("/api/test-frigate", test_frigate)
     app.router.add_post("/api/detect-frigate-camera", detect_frigate_camera)
 

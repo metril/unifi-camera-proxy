@@ -71,14 +71,23 @@ it shares the single exposed port and the OIDC auth. WebRTC falls back to MSE
 over that proxied path automatically. For the lowest-latency direct WebRTC,
 optionally expose go2rtc's port `8555` (tcp + udp) in your compose file.
 
-## Mosaic Cameras
+## GridFusion — Multi-Camera Matrix Composer
 
-The `mosaic` camera type tiles multiple RTSP feeds into a single composited
-stream that registers as one UniFi camera (saving Protect camera slots). Add a
-camera of type **mosaic**, list the input URLs, and set the grid
-(`grid-cols` × `grid-rows`) and output resolution. ffmpeg composites the grid
-**once** and publishes it to go2rtc; UniFi Protect and the live preview both
-pull that single stream.
+GridFusion tiles several camera feeds into a single composited stream that
+registers as **one** UniFi camera (saving Protect camera slots). Open the
+**GridFusion** section and click **New composition** to launch the visual
+editor:
+
+* Drag camera tiles anywhere on a canvas and resize them with handles —
+  arbitrary arrangements, not just uniform grids (tiles may overlap).
+* Each tile shows a **live snapshot** so you compose against the real view.
+* Tiles can be existing cameras (pulled once from the shared go2rtc server) or
+  raw RTSP URLs.
+* Pick an output resolution (1080p/1440p/4K or custom) and quick-layout presets.
+
+ffmpeg composites the layout **once** (a `color` base canvas + per-tile
+`scale`/`overlay`) and publishes it to go2rtc; UniFi Protect and the live
+preview both pull that single stream.
 
 ## Two-Way Audio (Talkback)
 

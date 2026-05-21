@@ -482,9 +482,11 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                   onChange={(e) => handleChange('type', e.target.value)}
                   className={SELECT_CLASS}
                 >
-                  {Object.keys(schemas.types).map((t) => (
-                    <option key={t} value={t}>{TYPE_LABELS[t] ?? t}</option>
-                  ))}
+                  {Object.keys(schemas.types)
+                    .filter((t) => t !== 'mosaic')
+                    .map((t) => (
+                      <option key={t} value={t}>{TYPE_LABELS[t] ?? t}</option>
+                    ))}
                 </select>
               </div>
             </div>

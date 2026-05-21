@@ -1,28 +1,43 @@
+import type { ReactNode } from 'react';
+import { Cctv } from 'lucide-react';
 import type { CameraStatus } from '../types';
 import { Button } from '@/components/ui/button';
 import CameraCard from './CameraCard';
 
 interface CameraGridProps {
   cameras: CameraStatus[];
-  showPreview?: boolean;
   onStart: (id: string) => void;
   onStop: (id: string) => void;
   onRestart: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
   onAdd: () => void;
+  emptyTitle?: string;
+  emptyHint?: string;
+  addLabel?: string;
+  emptyIcon?: ReactNode;
 }
 
-export default function CameraGrid({ cameras, showPreview = false, onStart, onStop, onRestart, onEdit, onDelete, onAdd }: CameraGridProps) {
+export default function CameraGrid({
+  cameras,
+  onStart,
+  onStop,
+  onRestart,
+  onEdit,
+  onDelete,
+  onAdd,
+  emptyTitle = 'No cameras configured',
+  emptyHint = 'Add your first camera to get started',
+  addLabel = 'Add Camera',
+  emptyIcon,
+}: CameraGridProps) {
   if (cameras.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
-        <svg className="w-16 h-16 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-        </svg>
-        <p className="text-lg font-medium mb-1 text-foreground">No cameras configured</p>
-        <p className="text-sm mb-5">Add your first camera to get started</p>
-        <Button onClick={onAdd}>Add Camera</Button>
+        <div className="mb-4 opacity-30">{emptyIcon ?? <Cctv className="w-14 h-14" />}</div>
+        <p className="text-lg font-medium mb-1 text-foreground">{emptyTitle}</p>
+        <p className="text-sm mb-5">{emptyHint}</p>
+        <Button onClick={onAdd}>{addLabel}</Button>
       </div>
     );
   }
@@ -33,7 +48,6 @@ export default function CameraGrid({ cameras, showPreview = false, onStart, onSt
         <CameraCard
           key={camera.id}
           camera={camera}
-          showPreview={showPreview}
           onStart={onStart}
           onStop={onStop}
           onRestart={onRestart}
