@@ -1,11 +1,13 @@
 """Tests for the go2rtc live-preview, mosaic composer, and talkback features."""
 
-import argparse
-import json
-
-from unifi.cams.mosaic import MosaicCam
 from unifi.web.config import config_to_args, get_camera_type_schemas
-from unifi.web.go2rtc import RTSP_BASE, resolve_stream_source
+from unifi.web.go2rtc import (
+    RTSP_BASE,
+    Go2rtcManager,
+    build_mosaic_exec,
+    resolve_mosaic_tiles,
+    resolve_stream_source,
+)
 
 
 class TestResolveStreamSource:
@@ -50,91 +52,111 @@ class TestResolveStreamSource:
         assert resolve_stream_source({}, {"type": "rtsp"}) is None
 
 
-class TestMosaicComposeCommand:
-    def _cam(self, tiles):
-        cam = object.__new__(MosaicCam)
-        cam.tiles = tiles
-        cam.publish_url = "rtsp://127.0.0.1:8554/cam1"
-        cam.args = argparse.Namespace(
-            rtsp_transport="tcp",
-            loglevel="error",
-            output_width=1920,
-            output_height=1080,
-            tile_fps=10,
-        )
-        return cam
-
-    def test_free_positioning_overlay_chain(self):
-        tiles = [
-            {"url": "rtsp://a/s", "x": 0, "y": 0, "w": 960, "h": 1080},
-            {"url": "rtsp://b/s", "x": 960, "y": 0, "w": 960, "h": 540},
-        ]
-        cmd = self._cam(tiles)._build_compose_cmd()
-        # Black base canvas at the output resolution.
-        assert "color=c=black:s=1920x1080:r=10[bg]" in cmd
-        # Each tile scaled to its own size and overlaid at its own position.
-        assert "[0:v]scale=960:1080,setsar=1[v0]" in cmd
-        assert "[bg][v0]overlay=0:0[t0]" in cmd
-        assert "[1:v]scale=960:540,setsar=1[v1]" in cmd
-        assert "[t0][v1]overlay=960:0[t1]" in cmd
-        # Final composited node is mapped out; no uniform xstack.
-        assert '-map "[t1]"' in cmd
-        assert "xstack" not in cmd
-
-    def test_publishes_to_go2rtc_over_rtsp(self):
-        cam = self._cam([{"url": "rtsp://a/s", "x": 0, "y": 0, "w": 100, "h": 100}])
-        cmd = cam._build_compose_cmd()
-        assert "-f rtsp -rtsp_transport tcp rtsp://127.0.0.1:8554/cam1" in cmd
-
-    def test_one_input_per_tile(self):
-        tiles = [
-            {"url": "rtsp://a/s", "x": 0, "y": 0, "w": 10, "h": 10},
-            {"url": "rtsp://b/s", "x": 10, "y": 0, "w": 10, "h": 10},
-            {"url": "rtsp://c/s", "x": 0, "y": 10, "w": 10, "h": 10},
-        ]
-        cmd = self._cam(tiles)._build_compose_cmd()
-        assert cmd.count("-i ") == 3
-
-
-class TestMosaicLegacyShim:
-    def test_input_urls_become_uniform_grid_tiles(self):
-        args = argparse.Namespace(
-            tiles=None,
-            input_urls=["rtsp://a/s", "rtsp://b/s", "rtsp://c/s"],
-            grid_cols=2,
-            output_width=1920,
-            output_height=1080,
-        )
-        tiles = MosaicCam._load_tiles(MosaicCam, args)
-        # 3 urls in 2 cols -> 2 rows; cells 960x540.
-        assert len(tiles) == 3
-        assert tiles[0] == {"url": "rtsp://a/s", "x": 0, "y": 0, "w": 960, "h": 540}
-        assert tiles[1] == {"url": "rtsp://b/s", "x": 960, "y": 0, "w": 960, "h": 540}
-        assert tiles[2] == {"url": "rtsp://c/s", "x": 0, "y": 540, "w": 960, "h": 540}
-
-
-class TestMosaicConfigToArgs:
-    def test_tiles_resolved_to_concrete_urls_and_stream_name(self):
-        args = config_to_args(
-            {"host": "h", "rtsp_username": "u", "rtsp_password": "p"},
+class TestResolveMosaicTiles:
+    def test_source_pulls_go2rtc_and_url_gets_creds(self):
+        tiles = resolve_mosaic_tiles(
+            {"rtsp_username": "u", "rtsp_password": "p"},
             {
-                "id": "abc123",
                 "type": "mosaic",
-                "name": "Wall",
-                "mac": "AA:BB",
                 "tiles": [
                     {"source": "cam002", "x": 0, "y": 0, "w": 960, "h": 1080},
                     {"url": "rtsp://cam3/s", "x": 960, "y": 0, "w": 960, "h": 1080},
                 ],
             },
         )
-        assert args[args.index("--stream-name") + 1] == "abc123"
-        tiles = json.loads(args[args.index("--tiles") + 1])
-        # Existing-camera tile pulls from go2rtc; raw URL gets creds injected.
         assert tiles[0]["url"] == f"{RTSP_BASE}/cam002"
-        assert tiles[0]["w"] == 960 and tiles[0]["x"] == 0
+        assert tiles[0]["x"] == 0 and tiles[0]["w"] == 960
         assert tiles[1]["url"] == "rtsp://u:p@cam3/s"
         assert tiles[1]["x"] == 960
+
+    def test_zero_size_tiles_dropped(self):
+        tiles = resolve_mosaic_tiles(
+            {},
+            {
+                "type": "mosaic",
+                "tiles": [
+                    {"source": "a", "x": 0, "y": 0, "w": 0, "h": 100},
+                    {"source": "b", "x": 0, "y": 0, "w": 100, "h": 100},
+                ],
+            },
+        )
+        assert len(tiles) == 1
+        assert tiles[0]["url"] == f"{RTSP_BASE}/b"
+
+    def test_legacy_input_urls_uniform_grid(self):
+        tiles = resolve_mosaic_tiles(
+            {},
+            {
+                "type": "mosaic",
+                "input_urls": ["rtsp://a/s", "rtsp://b/s", "rtsp://c/s"],
+                "grid_cols": 2,
+                "output_width": 1920,
+                "output_height": 1080,
+            },
+        )
+        assert len(tiles) == 3
+        assert tiles[0] == {"url": "rtsp://a/s", "x": 0, "y": 0, "w": 960, "h": 540}
+        assert tiles[2] == {"url": "rtsp://c/s", "x": 0, "y": 540, "w": 960, "h": 540}
+
+
+class TestBuildMosaicExec:
+    def test_exec_overlay_chain(self):
+        tiles = [
+            {"url": "rtsp://a/s", "x": 0, "y": 0, "w": 960, "h": 1080},
+            {"url": "rtsp://b/s", "x": 960, "y": 0, "w": 960, "h": 540},
+        ]
+        src = build_mosaic_exec(tiles, 1920, 1080, 10)
+        assert src.startswith("exec:ffmpeg ")
+        assert "color=c=black:s=1920x1080:r=10[bg]" in src
+        assert "[0:v]scale=960:1080,setsar=1[v0]" in src
+        assert "[bg][v0]overlay=0:0[t0]" in src
+        assert "[t0][v1]overlay=960:0[t1]" in src
+        assert '-map "[t1]"' in src
+        # go2rtc substitutes {output}; we publish RTSP to it. No uniform xstack.
+        assert "-f rtsp {output}" in src
+        assert "xstack" not in src
+        assert src.count("-i ") == 2
+
+
+class TestBuildStreams:
+    def test_regular_pull_and_mosaic_exec(self):
+        mgr = object.__new__(Go2rtcManager)
+        config = {
+            "global": {},
+            "cameras": [
+                {
+                    "id": "cam001",
+                    "type": "rtsp",
+                    "video1": "rtsp://h/hi",
+                    "video2": "rtsp://h/lo",
+                },
+                {
+                    "id": "wall1",
+                    "type": "mosaic",
+                    "output_width": 1920,
+                    "output_height": 1080,
+                    "tiles": [{"source": "cam001", "x": 0, "y": 0, "w": 960, "h": 540}],
+                },
+            ],
+        }
+        streams = mgr._build_streams(config)
+        # Regular camera = pull source (medium tier).
+        assert streams["cam001"] == "rtsp://h/lo"
+        # Mosaic = exec compositing source (go2rtc only accepts exec from config).
+        assert streams["wall1"].startswith("exec:ffmpeg ")
+        assert f"{RTSP_BASE}/cam001" in streams["wall1"]
+        assert "-f rtsp {output}" in streams["wall1"]
+
+
+class TestMosaicConfigToArgs:
+    def test_stream_name_is_camera_id(self):
+        args = config_to_args(
+            {"host": "h"},
+            {"id": "abc123", "type": "mosaic", "name": "Wall", "mac": "AA:BB"},
+        )
+        assert args[args.index("--stream-name") + 1] == "abc123"
+        # Compositing is owned by go2rtc now; no --tiles passed to the process.
+        assert "--tiles" not in args
 
 
 class TestTalkbackSchema:

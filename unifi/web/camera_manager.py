@@ -93,20 +93,19 @@ class CameraManager:
             self.instances[cam_id] = CameraInstance(id=cam_id, config=cam_config)
 
     async def start_streaming_server(self) -> None:
-        """Start go2rtc and register a preview stream for each camera."""
-        await self.go2rtc.start()
-        await self.go2rtc.sync_streams(self.config)
+        """Start go2rtc with all camera + mosaic streams baked into its config."""
+        await self.go2rtc.start(self.config)
 
     async def stop_streaming_server(self) -> None:
         await self.go2rtc.stop()
 
     def _schedule_go2rtc_sync(self) -> None:
-        """Re-register go2rtc preview streams after a config change (fire-and-forget)."""
+        """Rewrite go2rtc config + restart after a config change (fire-and-forget)."""
         try:
             asyncio.get_running_loop()
         except RuntimeError:
             return
-        asyncio.create_task(self.go2rtc.sync_streams(self.config))
+        asyncio.create_task(self.go2rtc.apply_config(self.config))
 
     def reload_config(self):
         self.config = load_config(self.config_path)
@@ -671,7 +670,7 @@ class CameraManager:
         ]
         save_config(self.config_path, self.config)
         self.instances.pop(camera_id, None)
-        asyncio.create_task(self.go2rtc.unregister_stream(camera_id))
+        self._schedule_go2rtc_sync()
 
     @property
     def oidc_provider(self) -> OIDCProvider | None:

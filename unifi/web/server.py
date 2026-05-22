@@ -1031,6 +1031,10 @@ async def go2rtc_proxy(request: web.Request) -> web.StreamResponse:
     """
     from unifi.web.go2rtc import API_BASE
 
+    # One shared upstream session (created on startup) — a wall of HLS/MSE tiles
+    # must not each spin up their own ClientSession + connection pool.
+    session: aiohttp_client.ClientSession = request.app["go2rtc_session"]
+
     tail = request.match_info.get("path", "")
     target = f"{API_BASE}/{tail}"
     if request.query_string:
@@ -1040,7 +1044,6 @@ async def go2rtc_proxy(request: web.Request) -> web.StreamResponse:
     if request.headers.get("Upgrade", "").lower() == "websocket":
         client_ws = web.WebSocketResponse()
         await client_ws.prepare(request)
-        session = aiohttp_client.ClientSession()
         try:
             async with session.ws_connect(target) as upstream_ws:
 
@@ -1068,35 +1071,33 @@ async def go2rtc_proxy(request: web.Request) -> web.StreamResponse:
         except Exception as e:
             logger.debug(f"go2rtc ws proxy error: {e}")
         finally:
-            await session.close()
             if not client_ws.closed:
                 await client_ws.close()
         return client_ws
 
-    # Plain HTTP proxy (streamed)
+    # Plain HTTP proxy (streamed) — HLS playlists + segments flow through here.
     req_headers = {
         k: v for k, v in request.headers.items() if k.lower() not in _HOP_BY_HOP
     }
     body = await request.read()
     try:
-        async with aiohttp_client.ClientSession() as session:
-            async with session.request(
-                request.method,
-                target,
-                headers=req_headers,
-                data=body if body else None,
-                allow_redirects=False,
-                timeout=aiohttp_client.ClientTimeout(total=None, sock_read=60),
-            ) as upstream:
-                resp = web.StreamResponse(status=upstream.status)
-                for k, v in upstream.headers.items():
-                    if k.lower() not in _HOP_BY_HOP and k.lower() != "content-length":
-                        resp.headers[k] = v
-                await resp.prepare(request)
-                async for chunk in upstream.content.iter_chunked(8192):
-                    await resp.write(chunk)
-                await resp.write_eof()
-                return resp
+        async with session.request(
+            request.method,
+            target,
+            headers=req_headers,
+            data=body if body else None,
+            allow_redirects=False,
+            timeout=aiohttp_client.ClientTimeout(total=None, sock_read=60),
+        ) as upstream:
+            resp = web.StreamResponse(status=upstream.status)
+            for k, v in upstream.headers.items():
+                if k.lower() not in _HOP_BY_HOP and k.lower() != "content-length":
+                    resp.headers[k] = v
+            await resp.prepare(request)
+            async for chunk in upstream.content.iter_chunked(8192):
+                await resp.write(chunk)
+            await resp.write_eof()
+            return resp
     except Exception as e:
         logger.debug(f"go2rtc http proxy error: {e}")
         return web.json_response({"error": "go2rtc unavailable"}, status=502)
@@ -1107,6 +1108,7 @@ async def go2rtc_proxy(request: web.Request) -> web.StreamResponse:
 
 async def on_startup(app: web.Application) -> None:
     manager: CameraManager = app["manager"]
+    app["go2rtc_session"] = aiohttp_client.ClientSession()
     logger.info("Starting go2rtc streaming server...")
     await manager.start_streaming_server()
     logger.info("Starting all enabled cameras...")
@@ -1119,6 +1121,9 @@ async def on_shutdown(app: web.Application) -> None:
     await manager.stop_all()
     logger.info("Stopping go2rtc streaming server...")
     await manager.stop_streaming_server()
+    session = app.get("go2rtc_session")
+    if session:
+        await session.close()
 
 
 def create_app(config_path: str) -> web.Application:

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { MonitorPlay } from 'lucide-react';
 import type { CameraStatus } from '../types';
-import CameraVideo from './CameraVideo';
+import HlsPlayer from './HlsPlayer';
 import { Button } from '@/components/ui/button';
 
 const COLS = [1, 2, 3, 4];
@@ -42,7 +42,7 @@ export default function LiveWall({ cameras }: { cameras: CameraStatus[] }) {
             key={c.id}
             className="relative aspect-video bg-black rounded-lg overflow-hidden border border-border ring-1 ring-primary/10"
           >
-            <CameraVideo cameraId={c.id} className="w-full h-full" />
+            <HlsPlayer cameraId={c.id} className="w-full h-full object-cover" />
             <div className="absolute bottom-0 inset-x-0 px-3 py-1.5 bg-gradient-to-t from-black/80 to-transparent pointer-events-none">
               <div className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-signal" />

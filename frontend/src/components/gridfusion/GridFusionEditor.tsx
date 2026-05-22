@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Rnd } from 'react-rnd';
-import { Plus, Trash2, Link2, Cctv, Save, Shuffle, X } from 'lucide-react';
+import { Plus, Link2, Cctv, Save, Shuffle, X } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +27,8 @@ const RES_PRESETS = [
   { label: '4K', w: 3840, h: 2160 },
 ];
 
+const MIN_TILE = 80; // minimum tile size in output pixels
+
 function genMac(): string {
   const hex = () => Math.floor(Math.random() * 256).toString(16).padStart(2, '0').toUpperCase();
   return `AABBCC${hex()}${hex()}${hex()}`;
@@ -34,6 +36,8 @@ function genMac(): string {
 
 let keySeq = 0;
 const nextKey = () => `t${Date.now()}_${keySeq++}`;
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 
 export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, editCamera }: GridFusionEditorProps) {
   const [name, setName] = useState('');
@@ -44,13 +48,11 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
   const [selected, setSelected] = useState<string | null>(null);
   const [urlDraft, setUrlDraft] = useState('');
 
-  const stageRef = useRef<HTMLDivElement>(null);
-  const [stageW, setStageW] = useState(0);
+  const fitRef = useRef<HTMLDivElement>(null);
+  const [fitW, setFitW] = useState(0);
   const seededRef = useRef(false);
 
-  // Seed once per open from an existing GridFusion camera (or reset for a new
-  // one). Guarded so the parent's 3s camera poll re-rendering doesn't wipe an
-  // in-progress layout.
+  // Seed once per open; guarded so the parent's 3s poll can't wipe the layout.
   useEffect(() => {
     if (!isOpen) {
       seededRef.current = false;
@@ -63,14 +65,15 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
       setMac(editCamera.mac || genMac());
       setOutW((editCamera.output_width as number) || 1920);
       setOutH((editCamera.output_height as number) || 1080);
-      const seed = ((editCamera.tiles as GridFusionTile[]) || []).map((t) => ({
-        ...t,
-        key: nextKey(),
-        label: t.source
-          ? cameras.find((c) => c.id === t.source)?.config.name || t.source
-          : t.url || 'stream',
-      }));
-      setTiles(seed);
+      setTiles(
+        ((editCamera.tiles as GridFusionTile[]) || []).map((t) => ({
+          ...t,
+          key: nextKey(),
+          label: t.source
+            ? cameras.find((c) => c.id === t.source)?.config.name || t.source
+            : t.url || 'stream',
+        })),
+      );
     } else {
       setName('');
       setMac(genMac());
@@ -82,17 +85,26 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
     setUrlDraft('');
   }, [isOpen, editCamera, cameras]);
 
+  // Measure the fit container. Re-measure on resize AND on the next frame after
+  // open (the dialog animates in, so the first synchronous read can be stale).
   useLayoutEffect(() => {
     if (!isOpen) return;
-    const el = stageRef.current;
+    const el = fitRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setStageW(el.clientWidth));
+    const measure = () => setFitW(el.clientWidth);
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
-    setStageW(el.clientWidth);
-    return () => ro.disconnect();
+    measure();
+    const raf = requestAnimationFrame(measure);
+    return () => {
+      ro.disconnect();
+      cancelAnimationFrame(raf);
+    };
   }, [isOpen]);
 
-  const scale = stageW > 0 ? stageW / outW : 0;
+  // Visual scale: fit the output-pixel stage into the measured width.
+  const scale = fitW > 0 ? fitW / outW : 0.4;
+  const scaledH = outH * scale;
 
   const update = (key: string, patch: Partial<EditorTile>) =>
     setTiles((prev) => prev.map((t) => (t.key === key ? { ...t, ...patch } : t)));
@@ -102,10 +114,9 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
       const n = prev.length;
       const w = Math.round(outW / 2);
       const h = Math.round(outH / 2);
-      const x = Math.min(Math.round((n % 3) * (outW / 6)), outW - w);
-      const y = Math.min(Math.round((n % 3) * (outH / 6)), outH - h);
-      const tile: EditorTile = { ...partial, key: nextKey(), x, y, w, h };
-      return [...prev, tile];
+      const x = clamp(Math.round((n % 3) * (outW / 6)), 0, outW - w);
+      const y = clamp(Math.round((n % 3) * (outH / 6)), 0, outH - h);
+      return [...prev, { ...partial, key: nextKey(), x, y, w, h }];
     });
   };
 
@@ -121,7 +132,6 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
     if (selected === key) setSelected(null);
   };
 
-  // Arrange the current tiles into a uniform cols×rows grid.
   const applyGrid = (cols: number, rows: number) => {
     const tw = Math.floor(outW / cols);
     const th = Math.floor(outH / rows);
@@ -137,7 +147,6 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
   };
 
   const setResolution = (w: number, h: number) => {
-    // Rescale existing tile geometry so the layout is preserved.
     const sx = w / outW;
     const sy = h / outH;
     setTiles((prev) =>
@@ -153,11 +162,11 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
     setOutH(h);
   };
 
-  const canSave = name.trim() && mac.trim() && tiles.length > 0;
+  const canSave = !!name.trim() && !!mac.trim() && tiles.length > 0;
 
   const handleSave = () => {
     if (!canSave) return;
-    const config: CameraConfig = {
+    onSave({
       id: editCamera?.id || '',
       enabled: editCamera?.enabled ?? true,
       name: name.trim(),
@@ -169,11 +178,11 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
       output_width: outW,
       output_height: outH,
       tiles: tiles.map(({ source, url, x, y, w, h }) => ({ source, url, x, y, w, h })),
-    };
-    onSave(config);
+    });
   };
 
   const usedCameraIds = new Set(tiles.map((t) => t.source).filter(Boolean));
+  const selectedTile = tiles.find((t) => t.key === selected) || null;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -182,33 +191,22 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
         onInteractOutside={(e) => e.preventDefault()}
       >
         <DialogTitle className="sr-only">GridFusion composition editor</DialogTitle>
+
         {/* Header */}
         <div className="h-16 shrink-0 flex items-center gap-4 px-5 border-b border-border">
           <div className="flex items-center gap-2 text-primary">
             <Cctv className="w-5 h-5" />
             <span className="label-eyebrow">GridFusion</span>
           </div>
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Composition name"
-            className="max-w-xs h-9"
-          />
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Composition name" className="max-w-xs h-9" />
           <div className="flex items-center gap-1.5">
-            <Input
-              value={mac}
-              onChange={(e) => setMac(e.target.value)}
-              placeholder="MAC"
-              className="w-44 h-9 font-data text-xs"
-            />
+            <Input value={mac} onChange={(e) => setMac(e.target.value)} placeholder="MAC" className="w-44 h-9 font-data text-xs" />
             <Button variant="outline" size="sm" className="h-9" onClick={() => setMac(genMac())} title="Randomize MAC">
               <Shuffle className="w-3.5 h-3.5" />
             </Button>
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="ghost" size="sm" className="h-9" onClick={onClose}>
-              Cancel
-            </Button>
+            <Button variant="ghost" size="sm" className="h-9" onClick={onClose}>Cancel</Button>
             <Button size="sm" className="h-9" disabled={!canSave} onClick={handleSave}>
               <Save className="w-4 h-4 mr-1.5" /> Save composition
             </Button>
@@ -261,71 +259,75 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
           {/* Canvas */}
           <div className="flex-1 min-w-0 flex items-center justify-center p-6 bg-[radial-gradient(circle_at_center,hsl(216_34%_17%/0.4),transparent_70%)]">
             <div className="w-full max-w-5xl">
-              <div
-                ref={stageRef}
-                className="relative w-full bg-black/60 border border-border rounded-lg overflow-hidden shadow-2xl ring-1 ring-primary/10"
-                style={{ aspectRatio: `${outW} / ${outH}` }}
-                onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}
-              >
-                {/* placement grid guides */}
+              {/* Fit container clips the scaled stage's layout box (transform
+                  shrinks it visually but not its 1920px layout footprint). */}
+              <div ref={fitRef} className="relative w-full overflow-hidden" style={{ height: scaledH || 360 }}>
+                {/* Stage at true output pixels, visually scaled via CSS transform. */}
                 <div
-                  className="absolute inset-0 pointer-events-none opacity-[0.12]"
-                  style={{
-                    backgroundImage:
-                      'linear-gradient(hsl(217 91% 60%) 1px, transparent 1px), linear-gradient(90deg, hsl(217 91% 60%) 1px, transparent 1px)',
-                    backgroundSize: `${(scale * outW) / 8}px ${(scale * outH) / 8}px`,
-                  }}
-                />
-                {tiles.length === 0 && (
-                  <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
-                    Add cameras from the left to build your matrix
-                  </div>
-                )}
-                {scale > 0 &&
-                  tiles.map((tile) => (
+                  className="absolute top-0 left-0 bg-black/60 border border-border rounded-lg overflow-hidden shadow-2xl ring-1 ring-primary/10"
+                  style={{ width: outW, height: outH, transform: `scale(${scale})`, transformOrigin: 'top left' }}
+                  onMouseDown={(e) => e.target === e.currentTarget && setSelected(null)}
+                >
+                  <div
+                    className="absolute inset-0 pointer-events-none opacity-[0.12]"
+                    style={{
+                      backgroundImage:
+                        'linear-gradient(hsl(217 91% 60%) 1px, transparent 1px), linear-gradient(90deg, hsl(217 91% 60%) 1px, transparent 1px)',
+                      backgroundSize: `${outW / 8}px ${outH / 8}px`,
+                    }}
+                  />
+                  {tiles.length === 0 && (
+                    <div
+                      className="absolute inset-0 flex items-center justify-center text-muted-foreground"
+                      style={{ fontSize: `${Math.round(15 / scale)}px` }}
+                    >
+                      Add cameras from the left to build your matrix
+                    </div>
+                  )}
+                  {tiles.map((tile) => (
                     <Rnd
                       key={tile.key}
+                      scale={scale}
                       bounds="parent"
-                      size={{ width: tile.w * scale, height: tile.h * scale }}
-                      position={{ x: tile.x * scale, y: tile.y * scale }}
+                      minWidth={MIN_TILE}
+                      minHeight={MIN_TILE}
+                      size={{ width: tile.w, height: tile.h }}
+                      position={{ x: tile.x, y: tile.y }}
                       onDragStart={() => setSelected(tile.key)}
                       onDragStop={(_e, d) =>
-                        update(tile.key, { x: Math.round(d.x / scale), y: Math.round(d.y / scale) })
+                        update(tile.key, {
+                          x: clamp(Math.round(d.x), 0, outW - tile.w),
+                          y: clamp(Math.round(d.y), 0, outH - tile.h),
+                        })
                       }
                       onResizeStart={() => setSelected(tile.key)}
                       onResizeStop={(_e, _dir, ref, _delta, pos) =>
                         update(tile.key, {
-                          w: Math.round(ref.offsetWidth / scale),
-                          h: Math.round(ref.offsetHeight / scale),
-                          x: Math.round(pos.x / scale),
-                          y: Math.round(pos.y / scale),
+                          w: Math.max(MIN_TILE, Math.round(ref.offsetWidth)),
+                          h: Math.max(MIN_TILE, Math.round(ref.offsetHeight)),
+                          x: Math.round(pos.x),
+                          y: Math.round(pos.y),
                         })
                       }
-                      className={`group ${selected === tile.key ? 'z-20 ring-2 ring-primary' : 'z-10 ring-1 ring-white/15'}`}
+                      className={selected === tile.key ? 'z-20' : 'z-10'}
                     >
-                      <div className="relative w-full h-full" onMouseDown={() => setSelected(tile.key)}>
+                      <div
+                        className={`relative w-full h-full ${selected === tile.key ? 'ring-4 ring-primary' : 'ring-2 ring-white/20'}`}
+                        onMouseDown={() => setSelected(tile.key)}
+                      >
                         <TilePreview tile={tile} />
-                        <div className="absolute top-1 left-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <span className="px-1.5 py-0.5 rounded bg-black/70 text-[10px] text-white truncate max-w-[70%]">
-                            {tile.label}
-                          </span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeTile(tile.key);
-                            }}
-                            className="ml-auto p-1 rounded bg-black/70 text-white hover:bg-destructive"
-                            title="Remove tile"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                        {/* Label baked into the tile (scales with the canvas);
+                            remove + precise coords live in the settings rail. */}
+                        <div
+                          className="absolute left-2 bottom-2 px-2 py-1 rounded bg-black/70 text-white truncate max-w-[90%]"
+                          style={{ fontSize: `${Math.round(13 / scale)}px` }}
+                        >
+                          {tile.label}
                         </div>
-                        <span className="absolute bottom-1 left-1 px-1 py-0.5 rounded bg-black/70 text-[9px] font-data text-white/80 opacity-0 group-hover:opacity-100 transition-opacity">
-                          {tile.w}×{tile.h} @ {tile.x},{tile.y}
-                        </span>
                       </div>
                     </Rnd>
                   ))}
+                </div>
               </div>
               <p className="mt-3 text-center text-xs text-muted-foreground font-data">
                 output {outW}×{outH} · {tiles.length} tile{tiles.length === 1 ? '' : 's'} · drag to move, handles to resize
@@ -351,79 +353,54 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
                 ))}
               </div>
               <div className="flex items-center gap-1.5">
-                <Input
-                  type="number"
-                  value={outW}
-                  onChange={(e) => setOutW(Math.max(160, Number(e.target.value) || 0))}
-                  className="h-8 text-xs font-data"
-                />
+                <Input type="number" value={outW} onChange={(e) => setOutW(Math.max(160, Number(e.target.value) || 0))} className="h-8 text-xs font-data" />
                 <span className="text-muted-foreground text-xs">×</span>
-                <Input
-                  type="number"
-                  value={outH}
-                  onChange={(e) => setOutH(Math.max(120, Number(e.target.value) || 0))}
-                  className="h-8 text-xs font-data"
-                />
+                <Input type="number" value={outH} onChange={(e) => setOutH(Math.max(120, Number(e.target.value) || 0))} className="h-8 text-xs font-data" />
               </div>
             </div>
 
             <div className="space-y-2">
               <Label className="label-eyebrow text-muted-foreground">Quick layouts</Label>
               <div className="grid grid-cols-2 gap-1.5">
-                {([
-                  ['2 × 2', 2, 2],
-                  ['3 × 3', 3, 3],
-                  ['2 × 1', 2, 1],
-                  ['1 × 3', 1, 3],
-                ] as const).map(([label, c, r]) => (
-                  <Button
-                    key={label}
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs"
-                    disabled={tiles.length === 0}
-                    onClick={() => applyGrid(c, r)}
-                  >
+                {([['2 × 2', 2, 2], ['3 × 3', 3, 3], ['2 × 1', 2, 1], ['1 × 3', 1, 3]] as const).map(([label, c, r]) => (
+                  <Button key={label} variant="outline" size="sm" className="h-8 text-xs" disabled={tiles.length === 0} onClick={() => applyGrid(c, r)}>
                     {label}
                   </Button>
                 ))}
               </div>
-              <p className="text-[11px] text-muted-foreground leading-snug">
-                Arranges current tiles into an even grid. Then nudge any tile freely.
-              </p>
+              <p className="text-[11px] text-muted-foreground leading-snug">Arranges current tiles into an even grid. Then nudge any tile freely.</p>
             </div>
 
-            {selected && (() => {
-              const t = tiles.find((x) => x.key === selected);
-              if (!t) return null;
-              return (
-                <div className="space-y-2">
-                  <Label className="label-eyebrow text-muted-foreground">Selected tile</Label>
-                  <div className="text-sm truncate">{t.label}</div>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {(['x', 'y', 'w', 'h'] as const).map((dim) => (
-                      <label key={dim} className="flex items-center gap-1.5">
-                        <span className="w-3 text-xs text-muted-foreground font-data uppercase">{dim}</span>
-                        <Input
-                          type="number"
-                          value={t[dim]}
-                          onChange={(e) => update(t.key, { [dim]: Math.max(0, Number(e.target.value) || 0) })}
-                          className="h-8 text-xs font-data"
-                        />
-                      </label>
-                    ))}
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-8 text-xs w-full text-red-400 border-red-600/30 hover:bg-red-600/10"
-                    onClick={() => removeTile(t.key)}
-                  >
-                    <X className="w-3.5 h-3.5 mr-1" /> Remove tile
-                  </Button>
+            {selectedTile && (
+              <div className="space-y-2">
+                <Label className="label-eyebrow text-muted-foreground">Selected tile</Label>
+                <div className="text-sm truncate">{selectedTile.label}</div>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(['x', 'y', 'w', 'h'] as const).map((dim) => (
+                    <label key={dim} className="flex items-center gap-1.5">
+                      <span className="w-3 text-xs text-muted-foreground font-data uppercase">{dim}</span>
+                      <Input
+                        type="number"
+                        value={selectedTile[dim]}
+                        onChange={(e) => {
+                          const n = Math.max(dim === 'w' || dim === 'h' ? MIN_TILE : 0, Number(e.target.value) || 0);
+                          update(selectedTile.key, { [dim]: n });
+                        }}
+                        className="h-8 text-xs font-data"
+                      />
+                    </label>
+                  ))}
                 </div>
-              );
-            })()}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 text-xs w-full text-red-400 border-red-600/30 hover:bg-red-600/10"
+                  onClick={() => removeTile(selectedTile.key)}
+                >
+                  <X className="w-3.5 h-3.5 mr-1" /> Remove tile
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </DialogContent>

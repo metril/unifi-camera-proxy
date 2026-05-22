@@ -5,7 +5,7 @@ import type { CameraConfig, CameraStatus, CameraTypeSchemas, GlobalConfig } from
 import AppShell, { type View } from './components/AppShell';
 import CameraGrid from './components/CameraGrid';
 import CameraForm from './components/CameraForm';
-import GlobalSettings from './components/GlobalSettings';
+import SettingsPage from './components/SettingsPage';
 import LiveWall from './components/LiveWall';
 import GridFusionEditor from './components/gridfusion/GridFusionEditor';
 import Toast, { type ToastMessage } from './components/Toast';
@@ -198,7 +198,7 @@ function App() {
     try {
       await api.updateGlobal(config);
       setGlobalConfig(config);
-      setView('cameras');
+      addToast('Settings saved', 'success');
     } catch (err) {
       addToast(`Failed to save settings: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
@@ -335,9 +335,7 @@ function App() {
 
         {view === 'wall' && <LiveWall cameras={cameras} />}
 
-        {view === 'settings' && (
-          <p className="text-sm text-muted-foreground">Configuration opens in a panel.</p>
-        )}
+        {view === 'settings' && <SettingsPage config={globalConfig} onSave={handleSaveGlobal} />}
       </AppShell>
 
       <CameraForm
@@ -363,13 +361,6 @@ function App() {
         onSave={handleSaveGridFusion}
         cameras={cameras}
         editCamera={editGridFusion}
-      />
-
-      <GlobalSettings
-        isOpen={view === 'settings'}
-        onClose={() => setView('cameras')}
-        config={globalConfig}
-        onSave={handleSaveGlobal}
       />
 
       <Toast messages={toasts} onDismiss={dismissToast} />

@@ -59,17 +59,17 @@ No environment variables are used for OIDC — credentials are stored in `data/c
 * Redirect URI: `https://your-host/api/auth/callback`
 * Scopes: `openid`, `profile`, `email`
 
-## Live Preview
+## Live Wall
 
 A bundled [go2rtc](https://github.com/AlexxIT/go2rtc) server runs inside the
-container and provides real-time video for every camera type. Toggle
-**Show live preview** above the camera grid to embed a player in each running
-camera's card (WebRTC with automatic MSE/HLS/MJPEG fallback).
+container and serves every camera as HLS. The **Live Wall** section plays all
+running cameras in a grid via [hls.js](https://github.com/video-dev/hls.js) —
+plain HTTP segments that scale to many tiles and pass cleanly through the
+reverse proxy. Camera cards on the **Cameras** page show auto-refreshing
+snapshot thumbnails.
 
-Preview traffic is reverse-proxied through the web server under `/go2rtc/*`, so
-it shares the single exposed port and the OIDC auth. WebRTC falls back to MSE
-over that proxied path automatically. For the lowest-latency direct WebRTC,
-optionally expose go2rtc's port `8555` (tcp + udp) in your compose file.
+All streaming is reverse-proxied through the web server under `/go2rtc/*`, so it
+shares the single exposed port and the OIDC auth.
 
 ## GridFusion — Multi-Camera Matrix Composer
 
@@ -85,9 +85,9 @@ editor:
   raw RTSP URLs.
 * Pick an output resolution (1080p/1440p/4K or custom) and quick-layout presets.
 
-ffmpeg composites the layout **once** (a `color` base canvas + per-tile
-`scale`/`overlay`) and publishes it to go2rtc; UniFi Protect and the live
-preview both pull that single stream.
+go2rtc composites the layout **once** via an ffmpeg `exec:` stream (a `color`
+base canvas + per-tile `scale`/`overlay`) and serves it; UniFi Protect and the
+Live Wall both pull that single composed stream.
 
 ## Two-Way Audio (Talkback)
 

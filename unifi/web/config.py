@@ -242,47 +242,6 @@ def inject_rtsp_credentials(
     return f"{scheme}://{encoded_user}:{encoded_pass}@{rest}"
 
 
-def _resolve_mosaic_tiles(global_config: dict, camera_config: dict) -> str | None:
-    """Resolve a GridFusion tile layout to a JSON --tiles argument.
-
-    Each tile references either an existing camera (``source``: a camera id,
-    pulled from go2rtc so the real camera is only connected once) or a raw RTSP
-    ``url`` (credentials injected). Returns a JSON array of
-    ``{url, x, y, w, h}`` or None if there are no usable tiles.
-    """
-    import json
-
-    from unifi.web.go2rtc import RTSP_BASE
-
-    tiles = camera_config.get("tiles")
-    if not tiles:
-        return None
-
-    rtsp_user = camera_config.get("rtsp_username") or global_config.get("rtsp_username")
-    rtsp_pass = camera_config.get("rtsp_password") or global_config.get("rtsp_password")
-
-    resolved = []
-    for tile in tiles:
-        source = tile.get("source")
-        url = tile.get("url")
-        if source:
-            input_url = f"{RTSP_BASE}/{source}"
-        elif url:
-            input_url = inject_rtsp_credentials(url, rtsp_user, rtsp_pass)
-        else:
-            continue
-        resolved.append(
-            {
-                "url": input_url,
-                "x": int(tile.get("x", 0)),
-                "y": int(tile.get("y", 0)),
-                "w": int(tile.get("w", 0)),
-                "h": int(tile.get("h", 0)),
-            }
-        )
-    return json.dumps(resolved) if resolved else None
-
-
 def config_to_args(
     global_config: dict, camera_config: dict, diagnostics_port: int = 0
 ) -> list[str]:
@@ -329,15 +288,11 @@ def config_to_args(
     if diagnostics_port:
         args.extend(["--diagnostics-port", str(diagnostics_port)])
 
-    # Mosaic (GridFusion) publishes to go2rtc under its camera id so the web UI
-    # preview can find the composed path, and its tiles are resolved to concrete
-    # input URLs and passed as a JSON --tiles layout.
-    if cam_type == "mosaic":
-        if camera_config.get("id"):
-            args.extend(["--stream-name", str(camera_config["id"])])
-        tiles_arg = _resolve_mosaic_tiles(global_config, camera_config)
-        if tiles_arg:
-            args.extend(["--tiles", tiles_arg])
+    # GridFusion (mosaic) sources from go2rtc under its camera id; the actual
+    # compositing is an exec: stream owned by go2rtc (see unifi/web/go2rtc.py),
+    # so the camera process only needs to know its stream name.
+    if cam_type == "mosaic" and camera_config.get("id"):
+        args.extend(["--stream-name", str(camera_config["id"])])
 
     # Type-specific args: get schema for this type and map config values
     schemas = get_camera_type_schemas()
