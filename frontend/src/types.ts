@@ -62,6 +62,7 @@ export interface GlobalConfig {
   auto_restart_max_attempts: number;
   auto_restart_initial_delay: number;
   auto_restart_max_delay: number;
+  webrtc_candidate?: string;
 }
 
 export interface FieldSchema {

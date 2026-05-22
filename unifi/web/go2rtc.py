@@ -172,7 +172,10 @@ def build_mosaic_exec(tiles: list[dict], out_w: int, out_h: int, fps: int) -> st
         f"exec:ffmpeg -hide_banner -loglevel error {inputs} "
         f'-filter_complex "{filter_complex}" -map "[{prev}]" '
         f"-an -c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p "
-        f"-g {fps * 2} -rtsp_transport tcp -f rtsp {{output}}"
+        # 1s keyframe interval: HLS can't emit its first segment until a keyframe,
+        # so a tight GOP makes the composited stream's first segment arrive well
+        # within go2rtc's 5s HLS session keepalive (avoids a startup 404 loop).
+        f"-g {fps} -rtsp_transport tcp -f rtsp {{output}}"
     )
 
 
@@ -219,11 +222,20 @@ class Go2rtcManager:
 
     def _write_config(self, config: dict) -> Path:
         """Write the full go2rtc config (all streams baked in)."""
+        webrtc: dict = {"listen": ":8555"}
+        # The WebRTC close-up needs a candidate the browser can reach directly
+        # (media is peer-to-peer, not proxied). When the operator has forwarded
+        # port 8555 and set this, advertise it; e.g. "host.example.com:8555" for
+        # a static public host, or "stun:8555" to auto-discover the public IP.
+        # Without it, external WebRTC fails to connect and the player falls back
+        # to MSE through the proxy.
+        candidate = (config.get("global", {}) or {}).get("webrtc_candidate")
+        if candidate:
+            webrtc["candidates"] = [candidate]
         doc = {
             "api": {"listen": f"{API_HOST}:{API_PORT}"},
             "rtsp": {"listen": f"{RTSP_HOST}:{RTSP_PORT}"},
-            # WebRTC candidates: rely on host networking / the reverse proxy.
-            "webrtc": {"listen": ":8555"},
+            "webrtc": webrtc,
             "log": {"level": "warn"},
             "streams": self._build_streams(config),
         }

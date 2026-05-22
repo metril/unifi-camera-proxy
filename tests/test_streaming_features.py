@@ -117,6 +117,12 @@ class TestBuildMosaicExec:
         assert "xstack" not in src
         assert src.count("-i ") == 2
 
+    def test_gop_matches_fps_for_fast_hls_start(self):
+        # 1s GOP (-g == fps) so HLS emits its first segment within go2rtc's
+        # ~5s session keepalive instead of waiting on a 2s keyframe interval.
+        tiles = [{"url": "rtsp://a/s", "x": 0, "y": 0, "w": 1920, "h": 1080}]
+        assert "-g 10 " in build_mosaic_exec(tiles, 1920, 1080, 10)
+
 
 class TestBuildStreams:
     def test_regular_pull_and_mosaic_exec(self):
@@ -146,6 +152,32 @@ class TestBuildStreams:
         assert streams["wall1"].startswith("exec:ffmpeg ")
         assert f"{RTSP_BASE}/cam001" in streams["wall1"]
         assert "-f rtsp {output}" in streams["wall1"]
+
+
+class TestWriteConfig:
+    def _read_yaml(self, mgr, config, tmp_path):
+        import yaml
+
+        mgr.data_dir = tmp_path
+        path = mgr._write_config(config)
+        with open(path) as f:
+            return yaml.safe_load(f)
+
+    def test_webrtc_candidate_written_when_set(self, tmp_path):
+        mgr = object.__new__(Go2rtcManager)
+        doc = self._read_yaml(
+            mgr,
+            {"global": {"webrtc_candidate": "cam.example.com:8555"}, "cameras": []},
+            tmp_path,
+        )
+        assert doc["webrtc"]["listen"] == ":8555"
+        assert doc["webrtc"]["candidates"] == ["cam.example.com:8555"]
+
+    def test_no_candidates_key_when_unset(self, tmp_path):
+        mgr = object.__new__(Go2rtcManager)
+        doc = self._read_yaml(mgr, {"global": {}, "cameras": []}, tmp_path)
+        assert doc["webrtc"]["listen"] == ":8555"
+        assert "candidates" not in doc["webrtc"]
 
 
 class TestMosaicConfigToArgs:

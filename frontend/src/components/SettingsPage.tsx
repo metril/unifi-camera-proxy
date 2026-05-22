@@ -206,6 +206,11 @@ export default function SettingsPage({ config, onSave }: SettingsPageProps) {
               <Field label="RTSP password"><Input type="password" value={form.rtsp_password || ''} onChange={(e) => set('rtsp_password', e.target.value || null)} /></Field>
             </div>
           </Section>
+          <Section title="Live Wall & close-up" desc="The Live Wall plays via HLS through this server. The click-to-expand close-up uses WebRTC for sub-second latency when reachable, falling back to MSE otherwise.">
+            <Field label="WebRTC candidate" hint="For the low-latency close-up: a host:port the browser can reach directly (e.g. cam.example.com:8555 or stun:8555). Forward port 8555 (TCP+UDP) to this container. Leave empty to use MSE only.">
+              <Input value={form.webrtc_candidate || ''} onChange={(e) => set('webrtc_candidate', e.target.value)} placeholder="host.example.com:8555" className="font-data text-xs" />
+            </Field>
+          </Section>
         </TabsContent>
 
         {/* Security */}

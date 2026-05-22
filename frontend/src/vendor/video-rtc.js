@@ -466,7 +466,11 @@ export class VideoRTC extends HTMLElement {
                         this.video.currentTime = start;
                     }
                     const gap = end - this.video.currentTime;
-                    this.video.playbackRate = gap > 0.1 ? gap : 0.1;
+                    // Local patch: gently catch up to the live edge with a CAPPED
+                    // rate (mirrors hls.js's maxLiveSyncPlaybackRate=1.25) instead
+                    // of the upstream `playbackRate = gap`, whose uncapped speed-up
+                    // made simultaneous tiles speed-jerk and stutter the whole page.
+                    this.video.playbackRate = gap > 0.5 ? 1.25 : 1.0;
                     // console.debug('VideoRTC.buffered', gap, this.video.playbackRate, this.video.readyState);
                 }
             });

@@ -15,13 +15,15 @@ interface CameraVideoProps {
 }
 
 /**
- * Live tile backed by go2rtc MSE (fragmented MP4 over the proxied WebSocket).
+ * Single low-latency close-up player (the click-to-expand view from the Live
+ * Wall — NOT the wall tiles, which use HLS via HlsPlayer).
  *
- * MSE — not WebRTC, not HLS — is the transport that actually works here:
- * WebRTC can't traverse the /go2rtc/* reverse proxy (its UDP port isn't
- * exposed) so it just thrashes, and go2rtc's HLS sessions 404 behind a proxy.
- * MSE rides the single proxied WS we already handle and is cheap enough to run
- * a wall of tiles (one fMP4 decoder each, like UniFi Protect).
+ * Transport is `webrtc,mse`: the vendored player tries WebRTC first for
+ * sub-second latency (media is direct peer-to-peer to go2rtc's port 8555; only
+ * signaling rides the proxied WS), and transparently falls back to MSE
+ * (fragmented MP4 over that same WS) when the WebRTC port isn't reachable —
+ * e.g. when the operator hasn't forwarded 8555 / set a candidate. HLS is not
+ * used here because its latency is too high for a close-up.
  */
 export default function CameraVideo({ cameraId, className }: CameraVideoProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -32,8 +34,8 @@ export default function CameraVideo({ cameraId, className }: CameraVideoProps) {
     if (!container) return;
 
     const el = document.createElement('video-stream') as VideoRTC;
-    // MSE only — see component docstring for why WebRTC/HLS are excluded.
-    el.mode = 'mse';
+    // WebRTC first (sub-second), MSE fallback — see component docstring.
+    el.mode = 'webrtc,mse';
     // Only stream while the tile is on screen and the tab is visible.
     el.background = false;
     el.visibilityThreshold = 0.5;

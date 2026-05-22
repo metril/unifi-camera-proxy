@@ -62,6 +62,9 @@ DEFAULT_GLOBAL = {
     "auto_restart_max_attempts": 0,
     "auto_restart_initial_delay": 5,
     "auto_restart_max_delay": 300,
+    # WebRTC candidate the browser can reach directly for the low-latency
+    # close-up (e.g. "host.example.com:8555" or "stun:8555"). Empty = MSE-only.
+    "webrtc_candidate": "",
 }
 
 MODEL_CHOICES = [

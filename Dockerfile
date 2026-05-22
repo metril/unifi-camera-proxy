@@ -65,6 +65,9 @@ RUN pip install -e . --no-cache-dir
 COPY ./docker/entrypoint.sh /
 
 EXPOSE 8080
+# go2rtc WebRTC media for the low-latency close-up (direct peer-to-peer, TCP+UDP).
+# Optional: only needed if you forward it and set a WebRTC candidate in Settings.
+EXPOSE 8555/tcp 8555/udp
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD curl -sf http://localhost:8080/health || exit 1

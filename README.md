@@ -26,6 +26,10 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+      # Optional: only for the low-latency WebRTC close-up. Forward both, then
+      # set a "WebRTC candidate" in Settings -> Streaming (e.g. host:8555).
+      - "8555:8555/tcp"
+      - "8555:8555/udp"
     volumes:
       - "./data:/app/data"
     environment:
@@ -63,15 +67,33 @@ No environment variables are used for OIDC — credentials are stored in `data/c
 
 A bundled [go2rtc](https://github.com/AlexxIT/go2rtc) server runs inside the
 container and serves every camera. The **Live Wall** section plays all running
-cameras in a grid via **MSE** (fragmented MP4 over a WebSocket) — a single
-persistent connection per tile that streams smoothly and works through the
-reverse proxy. Camera cards on the **Cameras** page show auto-refreshing
-snapshot thumbnails.
+cameras in a grid via **HLS** (hls.js) — plain HTTP segments that pass cleanly
+through the reverse proxy and scale to many tiles without bogging down the
+browser. Off-screen and background tiles stop decoding automatically. Camera
+cards on the **Cameras** page show auto-refreshing snapshot thumbnails.
 
-All streaming is reverse-proxied through the web server under `/go2rtc/*`, so it
-shares the single exposed port and the OIDC auth. (MSE is used rather than HLS
-because go2rtc's HLS consumer sessions are short-lived and break behind a
-reverse proxy; WebRTC is avoided because its UDP port isn't exposed.)
+**Click any tile** to open a low-latency close-up. The close-up uses **WebRTC**
+(sub-second) when reachable, falling back to **MSE** otherwise — so it works out
+of the box and gets faster once you enable WebRTC (below). A fullscreen button on
+each tile blows up the HLS stream in place without a new connection.
+
+All signaling and HLS is reverse-proxied through the web server under `/go2rtc/*`,
+so it shares the single exposed port and the OIDC auth. HLS auth rides the
+`Authorization` header on every segment request (hls.js `xhrSetup`).
+
+### Low-latency close-up (optional WebRTC)
+
+WebRTC media is a **direct peer-to-peer** connection from the browser to the
+container (it is *not* proxied), so it needs a reachable port and an advertised
+candidate:
+
+1. Forward port **8555 (TCP and UDP)** to the container (see the compose example).
+2. In **Settings → Streaming → WebRTC candidate**, set a `host:port` the browser
+   can reach — e.g. `cam.example.com:8555`, or `stun:8555` to auto-discover a
+   public IP. The TCP candidate keeps it working even where UDP is blocked.
+
+Leave the candidate empty to skip WebRTC entirely; the close-up then uses MSE
+through the proxy (slightly higher latency, no extra port).
 
 ## GridFusion — Multi-Camera Matrix Composer
 

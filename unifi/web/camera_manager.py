@@ -708,8 +708,17 @@ class CameraManager:
             self._oidc_cache = None
             self.valid_tokens.clear()
 
+        # The WebRTC candidate (and RTSP creds used by stream sources) live in
+        # go2rtc's config file, so rewrite + restart it when globals change.
+        go2rtc_changed = any(
+            global_config.get(k) != existing.get(k)
+            for k in ("webrtc_candidate", "rtsp_username", "rtsp_password")
+        )
+
         self.config["global"] = global_config
         save_config(self.config_path, self.config)
+        if go2rtc_changed:
+            self._schedule_go2rtc_sync()
         return global_config
 
     def get_logs(self, camera_id: str) -> list:
