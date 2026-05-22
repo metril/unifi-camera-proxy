@@ -62,14 +62,16 @@ No environment variables are used for OIDC — credentials are stored in `data/c
 ## Live Wall
 
 A bundled [go2rtc](https://github.com/AlexxIT/go2rtc) server runs inside the
-container and serves every camera as HLS. The **Live Wall** section plays all
-running cameras in a grid via [hls.js](https://github.com/video-dev/hls.js) —
-plain HTTP segments that scale to many tiles and pass cleanly through the
+container and serves every camera. The **Live Wall** section plays all running
+cameras in a grid via **MSE** (fragmented MP4 over a WebSocket) — a single
+persistent connection per tile that streams smoothly and works through the
 reverse proxy. Camera cards on the **Cameras** page show auto-refreshing
 snapshot thumbnails.
 
 All streaming is reverse-proxied through the web server under `/go2rtc/*`, so it
-shares the single exposed port and the OIDC auth.
+shares the single exposed port and the OIDC auth. (MSE is used rather than HLS
+because go2rtc's HLS consumer sessions are short-lived and break behind a
+reverse proxy; WebRTC is avoided because its UDP port isn't exposed.)
 
 ## GridFusion — Multi-Camera Matrix Composer
 

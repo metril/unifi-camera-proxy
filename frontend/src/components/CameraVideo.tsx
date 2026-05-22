@@ -15,9 +15,13 @@ interface CameraVideoProps {
 }
 
 /**
- * Live preview tile backed by go2rtc. Connects to the proxied signaling
- * WebSocket (`/go2rtc/api/ws`) and plays WebRTC with MSE/HLS/MJPEG fallback, so
- * it works through the reverse proxy even without the WebRTC UDP port exposed.
+ * Live tile backed by go2rtc MSE (fragmented MP4 over the proxied WebSocket).
+ *
+ * MSE — not WebRTC, not HLS — is the transport that actually works here:
+ * WebRTC can't traverse the /go2rtc/* reverse proxy (its UDP port isn't
+ * exposed) so it just thrashes, and go2rtc's HLS sessions 404 behind a proxy.
+ * MSE rides the single proxied WS we already handle and is cheap enough to run
+ * a wall of tiles (one fMP4 decoder each, like UniFi Protect).
  */
 export default function CameraVideo({ cameraId, className }: CameraVideoProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -28,6 +32,8 @@ export default function CameraVideo({ cameraId, className }: CameraVideoProps) {
     if (!container) return;
 
     const el = document.createElement('video-stream') as VideoRTC;
+    // MSE only — see component docstring for why WebRTC/HLS are excluded.
+    el.mode = 'mse';
     // Only stream while the tile is on screen and the tab is visible.
     el.background = false;
     el.visibilityThreshold = 0.5;
