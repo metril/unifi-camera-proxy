@@ -635,11 +635,23 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="cam-fw">Firmware Version</Label>
-                <Input
-                  id="cam-fw"
-                  value={form.fw_version}
-                  onChange={(e) => handleChange('fw_version', e.target.value)}
-                />
+                <div className="flex gap-1.5">
+                  <Input
+                    id="cam-fw"
+                    value={form.fw_version}
+                    onChange={(e) => handleChange('fw_version', e.target.value)}
+                    className="font-data"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleChange('fw_version', DEFAULT_CAMERA.fw_version)}
+                    title="Reset to default — useful if a previous in-memory fake firmware upgrade corrupted this value (a fix shipped in v1.6.5)."
+                  >
+                    Reset
+                  </Button>
+                </div>
               </div>
             </div>
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import copy
 import logging
+import re
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -147,11 +148,44 @@ def load_config(path: str) -> dict:
         if not cam.get("id"):
             cam["id"] = str(uuid.uuid4())[:8]
             needs_save = True
+    # Self-heal: drop corrupted fw_version values so the camera process
+    # falls back to main.py's default. process_upgrade had a long-standing
+    # parse bug that fed binary noise into fw_version, which (once persisted
+    # via a UI form save) made Protect reject the next adoption with
+    # close code 4012. See unifi/cams/base.py:_parse_firmware_version.
+    for cam in config["cameras"]:
+        if _drop_corrupted_fw_version(cam):
+            needs_save = True
     # Persist fixes so they're stable across restarts
     if needs_save:
         save_config(path, config)
         logger.info(f"Fixed camera config in {path}")
     return config
+
+
+# Acceptable shape: starts with ``UVC.``, contains only printable ASCII,
+# no whitespace. Matches the default ``UVC.S2L.v4.23.8.67.0eba6e3.200526.1046``
+# and platform variants from model_db's FW_VERSION_TEMPLATE.
+_FW_VERSION_RE = re.compile(r"^UVC\.[A-Za-z0-9_\.\-]+$")
+
+
+def _drop_corrupted_fw_version(camera_config: dict) -> bool:
+    """Remove fw_version from a camera dict if it's not a valid UVC fw string.
+
+    Returns True if a value was dropped (caller should persist the change).
+    """
+    fw = camera_config.get("fw_version")
+    if not fw or not isinstance(fw, str):
+        return False
+    if _FW_VERSION_RE.match(fw):
+        return False
+    logger.warning(
+        f"Resetting corrupted fw_version for camera "
+        f"{camera_config.get('id', '?')} (was: {fw!r}); subprocess will "
+        f"fall back to the default UVC firmware string."
+    )
+    del camera_config["fw_version"]
+    return True
 
 
 def save_config(path: str, config: dict) -> None:

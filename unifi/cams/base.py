@@ -28,6 +28,36 @@ from unifi.core import RetryableError
 AVClientRequest = AVClientResponse = dict[str, Any]
 
 
+def _parse_firmware_version(blob: bytes) -> str:
+    """Parse a UVC firmware version string out of the upgrade-binary header.
+
+    Real UVC firmware binaries embed an ASCII version string (e.g.
+    ``UVC.S2L.v4.23.8.67.0eba6e3.200526.1046``) starting at byte 4,
+    NUL-terminated, fitting in 50 bytes. The previous implementation
+    iterated the slice and compared each byte against the *bytes object*
+    ``b"\\x00"`` instead of the integer ``0`` — in Python 3,
+    ``content[i]`` is an int, so the comparison was always ``True`` and
+    every byte (including binary noise) got concatenated. That produced
+    garbage like ``646b7432306f4ae2617ff17c769c94f3260ce87ac5bd05b2ba``
+    which, once persisted into config.yaml, made Protect reject the
+    camera's adoption hello with WS close code 4012.
+
+    Stops at the first NUL byte. Drops non-printable ASCII (anything <
+    0x20 or > 0x7e) — a sane fw string is printable ASCII only. Returns
+    the parsed string (may be empty if the blob carried nothing usable —
+    callers should NOT mutate ``fw_version`` in that case).
+    """
+    if len(blob) < 5:
+        return ""
+    chars: list[str] = []
+    for b in blob[4:54]:
+        if b == 0:
+            break
+        if 0x20 <= b <= 0x7E:
+            chars.append(chr(b))
+    return "".join(chars)
+
+
 def _close_detail(exc: BaseException) -> str:
     """Render the close code+reason from a websockets ConnectionClosed* exc.
 
@@ -1820,13 +1850,17 @@ class UnifiCamBase(
         headers = {"Range": "bytes=0-100"}
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers, ssl=False) as r:
-                # Parse the new version string from the upgrade binary
                 content = await r.content.readexactly(54)
-                version = ""
-                for i in range(0, 50):
-                    b = content[4 + i]
-                    if b != b"\x00":
-                        version += chr(b)
+                version = _parse_firmware_version(content)
+                if not version:
+                    # Bad/short/garbage payload — don't poison fw_version,
+                    # which would feed an invalid value into the next
+                    # adoption hello and trigger a Protect close (code 4012).
+                    self.logger.warning(
+                        "process_upgrade: could not parse a firmware version "
+                        "from the binary; keeping current fw_version."
+                    )
+                    return
                 self.logger.debug(f"Pretending to upgrade to: {version}")
                 self.args.fw_version = version
 

@@ -694,6 +694,109 @@ class TestMosaicSidecarHandler:
         assert len(mgr.instances["wall1"].log_buffer) == 0
 
 
+class TestFirmwareVersionParse:
+    """v1.6.5: process_upgrade used to compare each byte of the firmware
+    blob against the ``bytes`` literal ``b"\\x00"`` instead of the int 0,
+    so the null-terminator check never tripped and every byte (including
+    binary noise) got concatenated into ``self.args.fw_version``. Once that
+    garbage was persisted via a UI save into config.yaml, every subsequent
+    adoption hello carried an invalid firmware string and Protect closed
+    the WS with code 4012."""
+
+    def test_stops_at_null_byte_and_returns_ascii(self):
+        from unifi.cams.base import _parse_firmware_version
+
+        # 4-byte preamble + "UVC.S2L.v4" + NUL + garbage.
+        blob = b"\x00\x00\x00\x00" + b"UVC.S2L.v4" + b"\x00" + b"\x80\xff\x00"
+        # Pad to required 54-byte length.
+        blob = blob + b"\x00" * (54 - len(blob))
+        assert _parse_firmware_version(blob) == "UVC.S2L.v4"
+
+    def test_drops_non_printable_bytes(self):
+        from unifi.cams.base import _parse_firmware_version
+
+        # 4-byte preamble + non-printable bytes mixed with ASCII, no NUL.
+        blob = b"\x00\x00\x00\x00" + b"U\xffV\x01C\x80.\x80S\x002\x00" + b"\x00" * 50
+        # \xff, \x01, \x80 are non-printable and stripped. NUL terminates.
+        result = _parse_firmware_version(blob[:54])
+        assert result == "UVC.S"  # the second NUL after S ends parsing
+
+    def test_returns_empty_when_first_byte_is_null(self):
+        from unifi.cams.base import _parse_firmware_version
+
+        blob = b"\x00\x00\x00\x00" + b"\x00" * 50
+        assert _parse_firmware_version(blob) == ""
+
+    def test_handles_short_blob(self):
+        from unifi.cams.base import _parse_firmware_version
+
+        assert _parse_firmware_version(b"") == ""
+        assert _parse_firmware_version(b"\x00\x00\x00") == ""
+
+
+class TestFirmwareVersionSanitization:
+    """v1.6.5: ``load_config`` drops corrupted ``fw_version`` values from
+    each camera so the subprocess falls back to the default UVC string
+    rather than poisoning the next adoption hello with garbage."""
+
+    def test_drops_garbage_value(self, tmp_path):
+        import yaml
+
+        from unifi.web.config import load_config
+
+        config_file = tmp_path / "config.yaml"
+        with open(config_file, "w") as f:
+            yaml.dump(
+                {
+                    "global": {},
+                    "cameras": [
+                        {
+                            "id": "abc123",
+                            "name": "Garage",
+                            "mac": "AABBCC112233",
+                            "type": "rtsp",
+                            "fw_version": (
+                                "646b7432306f4ae2617ff17c769c94f3260ce87ac5bd05b2ba"
+                            ),
+                        }
+                    ],
+                },
+                f,
+            )
+        loaded = load_config(str(config_file))
+        cam = loaded["cameras"][0]
+        assert "fw_version" not in cam, (
+            "Garbage fw_version must be dropped so the subprocess uses "
+            "main.py's default (Protect close 4012 fix)."
+        )
+
+    def test_keeps_valid_uvc_value(self, tmp_path):
+        import yaml
+
+        from unifi.web.config import load_config
+
+        config_file = tmp_path / "config.yaml"
+        good = "UVC.S2L.v4.23.8.67.0eba6e3.200526.1046"
+        with open(config_file, "w") as f:
+            yaml.dump(
+                {
+                    "global": {},
+                    "cameras": [
+                        {
+                            "id": "abc123",
+                            "name": "Garage",
+                            "mac": "AABBCC112233",
+                            "type": "rtsp",
+                            "fw_version": good,
+                        }
+                    ],
+                },
+                f,
+            )
+        loaded = load_config(str(config_file))
+        assert loaded["cameras"][0]["fw_version"] == good
+
+
 class TestTalkbackSchema:
     def test_talkback_url_in_every_type_schema(self):
         schemas = get_camera_type_schemas()
