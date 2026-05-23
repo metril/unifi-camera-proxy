@@ -600,6 +600,97 @@ class TestMosaicWarmupRetry:
         assert "Composition source not producing" in inst.error_message
 
 
+class TestWebSocketHeaders:
+    """v1.6.3: sysid must be sent as the ``camera-model`` WS header so
+    Protect can identify the device during adoption. The model_db lookup
+    has existed for releases but the header was never put on the wire,
+    which is what was triggering Protect's WS close code 4012 on adopt."""
+
+    def test_camera_model_header_included_when_sysid_set(self):
+        from unifi.core import Core
+
+        core = object.__new__(Core)
+        core.mac = "AABBCC112233"
+        core.sysid = "0xa572"  # UVC G4 Bullet
+        headers = Core._build_ws_headers(core)
+        assert headers["camera-mac"] == "AABBCC112233"
+        assert headers["camera-model"] == "0xa572"
+
+    def test_camera_model_header_omitted_when_sysid_missing(self):
+        from unifi.core import Core
+
+        core = object.__new__(Core)
+        core.mac = "AABBCC112233"
+        core.sysid = None
+        headers = Core._build_ws_headers(core)
+        assert "camera-model" not in headers
+        assert headers["camera-mac"] == "AABBCC112233"
+
+
+class TestMosaicSidecarHandler:
+    """v1.6.3: CameraManager + Go2rtc log records that reference a mosaic
+    camera id get mirrored into that camera's log_buffer so the per-camera
+    LogViewer shows warm-up + go2rtc lines alongside camera-process lines."""
+
+    def test_mirrors_log_for_matching_mosaic_id(self):
+        import logging
+
+        from unifi.web.camera_manager import (
+            CameraInstance,
+            CameraManager,
+            _MosaicSidecarHandler,
+        )
+
+        mgr = object.__new__(CameraManager)
+        mgr.instances = {
+            "wall1": CameraInstance(id="wall1", config={"type": "mosaic"}),
+            "rtsp1": CameraInstance(id="rtsp1", config={"type": "rtsp"}),
+        }
+        handler = _MosaicSidecarHandler(mgr)
+        record = logging.LogRecord(
+            name="Go2rtc",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="[go2rtc] stream wall1: exec ffmpeg failed",
+            args=(),
+            exc_info=None,
+        )
+        handler.emit(record)
+        assert len(mgr.instances["wall1"].log_buffer) == 1
+        entry = list(mgr.instances["wall1"].log_buffer)[0]
+        assert entry["logger"] == "Go2rtc"
+        assert "wall1" in entry["message"]
+        # Non-mosaic instances are never mirrored.
+        assert len(mgr.instances["rtsp1"].log_buffer) == 0
+
+    def test_skips_records_with_no_matching_mosaic(self):
+        import logging
+
+        from unifi.web.camera_manager import (
+            CameraInstance,
+            CameraManager,
+            _MosaicSidecarHandler,
+        )
+
+        mgr = object.__new__(CameraManager)
+        mgr.instances = {
+            "wall1": CameraInstance(id="wall1", config={"type": "mosaic"}),
+        }
+        handler = _MosaicSidecarHandler(mgr)
+        record = logging.LogRecord(
+            name="CameraManager",
+            level=logging.INFO,
+            pathname=__file__,
+            lineno=1,
+            msg="some unrelated message",
+            args=(),
+            exc_info=None,
+        )
+        handler.emit(record)
+        assert len(mgr.instances["wall1"].log_buffer) == 0
+
+
 class TestTalkbackSchema:
     def test_talkback_url_in_every_type_schema(self):
         schemas = get_camera_type_schemas()

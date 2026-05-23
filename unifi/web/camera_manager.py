@@ -80,6 +80,66 @@ class CameraInstance:
     _adoption_stuck_task: Optional[asyncio.Task] = None
 
 
+class _MosaicSidecarHandler(logging.Handler):
+    """Mirror CameraManager + Go2rtc log lines into mosaic log buffers.
+
+    The CameraManager (warm-up timeouts, stuck-detector warnings) and the
+    Go2rtc subprocess wrapper (lifecycle + ffmpeg stderr) emit important
+    diagnostics about a mosaic's health — but those records land in the
+    main process's stderr, not in the per-camera log buffer the LogViewer
+    reads from. This handler watches both loggers, checks whether the
+    record's message mentions a known mosaic camera id, and if so appends
+    the record to that instance's ``log_buffer`` + broadcasts it to any
+    open LogViewer WebSocket. Records that match no mosaic are left
+    alone — the main stderr still gets them.
+
+    Async ``broadcast_log`` is scheduled via ``asyncio.create_task`` from
+    inside ``emit``; the loggers fire on the main event loop, so the
+    task lands on the right loop.
+    """
+
+    def __init__(self, manager: "CameraManager") -> None:
+        super().__init__(level=logging.INFO)
+        self.manager = manager
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            mosaic_ids = {
+                inst.id
+                for inst in self.manager.instances.values()
+                if inst.config.get("type") == "mosaic"
+            }
+            if not mosaic_ids:
+                return
+            message = record.getMessage()
+            matched = [mid for mid in mosaic_ids if mid in message]
+            if not matched:
+                return
+            timestamp = time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(record.created)
+            )
+            entry = {
+                "timestamp": timestamp,
+                "logger": record.name,
+                "level": record.levelname,
+                "message": message,
+                "raw": f"{timestamp} {record.name} {record.levelname} {message}",
+            }
+            for cam_id in matched:
+                instance = self.manager.instances.get(cam_id)
+                if instance is None:
+                    continue
+                instance.log_buffer.append(entry)
+                try:
+                    asyncio.get_running_loop()
+                except RuntimeError:
+                    continue
+                asyncio.create_task(self.manager.broadcast_log(cam_id, entry))
+        except Exception:
+            # Logging must never break the host process.
+            pass
+
+
 class CameraManager:
     _next_diag_port: int = 9100
 
@@ -101,6 +161,13 @@ class CameraManager:
         for cam_config in self.config.get("cameras", []):
             cam_id = cam_config["id"]
             self.instances[cam_id] = CameraInstance(id=cam_id, config=cam_config)
+
+        # Mirror CameraManager + Go2rtc log records that reference a mosaic
+        # camera id into that camera's log_buffer, so the per-camera Log Viewer
+        # shows warm-up + go2rtc ffmpeg lines alongside camera-process lines.
+        self._sidecar_handler = _MosaicSidecarHandler(self)
+        logging.getLogger("CameraManager").addHandler(self._sidecar_handler)
+        logging.getLogger("Go2rtc").addHandler(self._sidecar_handler)
 
     async def start_streaming_server(self) -> None:
         """Start go2rtc with all camera + mosaic streams baked into its config."""

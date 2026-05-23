@@ -24,9 +24,25 @@ class Core(object):
         self.ssl_context.verify_mode = ssl.CERT_NONE
         self.ssl_context.load_cert_chain(args.cert, args.cert)
 
+    def _build_ws_headers(self) -> dict[str, str]:
+        """Build the headers sent on the Protect adoption WebSocket.
+
+        ``camera-mac`` identifies the device by MAC. ``camera-model``
+        identifies the device by sysid (e.g. ``0xa572`` for a UVC G4
+        Bullet); Protect needs it to look the model up in its inventory
+        during the strict adoption path. Until v1.6.3 we computed
+        ``args.sysid`` but never sent it — Protect would queue back its
+        own hello + paramAgreement and then close the WS with code 4012,
+        because the model-validation pass had nothing to validate against.
+        """
+        headers = {"camera-mac": self.mac}
+        if self.sysid:
+            headers["camera-model"] = self.sysid
+        return headers
+
     async def run(self) -> None:
         uri = "wss://{}:7442/camera/1.0/ws?token={}".format(self.host, self.token)
-        headers = {"camera-mac": self.mac}
+        headers = self._build_ws_headers()
         has_connected = False
 
         @backoff.on_predicate(
