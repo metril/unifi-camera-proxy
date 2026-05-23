@@ -28,6 +28,25 @@ from unifi.core import RetryableError
 AVClientRequest = AVClientResponse = dict[str, Any]
 
 
+def _close_detail(exc: BaseException) -> str:
+    """Render the close code+reason from a websockets ConnectionClosed* exc.
+
+    Returns a leading-space string like ``' (code=1011, reason=...)'`` or ''
+    when the close frame didn't carry useful info — safe to drop straight into
+    a log message.
+    """
+    rcvd = getattr(exc, "rcvd", None)
+    bits: list[str] = []
+    if rcvd is not None:
+        code = getattr(rcvd, "code", None)
+        reason = getattr(rcvd, "reason", None)
+        if code is not None:
+            bits.append(f"code={code}")
+        if reason:
+            bits.append(f"reason={reason!r}")
+    return " (" + ", ".join(bits) + ")" if bits else ""
+
+
 class SmartDetectObjectType(Enum):
     PERSON = "person"
     VEHICLE = "vehicle"
@@ -287,8 +306,13 @@ class UnifiCamBase(
         while True:
             try:
                 msg = await ws.recv()
-            except websockets.exceptions.ConnectionClosedError:
-                self.logger.info(f"Connection to {self.args.host} was closed.")
+            except (
+                websockets.exceptions.ConnectionClosedError,
+                websockets.exceptions.ConnectionClosedOK,
+            ) as e:
+                self.logger.info(
+                    f"Connection to {self.args.host} was closed{_close_detail(e)}."
+                )
                 self._session = None
                 raise RetryableError()
 
@@ -1712,6 +1736,13 @@ class UnifiCamBase(
 
     async def init_adoption(self) -> None:
         self.logger.info(f"Adopting with mac [{self.args.mac}]")
+        # Fingerprint the hello so a single grep of the logs is enough to spot
+        # model/firmware/token mismatches when Protect rejects adoption later.
+        self.logger.info(
+            f"Adoption hello: model={self.args.model} fw={self.args.fw_version} "
+            f"name={self.args.name!r} ip={self.args.ip} "
+            f"token_len={len(self.args.token or '')}"
+        )
 
         # Probe video resolutions only for streams that are actually configured
         # video1 is required, video2 and video3 use their defaults if not probed
@@ -1824,13 +1855,18 @@ class UnifiCamBase(
             return
         try:
             await ws.send(json.dumps(msg).encode())
-        except websockets.exceptions.ConnectionClosedError:
-            # The receive loop already turns a closed WS into a RetryableError;
-            # do the same here so a Protect-side disconnect during a send
-            # (e.g. mid-adoption hello) doesn't crash the process with an
-            # uncaught ConnectionClosedError from websockets' send_context.
+        except (
+            websockets.exceptions.ConnectionClosedError,
+            websockets.exceptions.ConnectionClosedOK,
+        ) as e:
+            # The receive loop turns a closed WS into a RetryableError; do the
+            # same here so a Protect-side disconnect during a send doesn't
+            # crash the process. Surface Protect's close code + reason so the
+            # next log capture tells us *why* it closed (stale MAC binding,
+            # auth failure, …) instead of just *that* it closed.
             self.logger.info(
-                f"Connection to {self.args.host} was closed while sending."
+                f"Connection to {self.args.host} was closed while sending"
+                f"{_close_detail(e)}."
             )
             self._session = None
             raise RetryableError()

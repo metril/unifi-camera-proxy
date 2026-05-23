@@ -348,6 +348,185 @@ class TestMosaicConfigToArgs:
         assert "--tiles" not in args
 
 
+class TestWebSocketCloseLogging:
+    """When Protect closes the adoption WS, our send/recv catches must log
+    the close code + reason so the next failure is self-describing.
+    v1.5.2 only caught ConnectionClosedError — clean closes (ConnectionClosedOK,
+    e.g. code 1000) crashed the process. v1.6.1 widens the catch and pulls
+    .rcvd.code + .rcvd.reason into the log line."""
+
+    def test_close_detail_renders_code_and_reason(self):
+        from unifi.cams.base import _close_detail
+
+        class FakeFrame:
+            code = 1011
+            reason = "policy violation"
+
+        class FakeExc:
+            rcvd = FakeFrame()
+
+        detail = _close_detail(FakeExc())
+        assert "code=1011" in detail
+        assert "policy violation" in detail
+        assert detail.startswith(" (") and detail.endswith(")")
+
+    def test_close_detail_is_empty_without_rcvd(self):
+        from unifi.cams.base import _close_detail
+
+        class FakeExc:
+            rcvd = None
+
+        assert _close_detail(FakeExc()) == ""
+
+    def test_send_catches_both_closed_error_and_ok(self):
+        """Both ConnectionClosedError and ConnectionClosedOK reach the same
+        RetryableError path; the bare 'except ConnectionClosedError' from
+        v1.5.2 would have let an OK close crash the process."""
+        import asyncio
+        import logging
+
+        import websockets.exceptions
+
+        from unifi.cams.base import UnifiCamBase
+        from unifi.cams.mosaic import MosaicCam  # concrete subclass
+        from unifi.core import RetryableError
+
+        for exc_cls in (
+            websockets.exceptions.ConnectionClosedError,
+            websockets.exceptions.ConnectionClosedOK,
+        ):
+
+            class FakeWS:
+                async def send(self, _payload):
+                    raise exc_cls(None, None)
+
+            cam = object.__new__(MosaicCam)
+            cam.logger = logging.getLogger("test")
+            cam._session = FakeWS()
+
+            class FakeArgs:
+                host = "unifi-protect"
+
+            cam.args = FakeArgs()
+
+            async def run():
+                await UnifiCamBase.send(cam, {"messageId": 1, "functionName": "x"})
+
+            try:
+                asyncio.run(run())
+            except RetryableError:
+                pass
+            else:
+                raise AssertionError(
+                    f"send() must raise RetryableError for {exc_cls.__name__}"
+                )
+            assert cam._session is None
+
+
+class TestAdoptionStuckDetection:
+    """v1.5.2 hid Protect's WS rejection behind a silent retry loop. The
+    manager now tracks adoption state from the camera process's log lines and
+    surfaces 'stuck' via error_message so the UI doesn't lie about health."""
+
+    def test_observe_adoption_signal_marks_adopting(self):
+        from unifi.web.camera_manager import CameraInstance, CameraManager
+
+        mgr = object.__new__(CameraManager)
+        inst = CameraInstance(id="c1", config={})
+        mgr._observe_adoption_signal(inst, "Adopting with mac [AABBCC112233]")
+        assert inst.adoption_state == "adopting"
+        assert inst.adoption_retry_count == 0
+        assert inst.adoption_started_at is not None
+
+    def test_observe_adoption_signal_counts_close_events(self):
+        from unifi.web.camera_manager import CameraInstance, CameraManager
+
+        mgr = object.__new__(CameraManager)
+        inst = CameraInstance(id="c1", config={})
+        mgr._observe_adoption_signal(inst, "Adopting with mac [X]")
+        mgr._observe_adoption_signal(
+            inst, "Connection to unifi-protect was closed while sending."
+        )
+        mgr._observe_adoption_signal(
+            inst,
+            "Connection to unifi-protect was closed while sending (code=1011).",
+        )
+        assert inst.adoption_retry_count == 2
+
+    def test_observe_adoption_signal_resets_on_new_adoption(self):
+        from unifi.web.camera_manager import CameraInstance, CameraManager
+
+        mgr = object.__new__(CameraManager)
+        inst = CameraInstance(id="c1", config={})
+        mgr._observe_adoption_signal(inst, "Adopting with mac [X]")
+        mgr._observe_adoption_signal(inst, "Connection to x was closed.")
+        # Simulate a state where this attempt finished; the next adoption
+        # starts fresh.
+        inst.adoption_state = "unknown"
+        mgr._observe_adoption_signal(inst, "Adopting with mac [X]")
+        assert inst.adoption_retry_count == 0
+
+    def test_detect_adoption_stuck_sets_error_message(self):
+        import asyncio
+
+        from unifi.web.camera_manager import CameraInstance, CameraManager
+
+        mgr = object.__new__(CameraManager)
+        inst = CameraInstance(id="c1", config={})
+        inst.status = "running"
+        inst.adoption_state = "adopting"
+        inst.adoption_retry_count = 5
+
+        # Drive the detector with a near-zero delay + a one-shot loop guard.
+        original_delay = CameraManager._ADOPTION_STUCK_DELAY
+        CameraManager._ADOPTION_STUCK_DELAY = 0.01
+
+        async def run_once():
+            task = asyncio.create_task(mgr._detect_adoption_stuck(inst))
+            # Let the detector run its first iteration, then cancel.
+            await asyncio.sleep(0.05)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        try:
+            asyncio.run(run_once())
+            assert inst.error_message == CameraManager._ADOPTION_STUCK_MESSAGE
+        finally:
+            CameraManager._ADOPTION_STUCK_DELAY = original_delay
+
+    def test_detect_adoption_stuck_quiet_when_healthy(self):
+        import asyncio
+
+        from unifi.web.camera_manager import CameraInstance, CameraManager
+
+        mgr = object.__new__(CameraManager)
+        inst = CameraInstance(id="c1", config={})
+        inst.status = "running"
+        inst.adoption_state = "adopted"  # success path
+        inst.adoption_retry_count = 0
+
+        original_delay = CameraManager._ADOPTION_STUCK_DELAY
+        CameraManager._ADOPTION_STUCK_DELAY = 0.01
+
+        async def run_once():
+            task = asyncio.create_task(mgr._detect_adoption_stuck(inst))
+            await asyncio.sleep(0.05)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        try:
+            asyncio.run(run_once())
+            assert inst.error_message is None
+        finally:
+            CameraManager._ADOPTION_STUCK_DELAY = original_delay
+
+
 class TestTalkbackSchema:
     def test_talkback_url_in_every_type_schema(self):
         schemas = get_camera_type_schemas()

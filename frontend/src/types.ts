@@ -32,6 +32,8 @@ export interface CameraStatus {
   restart_attempt: number;
   next_restart_at: number | null;
   auto_restart_enabled: boolean;
+  adoption_state?: 'unknown' | 'adopting' | 'adopted';
+  adoption_retry_count?: number;
 }
 
 export interface GlobalConfig {

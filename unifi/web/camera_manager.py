@@ -68,6 +68,16 @@ class CameraInstance:
     _stability_task: Optional[asyncio.Task] = None
     _name_sync_task: Optional[asyncio.Task] = None
     manually_stopped: bool = False
+    # Adoption-state tracking. The proxy itself doesn't expose this over a
+    # control channel (it talks the UniFi protocol), so we read it back out of
+    # the camera process's log stream in ``_read_logs``. "unknown" pre-start,
+    # "adopting" after we see ``Adopting with mac`` from init_adoption, and
+    # bumped retry count on every ``was closed`` line. The stuck-detector task
+    # turns "adopting + retries >= 3 after >45s" into a visible error_message.
+    adoption_state: str = "unknown"
+    adoption_retry_count: int = 0
+    adoption_started_at: Optional[float] = None
+    _adoption_stuck_task: Optional[asyncio.Task] = None
 
 
 class CameraManager:
@@ -235,6 +245,15 @@ class CameraManager:
         if instance._name_sync_task and not instance._name_sync_task.done():
             instance._name_sync_task.cancel()
 
+        # Cancel a previous adoption-stuck detector if still pending
+        if instance._adoption_stuck_task and not instance._adoption_stuck_task.done():
+            instance._adoption_stuck_task.cancel()
+
+        # Reset adoption tracking — this is a fresh process attempt.
+        instance.adoption_state = "unknown"
+        instance.adoption_retry_count = 0
+        instance.adoption_started_at = None
+
         global_config = self.config.get("global", {})
         diag_port = CameraManager._next_diag_port
         CameraManager._next_diag_port += 1
@@ -289,6 +308,13 @@ class CameraManager:
             instance._name_sync_task = asyncio.create_task(
                 self._delayed_name_sync(instance)
             )
+
+            # Detect a stuck adoption loop and surface it to the UI so the
+            # card doesn't lie about being healthy while the process retries
+            # forever (see v1.5.2 ConnectionClosedError catch).
+            instance._adoption_stuck_task = asyncio.create_task(
+                self._detect_adoption_stuck(instance)
+            )
         except Exception as e:
             instance.status = "error"
             instance.error_message = str(e)
@@ -308,6 +334,7 @@ class CameraManager:
                     if decoded:
                         entry = parse_log_line(decoded)
                         instance.log_buffer.append(entry)
+                        self._observe_adoption_signal(instance, entry["message"])
                         # Echo to web server logs so output appears in docker logs
                         logger.debug(f"[{instance.id}] {decoded}")
                         # Broadcast to WebSocket clients
@@ -355,6 +382,59 @@ class CameraManager:
                         f"Last output: {error_detail}"
                     )
                     await self._maybe_schedule_restart(instance)
+
+    # Log substrings the camera process emits during the UniFi adoption
+    # handshake. We watch them via _read_logs because the camera process
+    # doesn't have a control-channel for adoption state.
+    _ADOPTING_LOG = "Adopting with mac"
+    _ADOPTION_CLOSED_LOG = "was closed"
+    _ADOPTION_STUCK_DELAY = 45.0
+    _ADOPTION_STUCK_RETRIES = 3
+    _ADOPTION_STUCK_MESSAGE = (
+        "Stuck reconnecting to Protect — adoption isn't completing. "
+        "Check logs for the close code."
+    )
+
+    def _observe_adoption_signal(self, instance: CameraInstance, message: str) -> None:
+        """Update adoption state from the camera process's log lines."""
+        if not message:
+            return
+        if self._ADOPTING_LOG in message:
+            # New adoption attempt — reset retries every time we see this so
+            # a recovery (e.g. after the user fixes Protect-side state)
+            # naturally clears any stale stuck-state.
+            if instance.adoption_state != "adopting":
+                instance.adoption_started_at = time.time()
+                instance.adoption_retry_count = 0
+            instance.adoption_state = "adopting"
+        elif self._ADOPTION_CLOSED_LOG in message and "Connection" in message:
+            instance.adoption_retry_count += 1
+
+    async def _detect_adoption_stuck(self, instance: CameraInstance) -> None:
+        """Surface a stuck adoption loop to the UI via error_message.
+
+        v1.5.2 made the proxy resilient to Protect dropping the WS during
+        adoption (it retries forever), but that turned the failure silent.
+        After ``_ADOPTION_STUCK_DELAY`` and ``_ADOPTION_STUCK_RETRIES`` close
+        events, we set error_message so the card shows the user that the
+        process is alive but adoption isn't going through.
+        """
+        try:
+            await asyncio.sleep(self._ADOPTION_STUCK_DELAY)
+            while instance.status == "running":
+                if (
+                    instance.adoption_state == "adopting"
+                    and instance.adoption_retry_count >= self._ADOPTION_STUCK_RETRIES
+                ):
+                    if instance.error_message != self._ADOPTION_STUCK_MESSAGE:
+                        instance.error_message = self._ADOPTION_STUCK_MESSAGE
+                        logger.warning(
+                            f"Camera {instance.id} appears stuck in adoption "
+                            f"loop (retries={instance.adoption_retry_count})"
+                        )
+                await asyncio.sleep(15)
+        except asyncio.CancelledError:
+            pass
 
     async def _reset_backoff_after_stable_run(self, instance: CameraInstance) -> None:
         """Reset restart_attempt to 0 after camera runs stably for 5 minutes."""
@@ -610,6 +690,11 @@ class CameraManager:
             instance._name_sync_task.cancel()
             instance._name_sync_task = None
 
+        # Cancel the adoption-stuck detector
+        if instance._adoption_stuck_task and not instance._adoption_stuck_task.done():
+            instance._adoption_stuck_task.cancel()
+            instance._adoption_stuck_task = None
+
         if instance.status not in ("running", "restarting") or not instance.process:
             instance.status = "stopped"
             return
@@ -669,6 +754,8 @@ class CameraManager:
             "restart_attempt": instance.restart_attempt,
             "next_restart_at": instance.next_restart_at,
             "auto_restart_enabled": self._is_auto_restart_enabled(instance),
+            "adoption_state": instance.adoption_state,
+            "adoption_retry_count": instance.adoption_retry_count,
         }
 
     async def start_all_enabled(self) -> None:

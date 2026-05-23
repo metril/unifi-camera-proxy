@@ -23,6 +23,18 @@ class ProtocolHandlers:
         self: "UnifiCamBase", msg: "AVClientRequest"
     ) -> "AVClientResponse":
         """Process parameter agreement request."""
+        # Log a short fingerprint of Protect's negotiated features so we can
+        # see when Protect drops the WS right after sending paramAgreement —
+        # the rejected feature is usually visible in this payload.
+        proto_payload = msg.get("payload") or {}
+        proto_features = proto_payload.get("features") or {}
+        if proto_features:
+            feature_keys = sorted(k for k in proto_features.keys())[:24]
+            self.logger.info(
+                f"paramAgreement features from {self.args.host}: "
+                f"{','.join(feature_keys) or '(none)'}"
+                + (" ..." if len(proto_features) > len(feature_keys) else "")
+            )
         return self.gen_response(
             "ubnt_avclient_paramAgreement",
             msg["messageId"],

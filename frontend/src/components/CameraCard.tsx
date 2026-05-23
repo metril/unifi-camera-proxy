@@ -340,9 +340,14 @@ export default function CameraCard({
           </div>
 
           {camera.error_message && (
-            <div className="text-[0.6875rem] text-destructive/90 bg-destructive/10 border border-destructive/25 rounded-md px-2.5 py-1.5 line-clamp-3 font-data">
+            <button
+              type="button"
+              onClick={() => setShowLogs(true)}
+              title="Open logs"
+              className="w-full text-left text-[0.6875rem] text-destructive/90 bg-destructive/10 border border-destructive/25 hover:bg-destructive/15 hover:border-destructive/40 transition-colors rounded-md px-2.5 py-1.5 line-clamp-3 font-data cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-destructive/50"
+            >
               {camera.error_message}
-            </div>
+            </button>
           )}
         </div>
       </div>
