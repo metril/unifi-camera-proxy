@@ -27,18 +27,15 @@ class Core(object):
     def _build_ws_headers(self) -> dict[str, str]:
         """Build the headers sent on the Protect adoption WebSocket.
 
-        ``camera-mac`` identifies the device by MAC. ``camera-model``
-        identifies the device by sysid (e.g. ``0xa572`` for a UVC G4
-        Bullet); Protect needs it to look the model up in its inventory
-        during the strict adoption path. Until v1.6.3 we computed
-        ``args.sysid`` but never sent it — Protect would queue back its
-        own hello + paramAgreement and then close the WS with code 4012,
-        because the model-validation pass had nothing to validate against.
+        v1.6.3 tried to add ``camera-model`` here using ``args.sysid``, on
+        the hypothesis that Protect needed it during adoption (the
+        model_db docstring claims so). That broke previously working tile
+        cameras with the same ``code=4012`` close that mosaic was hitting.
+        Until the exact wire format Protect actually accepts is confirmed,
+        only ``camera-mac`` goes on the wire — matching the pre-v1.6.3
+        behaviour that adopted tile cameras successfully.
         """
-        headers = {"camera-mac": self.mac}
-        if self.sysid:
-            headers["camera-model"] = self.sysid
-        return headers
+        return {"camera-mac": self.mac}
 
     async def run(self) -> None:
         uri = "wss://{}:7442/camera/1.0/ws?token={}".format(self.host, self.token)

@@ -601,30 +601,33 @@ class TestMosaicWarmupRetry:
 
 
 class TestWebSocketHeaders:
-    """v1.6.3: sysid must be sent as the ``camera-model`` WS header so
-    Protect can identify the device during adoption. The model_db lookup
-    has existed for releases but the header was never put on the wire,
-    which is what was triggering Protect's WS close code 4012 on adopt."""
+    """v1.6.3 tried adding ``camera-model: <sysid>`` to the WS handshake on
+    the hypothesis that Protect's strict adoption needed it — and that
+    broke previously-working tile cameras with the same ``code=4012`` close.
+    v1.6.4 reverted. These tests are now a regression guard: re-introducing
+    ``camera-model`` without explicit reasoning has to update them
+    deliberately."""
 
-    def test_camera_model_header_included_when_sysid_set(self):
+    def test_camera_model_header_not_sent_even_when_sysid_set(self):
         from unifi.core import Core
 
         core = object.__new__(Core)
         core.mac = "AABBCC112233"
-        core.sysid = "0xa572"  # UVC G4 Bullet
+        core.sysid = "0xa572"  # UVC G4 Bullet — still computed; just not sent
         headers = Core._build_ws_headers(core)
-        assert headers["camera-mac"] == "AABBCC112233"
-        assert headers["camera-model"] == "0xa572"
+        assert headers == {"camera-mac": "AABBCC112233"}, (
+            "WS handshake must send camera-mac only — adding camera-model "
+            "in v1.6.3 broke tile-camera adoption with code=4012."
+        )
 
-    def test_camera_model_header_omitted_when_sysid_missing(self):
+    def test_camera_mac_present_when_sysid_missing(self):
         from unifi.core import Core
 
         core = object.__new__(Core)
         core.mac = "AABBCC112233"
         core.sysid = None
         headers = Core._build_ws_headers(core)
-        assert "camera-model" not in headers
-        assert headers["camera-mac"] == "AABBCC112233"
+        assert headers == {"camera-mac": "AABBCC112233"}
 
 
 class TestMosaicSidecarHandler:
