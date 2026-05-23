@@ -5,6 +5,8 @@ interface HlsPlayerProps {
   /** Camera id — also the go2rtc stream path name. */
   cameraId: string;
   className?: string;
+  /** Reports the decoded video resolution once known (for HUD overlays). */
+  onMeta?: (meta: { width: number; height: number }) => void;
 }
 
 /**
@@ -25,12 +27,18 @@ interface HlsPlayerProps {
  *    auth (when OIDC is on) must ride the Authorization header on every request,
  *    which only hls.js (via xhrSetup) can do — hence we never use native HLS.
  */
-export default function HlsPlayer({ cameraId, className }: HlsPlayerProps) {
+export default function HlsPlayer({ cameraId, className, onMeta }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !Hls.isSupported()) return;
+    const onLoaded = () => {
+      if (onMeta && video.videoWidth) {
+        onMeta({ width: video.videoWidth, height: video.videoHeight });
+      }
+    };
+    video.addEventListener('loadedmetadata', onLoaded);
 
     const token = localStorage.getItem('ui_token');
     // fMP4 (&mp4) so H265 cameras work too; bare stream.m3u8 is H264-only TS.
@@ -110,11 +118,12 @@ export default function HlsPlayer({ cameraId, className }: HlsPlayerProps) {
       if (retryTimer) clearTimeout(retryTimer);
       document.removeEventListener('visibilitychange', onVisibility);
       observer?.disconnect();
+      video.removeEventListener('loadedmetadata', onLoaded);
       hls.destroy();
       video.removeAttribute('src');
       video.load();
     };
-  }, [cameraId]);
+  }, [cameraId, onMeta]);
 
   return <video ref={videoRef} muted playsInline className={className} />;
 }

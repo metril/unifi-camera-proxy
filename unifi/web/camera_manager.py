@@ -107,6 +107,40 @@ class CameraManager:
             return
         asyncio.create_task(self.go2rtc.apply_config(self.config))
 
+    async def ensure_started_after_save(self, camera_id: str) -> None:
+        """After a mosaic is saved, deterministically bring it up.
+
+        A mosaic process pulls ``rtsp://127.0.0.1:8554/<id>``, so go2rtc must
+        already hold that stream before we start the process — otherwise it
+        races and the composition stays blank. We also start any tile-source
+        cameras the mosaic depends on. Non-mosaic cameras keep manual Start.
+        """
+        instance = self.instances.get(camera_id)
+        if not instance or instance.config.get("type") != "mosaic":
+            return
+        if not instance.config.get("enabled", True):
+            return
+        # Bring up any source cameras the mosaic tiles point at, so go2rtc's
+        # exec ffmpeg has live RTSP inputs by the time it starts.
+        for tile in instance.config.get("tiles") or []:
+            src_id = tile.get("source")
+            if not src_id:
+                continue
+            src = self.instances.get(src_id)
+            if src and src.config.get("enabled", True) and src.status != "running":
+                try:
+                    await self.start_camera(src_id)
+                except Exception as e:
+                    logger.warning(
+                        f"Mosaic {camera_id}: failed to auto-start tile source "
+                        f"{src_id}: {e}"
+                    )
+        # Now write the mosaic's exec into go2rtc.yaml + restart go2rtc.
+        await self.go2rtc.apply_config(self.config)
+        # Finally, start the mosaic camera process (the one pushing to Protect).
+        if instance.status != "running":
+            await self.start_camera(camera_id)
+
     def reload_config(self):
         self.config = load_config(self.config_path)
         # Update existing instances and add new ones
@@ -624,7 +658,11 @@ class CameraManager:
         save_config(self.config_path, self.config)
         cam_id = camera_config["id"]
         self.instances[cam_id] = CameraInstance(id=cam_id, config=camera_config)
-        self._schedule_go2rtc_sync()
+        # Mosaics need a deterministic, awaited bring-up (ensure_started_after_save)
+        # so the server endpoint takes that path; for other camera types a
+        # fire-and-forget go2rtc sync is enough.
+        if camera_config.get("type") != "mosaic":
+            self._schedule_go2rtc_sync()
         return camera_config
 
     def update_camera(self, camera_id: str, camera_config: dict) -> dict:
@@ -655,7 +693,10 @@ class CameraManager:
                 and instance.status == "running"
             ):
                 asyncio.create_task(self._update_protect_device(instance))
-        self._schedule_go2rtc_sync()
+        # See add_camera: mosaics go through ensure_started_after_save instead,
+        # so the server can await go2rtc restart + dependency start in order.
+        if camera_config.get("type") != "mosaic":
+            self._schedule_go2rtc_sync()
         return camera_config
 
     async def delete_camera(self, camera_id: str) -> None:

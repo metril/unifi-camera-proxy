@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Rnd } from 'react-rnd';
 import { Plus, Link2, Cctv, Save, Shuffle, X } from 'lucide-react';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -184,16 +183,12 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
   const usedCameraIds = new Set(tiles.map((t) => t.source).filter(Boolean));
   const selectedTile = tiles.find((t) => t.key === selected) || null;
 
-  return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        className="max-w-[96vw] w-[96vw] h-[92vh] max-h-[92vh] p-0 gap-0 flex flex-col overflow-hidden"
-        onInteractOutside={(e) => e.preventDefault()}
-      >
-        <DialogTitle className="sr-only">GridFusion composition editor</DialogTitle>
+  if (!isOpen) return null;
 
-        {/* Header */}
-        <div className="h-16 shrink-0 flex items-center gap-4 px-5 border-b border-border">
+  return (
+    <div className="absolute inset-0 flex flex-col bg-background overflow-hidden">
+      {/* Header */}
+      <div className="h-16 shrink-0 flex items-center gap-4 px-5 border-b border-border">
           <div className="flex items-center gap-2 text-primary">
             <Cctv className="w-5 h-5" />
             <span className="label-eyebrow">GridFusion</span>
@@ -403,7 +398,6 @@ export default function GridFusionEditor({ isOpen, onClose, onSave, cameras, edi
             )}
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+    </div>
   );
 }

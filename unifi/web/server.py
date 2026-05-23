@@ -79,8 +79,14 @@ VALID_CAMERA_TYPES = {
 }
 
 
-def _validate_camera_config(data: dict) -> list[str]:
-    """Validate camera config and return list of error messages."""
+def _validate_camera_config(
+    data: dict, manager: CameraManager | None = None, editing_id: str | None = None
+) -> list[str]:
+    """Validate camera config and return list of error messages.
+
+    For mosaics, also check the tile list — empty tiles or invalid w/h/source
+    used to fail silently downstream in go2rtc, leaving a blank composition.
+    """
     errors = []
     if not data.get("name"):
         errors.append("'name' is required")
@@ -90,6 +96,38 @@ def _validate_camera_config(data: dict) -> list[str]:
         errors.append(f"'type' must be one of: {', '.join(sorted(VALID_CAMERA_TYPES))}")
     if not data.get("mac"):
         errors.append("'mac' is required")
+
+    if data.get("type") == "mosaic":
+        tiles = data.get("tiles") or []
+        if not isinstance(tiles, list) or len(tiles) == 0:
+            errors.append("Composition needs at least one tile")
+        else:
+            known_ids: set[str] = set()
+            if manager is not None:
+                known_ids = {
+                    c.get("id")
+                    for c in manager.config.get("cameras", [])
+                    if c.get("id") and c.get("id") != editing_id
+                }
+            for i, tile in enumerate(tiles):
+                if not isinstance(tile, dict):
+                    errors.append(f"Tile {i + 1}: invalid tile")
+                    continue
+                try:
+                    w = int(tile.get("w", 0))
+                    h = int(tile.get("h", 0))
+                except (TypeError, ValueError):
+                    w = h = 0
+                if w <= 0 or h <= 0:
+                    errors.append(f"Tile {i + 1}: width and height must be > 0")
+                source = tile.get("source")
+                url = tile.get("url")
+                if not source and not url:
+                    errors.append(f"Tile {i + 1}: needs a source camera or RTSP url")
+                elif source and known_ids and source not in known_ids:
+                    errors.append(
+                        f"Tile {i + 1}: source camera '{source}' does not exist"
+                    )
     return errors
 
 
@@ -97,10 +135,19 @@ async def add_camera(request: web.Request) -> web.Response:
     manager = get_manager(request)
     try:
         data = await request.json()
-        errors = _validate_camera_config(data)
+        errors = _validate_camera_config(data, manager)
         if errors:
             return web.json_response({"errors": errors}, status=400)
         result = manager.add_camera(data)
+        # A mosaic needs deterministic bring-up: go2rtc gets the new exec stream
+        # and tile sources are auto-started before the mosaic process is spawned.
+        if data.get("type") == "mosaic":
+            try:
+                await asyncio.wait_for(
+                    manager.ensure_started_after_save(result["id"]), timeout=20
+                )
+            except Exception as e:
+                logger.warning(f"Mosaic auto-start incomplete for {result['id']}: {e}")
         return web.json_response(result, status=201)
     except Exception as e:
         logger.exception(f"Failed to add camera: {e}")
@@ -124,11 +171,20 @@ async def update_camera(request: web.Request) -> web.Response:
         data = await request.json()
     except Exception:
         return web.json_response({"error": "Invalid JSON"}, status=400)
-    errors = _validate_camera_config(data)
+    errors = _validate_camera_config(data, manager, editing_id=camera_id)
     if errors:
         return web.json_response({"errors": errors}, status=400)
     try:
         result = manager.update_camera(camera_id, data)
+        # Re-saving a mosaic should also ensure its dependencies + go2rtc are in
+        # sync; if it's already running, this is a no-op for the mosaic process.
+        if data.get("type") == "mosaic":
+            try:
+                await asyncio.wait_for(
+                    manager.ensure_started_after_save(camera_id), timeout=20
+                )
+            except Exception as e:
+                logger.warning(f"Mosaic re-apply incomplete for {camera_id}: {e}")
         return web.json_response(result)
     except ValueError as e:
         return web.json_response({"error": str(e)}, status=404)
@@ -843,7 +899,9 @@ async def security_headers_middleware(request: web.Request, handler):
 
 
 async def health_check(request: web.Request) -> web.Response:
-    return web.json_response({"status": "ok"})
+    from unifi.version import __version__
+
+    return web.json_response({"status": "ok", "version": __version__})
 
 
 async def readiness_check(request: web.Request) -> web.Response:

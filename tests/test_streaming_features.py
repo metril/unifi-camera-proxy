@@ -180,6 +180,137 @@ class TestWriteConfig:
         assert "candidates" not in doc["webrtc"]
 
 
+class TestMosaicValidation:
+    """Validation must catch the silent-fail mosaic configs that used to
+    produce blank compositions downstream in go2rtc / the mosaic process."""
+
+    @staticmethod
+    def _validate(data, manager=None, editing_id=None):
+        from unifi.web.server import _validate_camera_config
+
+        return _validate_camera_config(data, manager, editing_id)
+
+    def _base(self, **overrides):
+        cfg = {"name": "Wall", "type": "mosaic", "mac": "AA:BB:CC:DD:EE:FF"}
+        cfg.update(overrides)
+        return cfg
+
+    def test_rejects_missing_tiles(self):
+        errors = self._validate(self._base())
+        assert any("at least one tile" in e for e in errors)
+
+    def test_rejects_empty_tiles(self):
+        errors = self._validate(self._base(tiles=[]))
+        assert any("at least one tile" in e for e in errors)
+
+    def test_rejects_zero_size_tile(self):
+        errors = self._validate(
+            self._base(tiles=[{"url": "rtsp://x", "x": 0, "y": 0, "w": 0, "h": 480}])
+        )
+        assert any("Tile 1" in e and "width and height" in e for e in errors)
+
+    def test_rejects_tile_without_source_or_url(self):
+        errors = self._validate(
+            self._base(tiles=[{"x": 0, "y": 0, "w": 100, "h": 100}])
+        )
+        assert any("Tile 1" in e and "source camera or RTSP url" in e for e in errors)
+
+    def test_rejects_tile_with_unknown_source(self):
+        class FakeMgr:
+            config = {"cameras": [{"id": "abc123"}]}
+
+        errors = self._validate(
+            self._base(tiles=[{"source": "ghost", "x": 0, "y": 0, "w": 100, "h": 100}]),
+            manager=FakeMgr(),
+        )
+        assert any(
+            "Tile 1" in e and "ghost" in e and "does not exist" in e for e in errors
+        )
+
+    def test_accepts_valid_mosaic(self):
+        class FakeMgr:
+            config = {"cameras": [{"id": "abc123"}]}
+
+        errors = self._validate(
+            self._base(
+                tiles=[
+                    {"source": "abc123", "x": 0, "y": 0, "w": 960, "h": 540},
+                    {"url": "rtsp://h/s", "x": 960, "y": 0, "w": 960, "h": 540},
+                ]
+            ),
+            manager=FakeMgr(),
+        )
+        assert errors == []
+
+    def test_non_mosaic_unaffected(self):
+        errors = self._validate(
+            {"name": "C", "type": "rtsp", "mac": "AA:BB:CC:DD:EE:FF"}
+        )
+        # No tile fields required for non-mosaic cameras.
+        assert errors == []
+
+
+class TestEnsureStartedAfterSave:
+    """ensure_started_after_save must auto-start tile-source dependencies,
+    then await the go2rtc restart, then start the mosaic process — in order."""
+
+    def test_orchestrates_dependency_start_then_apply_then_mosaic(self):
+        import asyncio
+
+        from unifi.web.camera_manager import CameraInstance, CameraManager
+
+        calls: list[str] = []
+
+        async def fake_apply_config(_cfg):
+            calls.append("apply_config")
+
+        async def fake_start_camera(cam_id):
+            calls.append(f"start:{cam_id}")
+            mgr.instances[cam_id].status = "running"
+
+        mgr = object.__new__(CameraManager)
+        mgr.config = {
+            "global": {},
+            "cameras": [
+                {"id": "src1", "type": "rtsp", "enabled": True},
+                {
+                    "id": "wall1",
+                    "type": "mosaic",
+                    "enabled": True,
+                    "tiles": [{"source": "src1", "x": 0, "y": 0, "w": 960, "h": 540}],
+                },
+            ],
+        }
+        mgr.instances = {
+            "src1": CameraInstance(id="src1", config=mgr.config["cameras"][0]),
+            "wall1": CameraInstance(id="wall1", config=mgr.config["cameras"][1]),
+        }
+
+        class FakeGo2rtc:
+            apply_config = staticmethod(fake_apply_config)
+
+        mgr.go2rtc = FakeGo2rtc()
+        mgr.start_camera = fake_start_camera  # type: ignore[assignment]
+
+        asyncio.run(mgr.ensure_started_after_save("wall1"))
+
+        # Tile source must come up FIRST, then go2rtc applies (so its exec has
+        # an RTSP input ready), then the mosaic process spawns.
+        assert calls == ["start:src1", "apply_config", "start:wall1"]
+
+    def test_noop_for_non_mosaic(self):
+        import asyncio
+
+        from unifi.web.camera_manager import CameraInstance, CameraManager
+
+        mgr = object.__new__(CameraManager)
+        mgr.config = {"cameras": [{"id": "c1", "type": "rtsp"}]}
+        mgr.instances = {"c1": CameraInstance(id="c1", config=mgr.config["cameras"][0])}
+
+        # Should return without touching go2rtc or start_camera.
+        asyncio.run(mgr.ensure_started_after_save("c1"))
+
+
 class TestMosaicConfigToArgs:
     def test_stream_name_is_camera_id(self):
         args = config_to_args(

@@ -30,71 +30,253 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* Dark theme as default (app has no light mode) */
+/* Operations-console palette — dark base, cyan primary for "active/instrumented"
+   states, amber secondary for "warm/in-flight/attention" states, neutral mid-tone
+   tertiary so hierarchy isn't a binary accent/muted flip. */
 @layer base {
   :root {
     --background: 224 71% 4%;
     --foreground: 213 31% 91%;
-    --card: 222 47% 11%;
+    --card: 222 47% 9%;
     --card-foreground: 213 31% 91%;
-    --popover: 222 47% 11%;
+    --popover: 222 47% 9%;
     --popover-foreground: 213 31% 91%;
-    --primary: 217 91% 60%;
+    --primary: 191 95% 56%;        /* cyan — active, live, "on the wire" */
     --primary-foreground: 222 47% 11%;
     --secondary: 222 47% 11%;
     --secondary-foreground: 213 31% 91%;
     --muted: 223 47% 11%;
-    --muted-foreground: 215 20% 57%;
+    --muted-foreground: 215 18% 60%;
     --accent: 216 34% 17%;
     --accent-foreground: 213 31% 91%;
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 98%;
-    --border: 216 34% 17%;
-    --input: 216 34% 17%;
-    --ring: 217 91% 60%;
-    --radius: 0.5rem;
+    --border: 216 30% 16%;
+    --input: 216 30% 16%;
+    --ring: 191 95% 56%;
+    --radius: 0.625rem;
+
+    /* Custom palette tokens for the operations-console identity. */
+    --signal: 191 95% 56%;          /* cyan — same as primary */
+    --signal-soft: 191 95% 56% / 0.14;
+    --warm: 32 96% 60%;             /* amber — warnings, recording, attention */
+    --warm-soft: 32 96% 60% / 0.14;
+    --good: 152 76% 50%;            /* emerald — running, healthy */
+    --good-soft: 152 76% 50% / 0.14;
+    --grid-line: 216 30% 16% / 0.42;
   }
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    -webkit-font-smoothing: antialiased;
+  }
+  html, body {
+    @apply bg-background text-foreground;
   }
   body {
-    @apply bg-background text-foreground;
     font-family: var(--font-sans);
     font-feature-settings: "ss01", "cv01";
-    /* NVR-console atmosphere: a faint signal grid + a cool top glow, fixed so
-       it reads as a backdrop the panels float over. */
+    /* Layered backdrop: a faint top glow, a faint corner spotlight, a fine
+       signal grid, and an even-finer dot raster — none loud, all together
+       reading as instrumentation rather than wallpaper. */
     background-image:
-      linear-gradient(to bottom, hsl(217 91% 60% / 0.05), transparent 38%),
-      linear-gradient(hsl(216 34% 17% / 0.30) 1px, transparent 1px),
-      linear-gradient(90deg, hsl(216 34% 17% / 0.30) 1px, transparent 1px);
-    background-size: 100% 100%, 44px 44px, 44px 44px;
+      radial-gradient(1200px 600px at 50% -10%, hsl(var(--signal) / 0.07), transparent 60%),
+      radial-gradient(800px 600px at 95% 0%, hsl(var(--warm) / 0.04), transparent 55%),
+      linear-gradient(hsl(var(--grid-line)) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--grid-line)) 1px, transparent 1px),
+      radial-gradient(hsl(var(--grid-line)) 1px, transparent 1px);
+    background-size: 100% 100%, 100% 100%, 48px 48px, 48px 48px, 16px 16px;
+    background-position: 0 0, 0 0, 0 0, 0 0, 0 0;
     background-attachment: fixed;
   }
+
+  ::selection { background: hsl(var(--signal) / 0.35); color: hsl(var(--foreground)); }
+
+  /* Custom scrollbar — slim, matches the chrome instead of fighting it. */
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 10px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); background-clip: padding-box; }
+
   /* Technical data (MAC, IP, model codes, resolutions, coordinates) reads as
      monospace — the single strongest "this is real tooling" signal. */
   .font-data {
     font-family: var(--font-mono);
-    font-feature-settings: "zero", "ss01";
+    font-feature-settings: "zero", "ss01", "cv02";
     letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
   }
   /* Uppercase section/eyebrow labels. */
   .label-eyebrow {
     font-family: var(--font-mono);
     text-transform: uppercase;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.16em;
     font-size: 0.6875rem;
     font-weight: 500;
   }
+  .label-hud {
+    font-family: var(--font-mono);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 0.625rem;
+    font-weight: 500;
+    line-height: 1;
+  }
 }
 
-/* Live status pulse for running cameras. */
+/* ---------- motion ---------- */
+
 @keyframes signal-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.9); }
 }
-.animate-signal {
-  animation: signal-pulse 1.8s ease-in-out infinite;
+.animate-signal { animation: signal-pulse 1.8s ease-in-out infinite; }
+
+@keyframes data-tick {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+.animate-tick { animation: data-tick 2.4s ease-in-out infinite; }
+
+@keyframes hud-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+.animate-hud-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, hsl(var(--signal) / 0.15), transparent);
+  animation: hud-sweep 6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-rise { animation: rise-in 0.42s cubic-bezier(0.21, 0.61, 0.35, 1) both; }
+.animate-rise-stagger > * { animation: rise-in 0.42s cubic-bezier(0.21, 0.61, 0.35, 1) both; }
+.animate-rise-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.animate-rise-stagger > *:nth-child(2) { animation-delay: 35ms; }
+.animate-rise-stagger > *:nth-child(3) { animation-delay: 70ms; }
+.animate-rise-stagger > *:nth-child(4) { animation-delay: 105ms; }
+.animate-rise-stagger > *:nth-child(5) { animation-delay: 140ms; }
+.animate-rise-stagger > *:nth-child(6) { animation-delay: 175ms; }
+.animate-rise-stagger > *:nth-child(7) { animation-delay: 210ms; }
+.animate-rise-stagger > *:nth-child(8) { animation-delay: 245ms; }
+.animate-rise-stagger > *:nth-child(n+9) { animation-delay: 280ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-signal,
+  .animate-tick,
+  .animate-hud-sweep::after,
+  .animate-rise,
+  .animate-rise-stagger > * {
+    animation: none !important;
+  }
+}
+
+/* ---------- surfaces ---------- */
+
+/* Glass panel — used on tile HUDs, modal headers, footers. */
+.surface-glass {
+  background: linear-gradient(180deg, hsl(0 0% 0% / 0.78) 0%, hsl(0 0% 0% / 0.32) 80%, hsl(0 0% 0% / 0) 100%);
+  backdrop-filter: blur(6px);
+}
+
+/* Elevated panel — used on cards, settings sections. Layered transparency +
+   a hairline highlight at the top edge for depth without heavy shadows. */
+.surface-panel {
+  background: linear-gradient(180deg, hsl(222 47% 11% / 0.85), hsl(222 47% 9% / 0.85));
+  border: 1px solid hsl(var(--border));
+  box-shadow:
+    inset 0 1px 0 0 hsl(213 31% 91% / 0.04),
+    0 1px 0 0 hsl(0 0% 0% / 0.4);
+}
+
+/* Scanline overlay for live video tiles — adds broadcast monitor feel. */
+.scanlines {
+  position: relative;
+}
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    180deg,
+    transparent 0,
+    transparent 2px,
+    hsl(0 0% 100% / 0.025) 3px,
+    transparent 4px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.6;
+}
+
+/* Subtle vignette on dark surfaces */
+.surface-vignette {
+  position: relative;
+}
+.surface-vignette::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 100% at 50% 0%, transparent 60%, hsl(0 0% 0% / 0.45));
+}
+
+/* Corner tick marks for tiles — operations-console framing. */
+.corner-ticks::before,
+.corner-ticks::after {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: hsl(var(--signal) / 0.55);
+  border-style: solid;
+  pointer-events: none;
+}
+.corner-ticks::before {
+  top: 6px; left: 6px;
+  border-width: 1px 0 0 1px;
+}
+.corner-ticks::after {
+  bottom: 6px; right: 6px;
+  border-width: 0 1px 1px 0;
+}
+
+/* Status chips — flat, mono label, colored hairline border. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.1em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  font-weight: 500;
+  border: 1px solid;
+}
+.chip-signal { background: hsl(var(--signal) / 0.12); border-color: hsl(var(--signal) / 0.4); color: hsl(var(--signal)); }
+.chip-good   { background: hsl(var(--good)   / 0.12); border-color: hsl(var(--good)   / 0.4); color: hsl(var(--good)); }
+.chip-warm   { background: hsl(var(--warm)   / 0.12); border-color: hsl(var(--warm)   / 0.4); color: hsl(var(--warm)); }
+.chip-muted  { background: hsl(var(--muted-foreground) / 0.08); border-color: hsl(var(--muted-foreground) / 0.25); color: hsl(var(--muted-foreground)); }
+.chip-danger { background: hsl(var(--destructive) / 0.14); border-color: hsl(var(--destructive) / 0.45); color: hsl(0 80% 75%); }
+
+/* A focus ring style we can re-use without fighting Radix's default. */
+.focus-ring {
+  outline: none;
+  box-shadow: 0 0 0 2px hsl(var(--background)), 0 0 0 4px hsl(var(--signal) / 0.5);
 }

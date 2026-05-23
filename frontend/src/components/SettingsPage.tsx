@@ -1,5 +1,16 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { Plug, Boxes, KeyRound, RefreshCw, Network } from 'lucide-react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  Plug,
+  Boxes,
+  KeyRound,
+  RefreshCw,
+  Network,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  Undo2,
+  Save,
+} from 'lucide-react';
 import { api } from '../api';
 import type { GlobalConfig } from '../types';
 import { Button } from '@/components/ui/button';
@@ -7,6 +18,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
 
 interface SettingsPageProps {
   config: GlobalConfig;
@@ -15,25 +27,77 @@ interface SettingsPageProps {
 
 type Status = { type: 'idle' | 'loading' | 'success' | 'error'; message?: string; items?: string[] };
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: ReactNode;
+}) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-sm">{label}</Label>
+      <Label className="label-eyebrow text-muted-foreground">{label}</Label>
       {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-[0.6875rem] text-muted-foreground/85 leading-relaxed">{hint}</p>}
     </div>
   );
 }
 
-function Section({ title, desc, children }: { title: string; desc?: string; children: ReactNode }) {
+function Section({
+  title,
+  desc,
+  icon,
+  children,
+}: {
+  title: string;
+  desc?: string;
+  icon?: ReactNode;
+  children: ReactNode;
+}) {
   return (
-    <div className="rounded-lg border border-border bg-card/60 p-5 space-y-4">
-      <div>
-        <h3 className="font-semibold tracking-tight">{title}</h3>
-        {desc && <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>}
-      </div>
-      {children}
-    </div>
+    <section className="surface-panel rounded-lg overflow-hidden">
+      <header className="px-5 py-4 border-b border-border/60 flex items-start gap-3">
+        {icon && (
+          <div className="w-8 h-8 rounded-md border border-border bg-background/40 grid place-items-center text-primary shrink-0">
+            {icon}
+          </div>
+        )}
+        <div className="min-w-0">
+          <h3 className="font-semibold tracking-tight leading-tight">{title}</h3>
+          {desc && (
+            <p className="text-[0.6875rem] text-muted-foreground mt-1 max-w-prose leading-relaxed">
+              {desc}
+            </p>
+          )}
+        </div>
+      </header>
+      <div className="p-5 space-y-4">{children}</div>
+    </section>
+  );
+}
+
+function StatusLine({ status }: { status: Status }) {
+  if (status.type === 'idle') return null;
+  if (status.type === 'loading') {
+    return (
+      <p className="text-[0.6875rem] text-muted-foreground flex items-center gap-1.5">
+        <Loader2 className="w-3 h-3 animate-spin" /> {status.message || 'Working…'}
+      </p>
+    );
+  }
+  if (status.type === 'success') {
+    return (
+      <p className="text-[0.6875rem] text-[hsl(var(--good))] flex items-center gap-1.5">
+        <CheckCircle2 className="w-3 h-3" /> {status.message}
+      </p>
+    );
+  }
+  return (
+    <p className="text-[0.6875rem] text-destructive flex items-center gap-1.5">
+      <XCircle className="w-3 h-3" /> {status.message}
+    </p>
   );
 }
 
@@ -44,6 +108,20 @@ const TABS = [
   { id: 'security', label: 'Security', icon: KeyRound },
   { id: 'reliability', label: 'Reliability', icon: RefreshCw },
 ];
+
+function diffCount(a: GlobalConfig, b: GlobalConfig): number {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof GlobalConfig>;
+  let n = 0;
+  for (const k of keys) {
+    if (k === 'has_oidc') continue;
+    const av = a[k];
+    const bv = b[k];
+    // Treat null/undefined/empty string as equivalent for the diff check.
+    const norm = (v: unknown) => (v === null || v === undefined || v === '' ? '' : v);
+    if (norm(av) !== norm(bv)) n += 1;
+  }
+  return n;
+}
 
 export default function SettingsPage({ config, onSave }: SettingsPageProps) {
   const [form, setForm] = useState<GlobalConfig>(config);
@@ -56,10 +134,14 @@ export default function SettingsPage({ config, onSave }: SettingsPageProps) {
     setForm(config);
   }, [config]);
 
-  const set = (field: keyof GlobalConfig, value: unknown) => setForm((p) => ({ ...p, [field]: value }));
+  const set = (field: keyof GlobalConfig, value: unknown) =>
+    setForm((p) => ({ ...p, [field]: value }));
+
+  const pending = useMemo(() => diffCount(form, config), [form, config]);
+  const isDirty = pending > 0;
 
   const genCert = async () => {
-    setCert({ type: 'loading' });
+    setCert({ type: 'loading', message: 'Generating certificate…' });
     try {
       const r = await api.generateCert(form.cert);
       setCert({ type: 'success', message: `Certificate generated: ${r.path}` });
@@ -68,7 +150,7 @@ export default function SettingsPage({ config, onSave }: SettingsPageProps) {
     }
   };
   const fetchToken = async () => {
-    setToken({ type: 'loading' });
+    setToken({ type: 'loading', message: 'Fetching adoption token…' });
     try {
       const r = await api.fetchToken(form.host, form.nvr_username, form.nvr_password, form.api_key);
       set('token', r.token);
@@ -78,35 +160,56 @@ export default function SettingsPage({ config, onSave }: SettingsPageProps) {
     }
   };
   const testMqtt = async () => {
-    setMqtt({ type: 'loading' });
+    setMqtt({ type: 'loading', message: 'Discovering MQTT topics…' });
     try {
-      const r = await api.testMqtt(form.mqtt_host, form.mqtt_port, form.mqtt_username, form.mqtt_password, form.mqtt_ssl || false, form.mqtt_prefix || 'frigate');
-      setMqtt({ type: 'success', message: r.topics.length ? `Found ${r.topics.length} topics` : 'Connected; no topics in 5s', items: r.topics });
+      const r = await api.testMqtt(
+        form.mqtt_host,
+        form.mqtt_port,
+        form.mqtt_username,
+        form.mqtt_password,
+        form.mqtt_ssl || false,
+        form.mqtt_prefix || 'frigate',
+      );
+      setMqtt({
+        type: 'success',
+        message: r.topics.length ? `Found ${r.topics.length} topics` : 'Connected; no topics in 5s',
+        items: r.topics,
+      });
     } catch (e) {
       setMqtt({ type: 'error', message: e instanceof Error ? e.message : 'Failed' });
     }
   };
   const testFrigate = async () => {
-    setFrigate({ type: 'loading' });
+    setFrigate({ type: 'loading', message: 'Probing Frigate API…' });
     try {
-      const r = await api.testFrigate(form.frigate_http_url, form.frigate_username, form.frigate_password, form.frigate_verify_ssl);
-      setFrigate({ type: 'success', message: `Connected (v${r.version}). ${r.cameras.length} camera(s)`, items: r.cameras });
+      const r = await api.testFrigate(
+        form.frigate_http_url,
+        form.frigate_username,
+        form.frigate_password,
+        form.frigate_verify_ssl,
+      );
+      setFrigate({
+        type: 'success',
+        message: `Connected (v${r.version}). ${r.cameras.length} camera(s)`,
+        items: r.cameras,
+      });
     } catch (e) {
       setFrigate({ type: 'error', message: e instanceof Error ? e.message : 'Failed' });
     }
   };
 
-  const ok = (s: Status) => s.type === 'success' && <p className="text-xs text-emerald-400">{s.message}</p>;
-  const err = (s: Status) => s.type === 'error' && <p className="text-xs text-red-400">{s.message}</p>;
-
   return (
-    <div className="max-w-4xl pb-24">
+    <div className="max-w-4xl pb-24 animate-rise">
       <Tabs defaultValue="connection" className="space-y-6">
-        <TabsList className="bg-card/60 border border-border">
+        <TabsList className="bg-card/60 border border-border h-10 p-1">
           {TABS.map((t) => {
             const Icon = t.icon;
             return (
-              <TabsTrigger key={t.id} value={t.id} className="gap-1.5 text-xs">
+              <TabsTrigger
+                key={t.id}
+                value={t.id}
+                className="gap-1.5 text-xs data-[state=active]:bg-primary/15 data-[state=active]:text-primary data-[state=active]:ring-1 data-[state=active]:ring-inset data-[state=active]:ring-primary/30"
+              >
                 <Icon className="w-3.5 h-3.5" /> {t.label}
               </TabsTrigger>
             );
@@ -115,34 +218,89 @@ export default function SettingsPage({ config, onSave }: SettingsPageProps) {
 
         {/* Connection */}
         <TabsContent value="connection" className="space-y-5">
-          <Section title="UniFi Protect" desc="Where the proxied cameras adopt.">
+          <Section
+            title="UniFi Protect"
+            desc="Where the proxied cameras adopt."
+            icon={<Plug className="w-3.5 h-3.5" />}
+          >
             <Field label="Protect host">
-              <Input value={form.host} onChange={(e) => set('host', e.target.value)} placeholder="192.168.1.1 or protect.local" className="font-data" />
+              <Input
+                value={form.host}
+                onChange={(e) => set('host', e.target.value)}
+                placeholder="192.168.1.1 or protect.local"
+                className="font-data"
+              />
             </Field>
             <Field label="Certificate path">
               <div className="flex gap-2">
-                <Input value={form.cert} onChange={(e) => set('cert', e.target.value)} placeholder="data/client.pem" className="flex-1 font-data" />
-                <Button type="button" variant="outline" size="sm" onClick={genCert} disabled={cert.type === 'loading'} className="text-emerald-400 border-emerald-600/30 hover:bg-emerald-600/10 whitespace-nowrap">
+                <Input
+                  value={form.cert}
+                  onChange={(e) => set('cert', e.target.value)}
+                  placeholder="data/client.pem"
+                  className="flex-1 font-data"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={genCert}
+                  disabled={cert.type === 'loading'}
+                  className="text-[hsl(var(--good))] border-[hsl(var(--good))]/30 hover:bg-[hsl(var(--good))]/10 whitespace-nowrap"
+                >
                   {cert.type === 'loading' ? 'Generating…' : 'Generate'}
                 </Button>
               </div>
-              {ok(cert)} {err(cert)}
+              <StatusLine status={cert} />
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="NVR username"><Input value={form.nvr_username || ''} onChange={(e) => set('nvr_username', e.target.value || null)} /></Field>
-              <Field label="NVR password"><Input type="password" value={form.nvr_password || ''} onChange={(e) => set('nvr_password', e.target.value || null)} /></Field>
+              <Field label="NVR username">
+                <Input
+                  value={form.nvr_username || ''}
+                  onChange={(e) => set('nvr_username', e.target.value || null)}
+                />
+              </Field>
+              <Field label="NVR password">
+                <Input
+                  type="password"
+                  value={form.nvr_password || ''}
+                  onChange={(e) => set('nvr_password', e.target.value || null)}
+                />
+              </Field>
             </div>
             <Field label="API key" hint="Optional — used by cameras at runtime.">
-              <Input type="password" value={form.api_key || ''} onChange={(e) => set('api_key', e.target.value || null)} />
+              <Input
+                type="password"
+                value={form.api_key || ''}
+                onChange={(e) => set('api_key', e.target.value || null)}
+              />
             </Field>
-            <Field label="Adoption token" hint="Requires username/password. Leave empty to auto-fetch on start; tokens expire after 60 min.">
+            <Field
+              label="Adoption token"
+              hint="Requires username/password. Leave empty to auto-fetch on start; tokens expire after 60 min."
+            >
               <div className="flex gap-2">
-                <Input value={form.token} onChange={(e) => set('token', e.target.value)} className="flex-1 font-data text-xs" />
-                <Button type="button" variant="outline" size="sm" onClick={fetchToken} disabled={token.type === 'loading' || !form.host || !form.nvr_username || !form.nvr_password} className="text-primary border-primary/30 hover:bg-primary/10 whitespace-nowrap">
+                <Input
+                  value={form.token}
+                  onChange={(e) => set('token', e.target.value)}
+                  className="flex-1 font-data text-xs"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchToken}
+                  disabled={
+                    token.type === 'loading' ||
+                    !form.host ||
+                    !form.nvr_username ||
+                    !form.nvr_password
+                  }
+                  className="text-primary border-primary/30 hover:bg-primary/10 whitespace-nowrap"
+                >
                   {token.type === 'loading' ? 'Fetching…' : 'Fetch'}
                 </Button>
               </div>
-              {ok(token)} {err(token)}
+              <StatusLine status={token} />
             </Field>
             <div className="flex items-center gap-2">
               <Switch checked={form.verbose} onCheckedChange={(v) => set('verbose', v)} />
@@ -153,46 +311,140 @@ export default function SettingsPage({ config, onSave }: SettingsPageProps) {
 
         {/* Integrations */}
         <TabsContent value="integrations" className="space-y-5">
-          <Section title="MQTT" desc="Frigate event bus for smart detections.">
+          <Section
+            title="MQTT"
+            desc="Frigate event bus for smart detections."
+            icon={<Boxes className="w-3.5 h-3.5" />}
+          >
             <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-2"><Field label="MQTT host"><Input value={form.mqtt_host || ''} onChange={(e) => set('mqtt_host', e.target.value)} placeholder="mqtt.local" className="font-data" /></Field></div>
-              <Field label="Port"><Input type="number" value={form.mqtt_port || 1883} onChange={(e) => { const n = parseInt(e.target.value, 10); set('mqtt_port', Number.isNaN(n) ? 1883 : Math.max(1, Math.min(65535, n))); }} className="font-data" /></Field>
+              <div className="col-span-2">
+                <Field label="MQTT host">
+                  <Input
+                    value={form.mqtt_host || ''}
+                    onChange={(e) => set('mqtt_host', e.target.value)}
+                    placeholder="mqtt.local"
+                    className="font-data"
+                  />
+                </Field>
+              </div>
+              <Field label="Port">
+                <Input
+                  type="number"
+                  value={form.mqtt_port || 1883}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    set('mqtt_port', Number.isNaN(n) ? 1883 : Math.max(1, Math.min(65535, n)));
+                  }}
+                  className="font-data"
+                />
+              </Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Username"><Input value={form.mqtt_username || ''} onChange={(e) => set('mqtt_username', e.target.value || null)} /></Field>
-              <Field label="Password"><Input type="password" value={form.mqtt_password || ''} onChange={(e) => set('mqtt_password', e.target.value || null)} /></Field>
+              <Field label="Username">
+                <Input
+                  value={form.mqtt_username || ''}
+                  onChange={(e) => set('mqtt_username', e.target.value || null)}
+                />
+              </Field>
+              <Field label="Password">
+                <Input
+                  type="password"
+                  value={form.mqtt_password || ''}
+                  onChange={(e) => set('mqtt_password', e.target.value || null)}
+                />
+              </Field>
             </div>
             <div className="grid grid-cols-2 gap-3 items-end">
-              <Field label="Topic prefix"><Input value={form.mqtt_prefix || 'frigate'} onChange={(e) => set('mqtt_prefix', e.target.value)} className="font-data" /></Field>
-              <div className="flex items-center gap-2 pb-2"><Switch checked={form.mqtt_ssl || false} onCheckedChange={(v) => set('mqtt_ssl', v)} /><Label>SSL/TLS</Label></div>
+              <Field label="Topic prefix">
+                <Input
+                  value={form.mqtt_prefix || 'frigate'}
+                  onChange={(e) => set('mqtt_prefix', e.target.value)}
+                  className="font-data"
+                />
+              </Field>
+              <div className="flex items-center gap-2 pb-2">
+                <Switch
+                  checked={form.mqtt_ssl || false}
+                  onCheckedChange={(v) => set('mqtt_ssl', v)}
+                />
+                <Label>SSL/TLS</Label>
+              </div>
             </div>
-            <Button type="button" variant="outline" size="sm" className="w-full text-primary border-primary/30 hover:bg-primary/10" onClick={testMqtt} disabled={mqtt.type === 'loading' || !form.mqtt_host}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full text-primary border-primary/30 hover:bg-primary/10"
+              onClick={testMqtt}
+              disabled={mqtt.type === 'loading' || !form.mqtt_host}
+            >
               {mqtt.type === 'loading' ? 'Discovering…' : 'Test & discover topics'}
             </Button>
-            {ok(mqtt)} {err(mqtt)}
+            <StatusLine status={mqtt} />
             {mqtt.items && mqtt.items.length > 0 && (
-              <div className="max-h-32 overflow-auto bg-black/30 rounded p-2">
-                {mqtt.items.map((t) => <div key={t} className="text-xs text-muted-foreground font-data py-0.5">{t}</div>)}
+              <div className="max-h-32 overflow-auto bg-black/30 rounded p-2 border border-border/60">
+                {mqtt.items.map((t) => (
+                  <div key={t} className="text-[0.6875rem] text-muted-foreground font-data py-0.5">
+                    {t}
+                  </div>
+                ))}
               </div>
             )}
           </Section>
-          <Section title="Frigate" desc="HTTP API for snapshots and stream auto-detection.">
-            <Field label="Frigate HTTP URL"><Input value={form.frigate_http_url || ''} onChange={(e) => set('frigate_http_url', e.target.value)} placeholder="http://frigate:5000" className="font-data" /></Field>
+          <Section
+            title="Frigate"
+            desc="HTTP API for snapshots and stream auto-detection."
+            icon={<Boxes className="w-3.5 h-3.5" />}
+          >
+            <Field label="Frigate HTTP URL">
+              <Input
+                value={form.frigate_http_url || ''}
+                onChange={(e) => set('frigate_http_url', e.target.value)}
+                placeholder="http://frigate:5000"
+                className="font-data"
+              />
+            </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Username"><Input value={form.frigate_username || ''} onChange={(e) => set('frigate_username', e.target.value || null)} /></Field>
-              <Field label="Password"><Input type="password" value={form.frigate_password || ''} onChange={(e) => set('frigate_password', e.target.value || null)} /></Field>
+              <Field label="Username">
+                <Input
+                  value={form.frigate_username || ''}
+                  onChange={(e) => set('frigate_username', e.target.value || null)}
+                />
+              </Field>
+              <Field label="Password">
+                <Input
+                  type="password"
+                  value={form.frigate_password || ''}
+                  onChange={(e) => set('frigate_password', e.target.value || null)}
+                />
+              </Field>
             </div>
             <div className="flex items-center gap-2">
-              <Switch checked={form.frigate_verify_ssl} onCheckedChange={(v) => set('frigate_verify_ssl', v)} />
-              <Label>Verify SSL <span className="text-xs text-muted-foreground">(uncheck for self-signed)</span></Label>
+              <Switch
+                checked={form.frigate_verify_ssl}
+                onCheckedChange={(v) => set('frigate_verify_ssl', v)}
+              />
+              <Label>
+                Verify SSL{' '}
+                <span className="text-[0.6875rem] text-muted-foreground">(uncheck for self-signed)</span>
+              </Label>
             </div>
-            <Button type="button" variant="outline" size="sm" className="w-full text-primary border-primary/30 hover:bg-primary/10" onClick={testFrigate} disabled={frigate.type === 'loading' || !form.frigate_http_url}>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="w-full text-primary border-primary/30 hover:bg-primary/10"
+              onClick={testFrigate}
+              disabled={frigate.type === 'loading' || !form.frigate_http_url}
+            >
               {frigate.type === 'loading' ? 'Testing…' : 'Test Frigate connection'}
             </Button>
-            {ok(frigate)} {err(frigate)}
+            <StatusLine status={frigate} />
             {frigate.items && frigate.items.length > 0 && (
               <div className="flex flex-wrap gap-1">
-                {frigate.items.map((c) => <span key={c} className="text-xs bg-secondary text-secondary-foreground px-2 py-0.5 rounded font-data">{c}</span>)}
+                {frigate.items.map((c) => (
+                  <span key={c} className="chip chip-muted">{c}</span>
+                ))}
               </div>
             )}
           </Section>
@@ -200,51 +452,163 @@ export default function SettingsPage({ config, onSave }: SettingsPageProps) {
 
         {/* Streaming */}
         <TabsContent value="streaming" className="space-y-5">
-          <Section title="RTSP authentication" desc="Auto-injected into RTSP URLs without credentials. Leave empty for unauthenticated streams.">
+          <Section
+            title="RTSP authentication"
+            desc="Auto-injected into RTSP URLs without credentials. Leave empty for unauthenticated streams."
+            icon={<Network className="w-3.5 h-3.5" />}
+          >
             <div className="grid grid-cols-2 gap-3">
-              <Field label="RTSP username"><Input value={form.rtsp_username || ''} onChange={(e) => set('rtsp_username', e.target.value || null)} /></Field>
-              <Field label="RTSP password"><Input type="password" value={form.rtsp_password || ''} onChange={(e) => set('rtsp_password', e.target.value || null)} /></Field>
+              <Field label="RTSP username">
+                <Input
+                  value={form.rtsp_username || ''}
+                  onChange={(e) => set('rtsp_username', e.target.value || null)}
+                />
+              </Field>
+              <Field label="RTSP password">
+                <Input
+                  type="password"
+                  value={form.rtsp_password || ''}
+                  onChange={(e) => set('rtsp_password', e.target.value || null)}
+                />
+              </Field>
             </div>
           </Section>
-          <Section title="Live Wall & close-up" desc="The Live Wall plays via HLS through this server. The click-to-expand close-up uses WebRTC for sub-second latency when reachable, falling back to MSE otherwise.">
-            <Field label="WebRTC candidate" hint="For the low-latency close-up: a host:port the browser can reach directly (e.g. cam.example.com:8555 or stun:8555). Forward port 8555 (TCP+UDP) to this container. Leave empty to use MSE only.">
-              <Input value={form.webrtc_candidate || ''} onChange={(e) => set('webrtc_candidate', e.target.value)} placeholder="host.example.com:8555" className="font-data text-xs" />
+          <Section
+            title="Live Wall & close-up"
+            desc="The Live Wall plays via HLS through this server. The click-to-expand close-up uses WebRTC for sub-second latency when reachable, falling back to MSE otherwise."
+            icon={<Network className="w-3.5 h-3.5" />}
+          >
+            <Field
+              label="WebRTC candidate"
+              hint="For the low-latency close-up: a host:port the browser can reach directly (e.g. cam.example.com:8555 or stun:8555). Forward port 8555 (TCP+UDP) to this container. Leave empty to use MSE only."
+            >
+              <Input
+                value={form.webrtc_candidate || ''}
+                onChange={(e) => set('webrtc_candidate', e.target.value)}
+                placeholder="host.example.com:8555"
+                className="font-data text-xs"
+              />
             </Field>
           </Section>
         </TabsContent>
 
         {/* Security */}
         <TabsContent value="security" className="space-y-5">
-          <Section title="OIDC authentication" desc="Configure any OpenID Connect provider (e.g. Authentik). Leave empty to disable auth.">
-            <Field label="Issuer URL"><Input value={form.oidc_issuer || ''} onChange={(e) => set('oidc_issuer', e.target.value)} placeholder="https://auth.example.com/application/o/unifi/" className="font-data text-xs" /></Field>
+          <Section
+            title="OIDC authentication"
+            desc="Configure any OpenID Connect provider (e.g. Authentik). Leave empty to disable auth."
+            icon={<KeyRound className="w-3.5 h-3.5" />}
+          >
+            <Field label="Issuer URL">
+              <Input
+                value={form.oidc_issuer || ''}
+                onChange={(e) => set('oidc_issuer', e.target.value)}
+                placeholder="https://auth.example.com/application/o/unifi/"
+                className="font-data text-xs"
+              />
+            </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Client ID"><Input value={form.oidc_client_id || ''} onChange={(e) => set('oidc_client_id', e.target.value)} className="font-data text-xs" /></Field>
-              <Field label="Client secret"><Input type="password" value={form.oidc_client_secret || ''} onChange={(e) => set('oidc_client_secret', e.target.value || null)} placeholder={config.has_oidc ? 'Leave blank to keep existing' : ''} autoComplete="new-password" /></Field>
+              <Field label="Client ID">
+                <Input
+                  value={form.oidc_client_id || ''}
+                  onChange={(e) => set('oidc_client_id', e.target.value)}
+                  className="font-data text-xs"
+                />
+              </Field>
+              <Field label="Client secret">
+                <Input
+                  type="password"
+                  value={form.oidc_client_secret || ''}
+                  onChange={(e) => set('oidc_client_secret', e.target.value || null)}
+                  placeholder={config.has_oidc ? 'Leave blank to keep existing' : ''}
+                  autoComplete="new-password"
+                />
+              </Field>
             </div>
           </Section>
         </TabsContent>
 
         {/* Reliability */}
         <TabsContent value="reliability" className="space-y-5">
-          <Section title="Auto-restart" desc="Restart crashed cameras automatically with exponential backoff.">
+          <Section
+            title="Auto-restart"
+            desc="Restart crashed cameras automatically with exponential backoff."
+            icon={<RefreshCw className="w-3.5 h-3.5" />}
+          >
             <div className="flex items-center gap-2">
-              <Switch checked={form.auto_restart_enabled} onCheckedChange={(v) => set('auto_restart_enabled', v)} />
+              <Switch
+                checked={form.auto_restart_enabled}
+                onCheckedChange={(v) => set('auto_restart_enabled', v)}
+              />
               <Label>Enable auto-restart</Label>
             </div>
             {form.auto_restart_enabled && (
               <div className="grid grid-cols-3 gap-3">
-                <Field label="Max attempts" hint="0 = infinite"><Input type="number" min={0} value={form.auto_restart_max_attempts} onChange={(e) => set('auto_restart_max_attempts', parseInt(e.target.value) || 0)} className="font-data" /></Field>
-                <Field label="Initial delay (s)"><Input type="number" min={1} value={form.auto_restart_initial_delay} onChange={(e) => set('auto_restart_initial_delay', parseInt(e.target.value) || 5)} className="font-data" /></Field>
-                <Field label="Max delay (s)"><Input type="number" min={1} value={form.auto_restart_max_delay} onChange={(e) => set('auto_restart_max_delay', parseInt(e.target.value) || 300)} className="font-data" /></Field>
+                <Field label="Max attempts" hint="0 = infinite">
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.auto_restart_max_attempts}
+                    onChange={(e) => set('auto_restart_max_attempts', parseInt(e.target.value) || 0)}
+                    className="font-data"
+                  />
+                </Field>
+                <Field label="Initial delay (s)">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={form.auto_restart_initial_delay}
+                    onChange={(e) =>
+                      set('auto_restart_initial_delay', parseInt(e.target.value) || 5)
+                    }
+                    className="font-data"
+                  />
+                </Field>
+                <Field label="Max delay (s)">
+                  <Input
+                    type="number"
+                    min={1}
+                    value={form.auto_restart_max_delay}
+                    onChange={(e) => set('auto_restart_max_delay', parseInt(e.target.value) || 300)}
+                    className="font-data"
+                  />
+                </Field>
               </div>
             )}
           </Section>
         </TabsContent>
       </Tabs>
 
-      {/* Sticky save bar */}
-      <div className="fixed bottom-0 right-0 left-60 border-t border-border bg-background/90 backdrop-blur-md px-8 py-3 flex justify-end gap-3 z-10">
-        <Button onClick={() => onSave(form)}>Save changes</Button>
+      {/* Sticky save bar — shows dirty state, lets you discard. */}
+      <div className="fixed bottom-0 right-0 left-64 border-t border-border bg-background/85 backdrop-blur-md px-8 py-3 flex items-center justify-between gap-3 z-10">
+        <div className="flex items-center gap-2 text-xs">
+          <span
+            className={cn(
+              'w-1.5 h-1.5 rounded-full transition-colors',
+              isDirty ? 'bg-[hsl(var(--warm))] animate-signal' : 'bg-muted',
+            )}
+          />
+          <span className={cn('label-eyebrow', isDirty ? 'text-[hsl(var(--warm))]' : 'text-muted-foreground')}>
+            {isDirty
+              ? `${pending} change${pending === 1 ? '' : 's'} pending`
+              : 'no changes'}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="h-9 text-xs"
+            disabled={!isDirty}
+            onClick={() => setForm(config)}
+          >
+            <Undo2 className="w-3.5 h-3.5 mr-1.5" /> Discard
+          </Button>
+          <Button size="sm" className="h-9" disabled={!isDirty} onClick={() => onSave(form)}>
+            <Save className="w-3.5 h-3.5 mr-1.5" /> Save changes
+          </Button>
+        </div>
       </div>
     </div>
   );

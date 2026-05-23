@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Cctv } from 'lucide-react';
+import { Cctv, Plus } from 'lucide-react';
 import type { CameraStatus } from '../types';
 import { Button } from '@/components/ui/button';
 import CameraCard from './CameraCard';
@@ -33,17 +33,27 @@ export default function CameraGrid({
 }: CameraGridProps) {
   if (cameras.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
-        <div className="mb-4 opacity-30">{emptyIcon ?? <Cctv className="w-14 h-14" />}</div>
-        <p className="text-lg font-medium mb-1 text-foreground">{emptyTitle}</p>
-        <p className="text-sm mb-5">{emptyHint}</p>
-        <Button onClick={onAdd}>{addLabel}</Button>
+      <div className="relative min-h-[55vh] grid place-items-center animate-rise">
+        <div className="absolute inset-0 [background:radial-gradient(circle_at_center,hsl(var(--signal)/0.06),transparent_60%)] pointer-events-none" />
+        <div className="relative text-center space-y-4 max-w-sm">
+          <div className="mx-auto w-20 h-20 rounded-2xl border border-border bg-card/40 grid place-items-center backdrop-blur-sm shadow-[inset_0_1px_0_hsl(var(--foreground)/0.04)] text-muted-foreground/70">
+            {emptyIcon ?? <Cctv className="w-9 h-9" />}
+          </div>
+          <div>
+            <div className="label-eyebrow text-primary/70 mb-1">empty</div>
+            <p className="text-foreground font-medium">{emptyTitle}</p>
+            <p className="text-sm text-muted-foreground mt-0.5">{emptyHint}</p>
+          </div>
+          <Button onClick={onAdd} className="gap-1.5">
+            <Plus className="w-4 h-4" /> {addLabel}
+          </Button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-rise-stagger">
       {cameras.map((camera) => (
         <CameraCard
           key={camera.id}

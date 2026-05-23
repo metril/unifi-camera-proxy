@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import { Cctv, Grid2x2, MonitorPlay, Settings, LogOut, Radio } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Cctv, Grid2x2, MonitorPlay, Settings, LogOut, Radio, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export type View = 'cameras' | 'gridfusion' | 'wall' | 'settings';
@@ -12,10 +12,10 @@ interface NavDef {
 }
 
 const NAV: NavDef[] = [
-  { id: 'cameras', label: 'Cameras', icon: Cctv, hint: 'Manage proxied cameras' },
-  { id: 'gridfusion', label: 'GridFusion', icon: Grid2x2, hint: 'Compose multi-camera matrices' },
-  { id: 'wall', label: 'Live Wall', icon: MonitorPlay, hint: 'Live video of every camera' },
-  { id: 'settings', label: 'Settings', icon: Settings, hint: 'Protect, MQTT, Frigate, auth' },
+  { id: 'cameras', label: 'Cameras', icon: Cctv, hint: 'devices' },
+  { id: 'gridfusion', label: 'GridFusion', icon: Grid2x2, hint: 'matrix composer' },
+  { id: 'wall', label: 'Live Wall', icon: MonitorPlay, hint: 'monitoring' },
+  { id: 'settings', label: 'Settings', icon: Settings, hint: 'configuration' },
 ];
 
 interface AppShellProps {
@@ -43,22 +43,43 @@ export default function AppShell({
   actions,
   children,
 }: AppShellProps) {
+  // Pull version + uptime tick from /health so the sidebar shows real, live
+  // instrumentation instead of a hardcoded number that goes stale.
+  const [version, setVersion] = useState<string | null>(null);
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => {
+    fetch('/health')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d?.version && setVersion(d.version))
+      .catch(() => {});
+    const id = setInterval(() => setClock(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const utc = clock.toISOString().substring(11, 19);
+  const isLive = runningCount > 0;
+
   return (
     <div className="min-h-screen text-foreground flex">
       {/* Sidebar */}
-      <aside className="w-60 shrink-0 border-r border-border bg-card/60 backdrop-blur-sm flex flex-col fixed inset-y-0 left-0 z-30">
-        <div className="h-16 flex items-center gap-2.5 px-5 border-b border-border">
+      <aside className="w-64 shrink-0 fixed inset-y-0 left-0 z-30 flex flex-col border-r border-border bg-[linear-gradient(180deg,hsl(222_47%_8%/0.92),hsl(224_71%_4%/0.92))] backdrop-blur-md">
+        {/* Logo lockup */}
+        <div className="h-16 flex items-center gap-3 px-5 border-b border-border relative">
           <div className="relative">
-            <Cctv className="w-6 h-6 text-primary" strokeWidth={2} />
-            <span className="absolute -right-0.5 -top-0.5 w-2 h-2 rounded-full bg-primary animate-signal" />
+            <div className="w-8 h-8 rounded-md border border-primary/40 bg-primary/10 grid place-items-center">
+              <Cctv className="w-4 h-4 text-primary" strokeWidth={2.25} />
+            </div>
+            <span className="absolute -right-0.5 -top-0.5 w-1.5 h-1.5 rounded-full bg-primary animate-signal shadow-[0_0_8px_hsl(var(--signal))]" />
           </div>
-          <div className="leading-tight">
-            <div className="font-semibold tracking-tight">UniFi Proxy</div>
+          <div className="leading-tight min-w-0">
+            <div className="font-semibold tracking-tight text-[0.95rem]">UniFi Proxy</div>
             <div className="label-eyebrow text-muted-foreground">camera control</div>
           </div>
+          <span className="absolute bottom-[-1px] left-5 right-5 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        {/* Nav */}
+        <nav className="flex-1 px-3 py-4 space-y-0.5">
           {NAV.map((item) => {
             const active = view === item.id;
             const Icon = item.icon;
@@ -66,42 +87,78 @@ export default function AppShell({
               <button
                 key={item.id}
                 onClick={() => onNavigate(item.id)}
-                title={item.hint}
                 aria-current={active ? 'page' : undefined}
                 className={cn(
-                  'group relative w-full flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-colors',
+                  'group relative w-full flex items-center gap-3 rounded-md px-3 py-2.5 text-sm transition-all',
                   active
-                    ? 'bg-accent text-foreground'
-                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
+                    ? 'bg-primary/[0.08] text-foreground ring-1 ring-inset ring-primary/25'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-accent/40',
                 )}
               >
                 <span
+                  aria-hidden
                   className={cn(
-                    'absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-full bg-primary transition-opacity',
-                    active ? 'opacity-100' : 'opacity-0',
+                    'absolute left-0 top-1/2 -translate-y-1/2 h-5 w-[2px] rounded-full bg-primary transition-opacity',
+                    active ? 'opacity-100 shadow-[0_0_6px_hsl(var(--signal))]' : 'opacity-0',
                   )}
                 />
-                <Icon className="w-4.5 h-4.5 shrink-0" strokeWidth={2} />
-                <span className="font-medium">{item.label}</span>
+                <Icon
+                  className={cn('w-4 h-4 shrink-0 transition-colors', active && 'text-primary')}
+                  strokeWidth={2}
+                />
+                <div className="flex-1 min-w-0 leading-tight">
+                  <div className="font-medium">{item.label}</div>
+                  <div className="label-hud text-muted-foreground/60 mt-0.5">{item.hint}</div>
+                </div>
+                <ChevronRight
+                  className={cn(
+                    'w-3 h-3 shrink-0 transition-all',
+                    active ? 'text-primary opacity-80' : 'text-muted-foreground/40 opacity-0 group-hover:opacity-60',
+                  )}
+                />
               </button>
             );
           })}
         </nav>
 
-        <div className="px-5 py-4 border-t border-border space-y-3">
-          <div className="flex items-center gap-2 text-xs">
-            <Radio
-              className={cn('w-3.5 h-3.5', runningCount > 0 ? 'text-emerald-400 animate-signal' : 'text-muted-foreground')}
-            />
-            <span className="font-data text-muted-foreground">
-              <span className={runningCount > 0 ? 'text-emerald-400' : 'text-foreground'}>{runningCount}</span>
-              /{cameraCount} live
-            </span>
+        {/* Status block */}
+        <div className="px-3 pb-3 pt-3 border-t border-border space-y-3">
+          <div className="surface-panel rounded-md px-3 py-2.5">
+            <div className="flex items-center justify-between mb-2">
+              <div className="label-eyebrow text-muted-foreground">stream status</div>
+              <Radio
+                className={cn('w-3 h-3', isLive ? 'text-primary animate-signal' : 'text-muted-foreground/60')}
+              />
+            </div>
+            <div className="flex items-end gap-1.5">
+              <span className={cn('font-data text-2xl leading-none tabular-nums', isLive ? 'text-foreground' : 'text-muted-foreground')}>
+                {runningCount}
+              </span>
+              <span className="font-data text-sm text-muted-foreground leading-none pb-0.5">/ {cameraCount}</span>
+              <span className="label-hud text-muted-foreground/70 ml-auto pb-1">{isLive ? 'live' : 'idle'}</span>
+            </div>
+            <div className="mt-2 h-0.5 rounded-full bg-muted/30 overflow-hidden">
+              <div
+                className={cn('h-full rounded-full transition-all duration-700', isLive ? 'bg-primary' : 'bg-muted')}
+                style={{ width: cameraCount > 0 ? `${(runningCount / cameraCount) * 100}%` : '0%' }}
+              />
+            </div>
           </div>
+
+          <div className="flex items-center justify-between px-1">
+            <div className="flex items-center gap-2 text-[0.6875rem] text-muted-foreground font-data tabular-nums">
+              <span className="opacity-70">UTC</span>
+              <span className="text-foreground/80 animate-tick">{utc}</span>
+            </div>
+            {version && (
+              <span className="chip chip-muted !py-0 !px-1.5 !text-[0.5625rem]">v{version}</span>
+            )}
+          </div>
+
           {hasOidc && onLogout && (
             <button
               onClick={onLogout}
-              className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="flex w-full items-center justify-center gap-2 rounded-md border border-border bg-card/40 px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/30 hover:bg-card/70 transition-colors"
             >
               <LogOut className="w-3.5 h-3.5" /> Sign out
             </button>
@@ -110,13 +167,16 @@ export default function AppShell({
       </aside>
 
       {/* Main */}
-      <div className="flex-1 ml-60 min-w-0 flex flex-col">
-        <header className="sticky top-0 z-20 h-16 flex items-center justify-between gap-4 px-8 border-b border-border bg-background/80 backdrop-blur-md">
-          <div className="min-w-0">
-            {eyebrow && <div className="label-eyebrow text-primary/80">{eyebrow}</div>}
+      <div className="flex-1 ml-64 min-w-0 flex flex-col">
+        <header className="sticky top-0 z-20 h-16 flex items-center justify-between gap-4 px-8 border-b border-border bg-background/75 backdrop-blur-md">
+          <div className="min-w-0 flex items-baseline gap-3">
+            {eyebrow && <div className="label-eyebrow text-primary/80 whitespace-nowrap">{eyebrow}</div>}
+            <span className="text-muted-foreground/40">/</span>
             <h1 className="text-lg font-semibold tracking-tight truncate">{title}</h1>
           </div>
           {actions && <div className="flex items-center gap-2 shrink-0">{actions}</div>}
+          {/* Hairline live-system gradient under the header. */}
+          <span aria-hidden className="absolute bottom-[-1px] left-0 right-0 h-px bg-[linear-gradient(90deg,transparent_5%,hsl(var(--signal)/0.35)_50%,transparent_95%)]" />
         </header>
         <main className="flex-1 px-8 py-7 min-w-0">{children}</main>
       </div>

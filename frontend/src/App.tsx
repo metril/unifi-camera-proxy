@@ -153,6 +153,7 @@ function App() {
     if (cam.config.type === 'mosaic') {
       setEditGridFusion(cam.config);
       setShowGridFusion(true);
+      setView('gridfusion');
     } else {
       setEditCamera(cam.config);
       setShowForm(true);
@@ -162,6 +163,7 @@ function App() {
   const handleNewGridFusion = () => {
     setEditGridFusion(null);
     setShowGridFusion(true);
+    setView('gridfusion');
   };
 
   const handleSaveGridFusion = async (config: CameraConfig) => {
@@ -264,15 +266,20 @@ function App() {
         </>
       ),
     },
-    gridfusion: {
-      eyebrow: 'matrix composer',
-      title: 'GridFusion',
-      actions: (
-        <Button size="sm" className="h-9" onClick={handleNewGridFusion}>
-          <Grid2x2 className="w-4 h-4 mr-1.5" /> New composition
-        </Button>
-      ),
-    },
+    gridfusion: showGridFusion
+      ? {
+          eyebrow: 'composing',
+          title: editGridFusion?.name || 'New composition',
+        }
+      : {
+          eyebrow: 'matrix composer',
+          title: 'GridFusion',
+          actions: (
+            <Button size="sm" className="h-9" onClick={handleNewGridFusion}>
+              <Grid2x2 className="w-4 h-4 mr-1.5" /> New composition
+            </Button>
+          ),
+        },
     wall: { eyebrow: 'monitoring', title: 'Live Wall' },
     settings: { eyebrow: 'configuration', title: 'Settings' },
   };
@@ -317,21 +324,35 @@ function App() {
             />
           ))}
 
-        {view === 'gridfusion' && (
-          <CameraGrid
-            cameras={gridFusionCameras}
-            onStart={handleStart}
-            onStop={handleStop}
-            onRestart={handleRestart}
-            onEdit={handleEdit}
-            onDelete={handleDelete}
-            onAdd={handleNewGridFusion}
-            addLabel="New composition"
-            emptyTitle="No compositions yet"
-            emptyHint="Combine multiple cameras into one matrix stream"
-            emptyIcon={<Grid2x2 className="w-14 h-14" />}
-          />
-        )}
+        {view === 'gridfusion' &&
+          (showGridFusion ? (
+            <div className="relative -mx-8 -my-7 h-[calc(100vh-4rem)] overflow-hidden">
+              <GridFusionEditor
+                isOpen={showGridFusion}
+                onClose={() => {
+                  setShowGridFusion(false);
+                  setEditGridFusion(null);
+                }}
+                onSave={handleSaveGridFusion}
+                cameras={cameras}
+                editCamera={editGridFusion}
+              />
+            </div>
+          ) : (
+            <CameraGrid
+              cameras={gridFusionCameras}
+              onStart={handleStart}
+              onStop={handleStop}
+              onRestart={handleRestart}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              onAdd={handleNewGridFusion}
+              addLabel="New composition"
+              emptyTitle="No compositions yet"
+              emptyHint="Combine multiple cameras into one matrix stream"
+              emptyIcon={<Grid2x2 className="w-14 h-14" />}
+            />
+          ))}
 
         {view === 'wall' && <LiveWall cameras={cameras} />}
 
@@ -350,17 +371,6 @@ function App() {
         globalConfig={globalConfig}
         cameraStatus={editCamera?.id ? cameras.find((c) => c.id === editCamera.id)?.status : undefined}
         onSyncName={handleSyncName}
-      />
-
-      <GridFusionEditor
-        isOpen={showGridFusion}
-        onClose={() => {
-          setShowGridFusion(false);
-          setEditGridFusion(null);
-        }}
-        onSave={handleSaveGridFusion}
-        cameras={cameras}
-        editCamera={editGridFusion}
       />
 
       <Toast messages={toasts} onDismiss={dismissToast} />
