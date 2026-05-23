@@ -236,7 +236,10 @@ class Go2rtcManager:
             "api": {"listen": f"{API_HOST}:{API_PORT}"},
             "rtsp": {"listen": f"{RTSP_HOST}:{RTSP_PORT}"},
             "webrtc": webrtc,
-            "log": {"level": "warn"},
+            # info: emits "stream X: producer/consumer/exec" breadcrumbs that
+            # are essential for diagnosing why a mosaic exec stream fails to
+            # produce. Operators see them via our INFO-level _drain_logs.
+            "log": {"level": "info"},
             "streams": self._build_streams(config),
         }
         path = self.data_dir / "go2rtc.yaml"
@@ -297,7 +300,9 @@ class Go2rtcManager:
                 line = await self.process.stdout.readline()
                 if not line:
                     break
-                logger.debug(f"[go2rtc] {line.decode('utf-8', 'replace').rstrip()}")
+                # Surface go2rtc's own log at INFO so exec ffmpeg failures and
+                # producer/consumer breadcrumbs are visible without DEBUG.
+                logger.info(f"[go2rtc] {line.decode('utf-8', 'replace').rstrip()}")
         except Exception:
             pass
 

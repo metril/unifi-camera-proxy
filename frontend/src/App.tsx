@@ -40,6 +40,7 @@ const DEFAULT_GLOBAL: GlobalConfig = {
 
 function App() {
   const [cameras, setCameras] = useState<CameraStatus[]>([]);
+  const [go2rtcStreams, setGo2rtcStreams] = useState<Record<string, import('./types').Go2rtcStream>>({});
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig>(DEFAULT_GLOBAL);
   const [schemas, setSchemas] = useState<CameraTypeSchemas | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -97,6 +98,26 @@ function App() {
     const interval = setInterval(fetchCameras, 3000);
     return () => clearInterval(interval);
   }, [fetchCameras]);
+
+  // Poll go2rtc stream state so mosaic cards can show a live compose chip.
+  // Slower than the camera poll (the producer state only changes on minute
+  // scales for a working stream) and tolerant of failures.
+  useEffect(() => {
+    let cancelled = false;
+    const tick = () =>
+      api
+        .go2rtcStreams()
+        .then((s) => {
+          if (!cancelled) setGo2rtcStreams(s || {});
+        })
+        .catch(() => {});
+    tick();
+    const interval = setInterval(tick, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleStart = async (id: string) => {
     try {
@@ -340,6 +361,7 @@ function App() {
               onEdit={handleEdit}
               onDelete={handleDelete}
               onToggleEnabled={handleToggleEnabled}
+              go2rtcStreams={go2rtcStreams}
               onAdd={handleAddCamera}
             />
           ))}
@@ -367,6 +389,7 @@ function App() {
               onEdit={handleEdit}
               onDelete={handleDelete}
               onToggleEnabled={handleToggleEnabled}
+              go2rtcStreams={go2rtcStreams}
               onAdd={handleNewGridFusion}
               addLabel="New composition"
               emptyTitle="No compositions yet"

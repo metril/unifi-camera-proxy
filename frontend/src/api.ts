@@ -1,4 +1,4 @@
-import type { AppConfig, CameraConfig, CameraStatus, CameraTypeSchemas, GlobalConfig, LogEntry } from './types';
+import type { AppConfig, CameraConfig, CameraStatus, CameraTypeSchemas, Go2rtcStream, GlobalConfig, LogEntry } from './types';
 
 const BASE = '/api';
 
@@ -41,6 +41,10 @@ export const api = {
     }),
 
   listCameras: () => request<CameraStatus[]>('/cameras'),
+
+  // go2rtc's /api/streams (per-stream producer/consumer state). Surfaced as a
+  // mosaic compose-state chip on the card.
+  go2rtcStreams: () => request<Record<string, Go2rtcStream>>('/go2rtc/streams'),
 
   addCamera: (config: CameraConfig) =>
     request<CameraConfig>('/cameras', {

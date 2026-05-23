@@ -527,6 +527,79 @@ class TestAdoptionStuckDetection:
             CameraManager._ADOPTION_STUCK_DELAY = original_delay
 
 
+class TestMosaicWarmupRetry:
+    """v1.6.2: the warm-up ffprobe retries once on transient ``Invalid data``
+    and dumps go2rtc's /api/streams JSON on final failure. Mock the ffprobe
+    helper directly — spawning real ffprobe is out of scope."""
+
+    def test_retries_on_invalid_data_then_succeeds(self):
+        import asyncio
+
+        from unifi.web.camera_manager import CameraInstance, CameraManager
+
+        mgr = object.__new__(CameraManager)
+        inst = CameraInstance(id="m1", config={"type": "mosaic"})
+        inst.error_message = "Composition source not producing yet — stale"
+
+        calls = []
+
+        async def fake_ffprobe(source):
+            calls.append(source)
+            if len(calls) == 1:
+                return ("Invalid data found when processing input", 1)
+            return ("", 0)
+
+        mgr._ffprobe_mosaic_once = fake_ffprobe  # type: ignore[assignment]
+
+        async def fake_fetch_state(_id):
+            return ""
+
+        mgr._fetch_go2rtc_stream_state = fake_fetch_state  # type: ignore[assignment]
+
+        # Skip the 2s real-sleep between attempts.
+        original_delay = CameraManager._WARM_UP_RETRY_DELAY
+        CameraManager._WARM_UP_RETRY_DELAY = 0.01
+        try:
+            asyncio.run(mgr._warm_up_mosaic_stream("m1", inst))
+        finally:
+            CameraManager._WARM_UP_RETRY_DELAY = original_delay
+
+        assert len(calls) == 2, "ffprobe should be retried once on Invalid data"
+        # Prior composition-source error must be cleared on a successful retry.
+        assert inst.error_message is None
+
+    def test_retries_on_timeout_then_persists_failure(self):
+        import asyncio
+
+        from unifi.web.camera_manager import CameraInstance, CameraManager
+
+        mgr = object.__new__(CameraManager)
+        inst = CameraInstance(id="m1", config={"type": "mosaic"})
+        calls = []
+
+        async def fake_ffprobe(source):
+            calls.append(source)
+            # Timeout = (text, None)
+            return ("", None)
+
+        async def fake_fetch_state(camera_id):
+            return f'{{"{camera_id}":{{"producers":[]}}}}'
+
+        mgr._ffprobe_mosaic_once = fake_ffprobe  # type: ignore[assignment]
+        mgr._fetch_go2rtc_stream_state = fake_fetch_state  # type: ignore[assignment]
+
+        original_delay = CameraManager._WARM_UP_RETRY_DELAY
+        CameraManager._WARM_UP_RETRY_DELAY = 0.01
+        try:
+            asyncio.run(mgr._warm_up_mosaic_stream("m1", inst))
+        finally:
+            CameraManager._WARM_UP_RETRY_DELAY = original_delay
+
+        assert len(calls) == 2, "timeout path should still retry once"
+        assert inst.error_message is not None
+        assert "Composition source not producing" in inst.error_message
+
+
 class TestTalkbackSchema:
     def test_talkback_url_in_every_type_schema(self):
         schemas = get_camera_type_schemas()

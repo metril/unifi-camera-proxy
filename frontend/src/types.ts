@@ -21,6 +21,18 @@ export interface GridFusionTile {
   h: number;
 }
 
+/**
+ * Shape of one entry in go2rtc's /api/streams response.
+ *
+ * go2rtc returns the union of fields it knows about — most are optional
+ * because they only appear when a stream has a live producer/consumer. We
+ * only model the fields we use; ignore the rest.
+ */
+export interface Go2rtcStream {
+  producers?: Array<{ url?: string; format?: string }>;
+  consumers?: Array<{ url?: string; format?: string }>;
+}
+
 export interface CameraStatus {
   id: string;
   config: CameraConfig;

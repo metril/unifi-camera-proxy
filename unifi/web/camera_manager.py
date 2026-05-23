@@ -160,45 +160,58 @@ class CameraManager:
         if instance.status != "running":
             await self.start_camera(camera_id)
 
+    _WARM_UP_TIMEOUT = 15.0
+    _WARM_UP_RETRY_DELAY = 2.0
+
     async def _warm_up_mosaic_stream(self, camera_id: str, instance) -> None:
-        """ffprobe the mosaic's go2rtc RTSP for ~3s; log + surface errors."""
+        """ffprobe the mosaic's go2rtc RTSP; log + surface errors.
+
+        go2rtc lazy-starts the mosaic's exec ffmpeg on first consumer. With
+        remote tile sources (e.g. cross-WAN frigate), the exec can take well
+        over 3 s to open all inputs and begin producing. We ffprobe with a
+        generous timeout, retry once on transient ``Invalid data`` (which is
+        what ffprobe emits when go2rtc closes the consumer before any media
+        arrives), and on a final failure dump go2rtc's per-stream state JSON
+        so the operator can see whether the stream even registered.
+        """
         source = f"rtsp://127.0.0.1:8554/{camera_id}"
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "ffprobe",
-                "-v",
-                "error",
-                "-rtsp_transport",
-                "tcp",
-                "-i",
-                source,
-                "-show_entries",
-                "stream=width,height",
-                "-of",
-                "json",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+            stderr_text, returncode = await self._ffprobe_mosaic_once(source)
+            transient_invalid_data = (
+                returncode is not None
+                and returncode != 0
+                and "invalid data" in stderr_text.lower()
             )
-            try:
-                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3)
-            except asyncio.TimeoutError:
-                proc.kill()
+            if returncode is None or transient_invalid_data:
+                # Retry once. Lazy-start race with go2rtc's exec ffmpeg is a
+                # frequent transient failure mode.
+                await asyncio.sleep(self._WARM_UP_RETRY_DELAY)
+                stderr_text, returncode = await self._ffprobe_mosaic_once(source)
+            if returncode is None:
                 logger.warning(
-                    f"Mosaic {camera_id}: go2rtc stream warm-up timed out — "
-                    f"check tile sources"
+                    f"Mosaic {camera_id}: go2rtc stream warm-up timed out "
+                    f"after {self._WARM_UP_TIMEOUT}s — check tile sources"
                 )
+                state = await self._fetch_go2rtc_stream_state(camera_id)
+                if state:
+                    logger.warning(
+                        f"Mosaic {camera_id}: go2rtc /api/streams state: {state}"
+                    )
                 instance.error_message = (
                     "Composition source not producing yet — check that all "
                     "tile cameras are reachable."
                 )
                 return
-            if proc.returncode != 0:
-                detail = (
-                    stderr.decode("utf-8", errors="replace").strip() or "(no detail)"
-                )
+            if returncode != 0:
+                detail = stderr_text.strip() or "(no detail)"
                 logger.warning(
                     f"Mosaic {camera_id}: go2rtc stream warm-up failed: {detail}"
                 )
+                state = await self._fetch_go2rtc_stream_state(camera_id)
+                if state:
+                    logger.warning(
+                        f"Mosaic {camera_id}: go2rtc /api/streams state: {state}"
+                    )
                 instance.error_message = f"Composition source error: {detail}"
             else:
                 # Clear any prior warm-up error so a successful re-save resets state.
@@ -211,6 +224,52 @@ class CameraManager:
             logger.debug("ffprobe not available; skipping mosaic warm-up")
         except Exception as e:
             logger.warning(f"Mosaic {camera_id}: warm-up probe error: {e}")
+
+    async def _ffprobe_mosaic_once(self, source: str) -> tuple[str, Optional[int]]:
+        """Run one ffprobe; return (stderr_text, returncode or None on timeout)."""
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v",
+            "error",
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            source,
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "json",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            _stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=self._WARM_UP_TIMEOUT
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            try:
+                await proc.wait()
+            except Exception:
+                pass
+            return ("", None)
+        return (stderr.decode("utf-8", errors="replace"), proc.returncode)
+
+    async def _fetch_go2rtc_stream_state(self, camera_id: str) -> str:
+        """Pull go2rtc's per-stream JSON for diagnostics; '' on any failure."""
+        try:
+            import aiohttp
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"http://127.0.0.1:1984/api/streams?src={camera_id}",
+                    timeout=aiohttp.ClientTimeout(total=2),
+                ) as resp:
+                    if resp.status != 200:
+                        return f"(go2rtc /api/streams returned {resp.status})"
+                    return (await resp.text()).strip()
+        except Exception as e:
+            return f"(go2rtc query failed: {e})"
 
     def reload_config(self):
         self.config = load_config(self.config_path)

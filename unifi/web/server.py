@@ -1057,6 +1057,34 @@ async def serve_index(request: web.Request) -> web.Response:
     )
 
 
+async def go2rtc_streams(request: web.Request) -> web.Response:
+    """Return go2rtc's /api/streams JSON, OIDC-protected.
+
+    Reuses the shared go2rtc ClientSession. Used by the frontend to show a
+    live compose-state chip on mosaic cards, and by anyone who needs to
+    diagnose a stuck mosaic without reading docker logs.
+    """
+    from unifi.web.go2rtc import API_BASE
+
+    session: aiohttp_client.ClientSession = request.app["go2rtc_session"]
+    target = f"{API_BASE}/api/streams"
+    if request.query_string:
+        target = f"{target}?{request.query_string}"
+    try:
+        async with session.get(
+            target, timeout=aiohttp_client.ClientTimeout(total=3)
+        ) as upstream:
+            body = await upstream.read()
+            return web.Response(
+                status=upstream.status,
+                body=body,
+                content_type=upstream.headers.get("content-type", "application/json"),
+            )
+    except Exception as e:
+        logger.debug(f"go2rtc streams fetch failed: {e}")
+        return web.json_response({"error": "go2rtc unavailable"}, status=502)
+
+
 # --- go2rtc reverse proxy ---
 
 # Hop-by-hop headers that must not be forwarded across a proxy.
@@ -1228,6 +1256,9 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_post("/api/preview-frame", preview_frame)
     app.router.add_post("/api/test-frigate", test_frigate)
     app.router.add_post("/api/detect-frigate-camera", detect_frigate_camera)
+
+    # go2rtc diagnostic JSON (per-stream producer/consumer state)
+    app.router.add_get("/api/go2rtc/streams", go2rtc_streams)
 
     # go2rtc reverse proxy (live preview + mosaic playback)
     app.router.add_route("*", "/go2rtc/{path:.*}", go2rtc_proxy)

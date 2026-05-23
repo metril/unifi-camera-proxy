@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Cctv, Plus } from 'lucide-react';
-import type { CameraStatus } from '../types';
+import type { CameraStatus, Go2rtcStream } from '../types';
 import { Button } from '@/components/ui/button';
 import CameraCard from './CameraCard';
 
@@ -12,6 +12,7 @@ interface CameraGridProps {
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
   onToggleEnabled: (id: string, enabled: boolean) => void;
+  go2rtcStreams?: Record<string, Go2rtcStream>;
   onAdd: () => void;
   emptyTitle?: string;
   emptyHint?: string;
@@ -27,6 +28,7 @@ export default function CameraGrid({
   onEdit,
   onDelete,
   onToggleEnabled,
+  go2rtcStreams,
   onAdd,
   emptyTitle = 'No cameras configured',
   emptyHint = 'Add your first camera to get started',
@@ -66,6 +68,7 @@ export default function CameraGrid({
           onEdit={onEdit}
           onDelete={onDelete}
           onToggleEnabled={onToggleEnabled}
+          composeStream={go2rtcStreams?.[camera.id]}
         />
       ))}
     </div>

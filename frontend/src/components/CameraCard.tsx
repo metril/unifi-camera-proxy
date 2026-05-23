@@ -11,7 +11,7 @@ import {
   Power,
   PowerOff,
 } from 'lucide-react';
-import type { CameraStatus } from '../types';
+import type { CameraStatus, Go2rtcStream } from '../types';
 import { snapshotUrl } from '../api';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,6 +32,8 @@ interface CameraCardProps {
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
   onToggleEnabled: (id: string, enabled: boolean) => void;
+  /** go2rtc /api/streams entry for this camera id (mosaic compose chip). */
+  composeStream?: Go2rtcStream;
 }
 
 function formatUptime(seconds: number | null): string {
@@ -217,6 +219,7 @@ export default function CameraCard({
   onEdit,
   onDelete,
   onToggleEnabled,
+  composeStream,
 }: CameraCardProps) {
   const [showLogs, setShowLogs] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -339,6 +342,10 @@ export default function CameraCard({
             )}
           </div>
 
+          {config.type === 'mosaic' && (
+            <ComposeChip stream={composeStream} onClick={() => setShowLogs(true)} />
+          )}
+
           {camera.error_message && (
             <button
               type="button"
@@ -359,5 +366,52 @@ export default function CameraCard({
         onClose={() => setShowLogs(false)}
       />
     </>
+  );
+}
+
+/**
+ * Live compose-state indicator for mosaic cameras.
+ *
+ * go2rtc reports a stream's producers + consumers via /api/streams. We render
+ * one of three states:
+ *
+ *  - **good** "compose active": go2rtc has the stream and a live producer
+ *    (the exec ffmpeg is feeding it).
+ *  - **warm** "compose starting…": stream registered but no producer yet
+ *    (lazy-start in progress, or the exec hasn't begun emitting frames).
+ *  - **danger** "compose offline": stream isn't in go2rtc at all (config
+ *    didn't apply) or hasn't gained a producer in a while.
+ *
+ * Clicking opens the LogViewer (same as the v1.6.1 stuck-adoption chip), so
+ * the operator gets the underlying go2rtc/ffmpeg lines in one click.
+ */
+function ComposeChip({
+  stream,
+  onClick,
+}: {
+  stream?: Go2rtcStream;
+  onClick: () => void;
+}) {
+  let chip = 'chip-warm';
+  let label = 'compose starting…';
+  let title = 'go2rtc has the mosaic stream registered; waiting for the exec to emit frames.';
+  if (!stream) {
+    chip = 'chip-danger';
+    label = 'compose offline';
+    title = 'go2rtc does not have this mosaic stream — config may not have applied yet.';
+  } else if ((stream.producers?.length ?? 0) > 0) {
+    chip = 'chip-good';
+    label = 'compose active';
+    title = `go2rtc has ${stream.producers?.length} producer(s); compositing is running.`;
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title + ' Click to open logs.'}
+      className={cn('chip !py-0 !px-1.5 self-start cursor-pointer transition-colors', chip)}
+    >
+      {label}
+    </button>
   );
 }
