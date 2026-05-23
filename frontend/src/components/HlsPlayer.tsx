@@ -29,13 +29,23 @@ interface HlsPlayerProps {
  */
 export default function HlsPlayer({ cameraId, className, onMeta }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Hold onMeta in a ref so the main effect doesn't need to depend on it. A
+  // bare `onMeta` dep means an inline arrow from the parent (e.g. `(m) =>
+  // setRes(...)`) re-creates the hls.js instance on every parent re-render —
+  // which on a live wall is constant — and the video stays black because the
+  // player gets torn down before it can paint a frame.
+  const onMetaRef = useRef(onMeta);
+  useEffect(() => {
+    onMetaRef.current = onMeta;
+  }, [onMeta]);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !Hls.isSupported()) return;
     const onLoaded = () => {
-      if (onMeta && video.videoWidth) {
-        onMeta({ width: video.videoWidth, height: video.videoHeight });
+      const cb = onMetaRef.current;
+      if (cb && video.videoWidth) {
+        cb({ width: video.videoWidth, height: video.videoHeight });
       }
     };
     video.addEventListener('loadedmetadata', onLoaded);
@@ -123,7 +133,7 @@ export default function HlsPlayer({ cameraId, className, onMeta }: HlsPlayerProp
       video.removeAttribute('src');
       video.load();
     };
-  }, [cameraId, onMeta]);
+  }, [cameraId]);
 
   return <video ref={videoRef} muted playsInline className={className} />;
 }
