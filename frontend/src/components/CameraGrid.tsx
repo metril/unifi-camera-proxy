@@ -11,6 +11,7 @@ interface CameraGridProps {
   onRestart: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onToggleEnabled: (id: string, enabled: boolean) => void;
   onAdd: () => void;
   emptyTitle?: string;
   emptyHint?: string;
@@ -25,6 +26,7 @@ export default function CameraGrid({
   onRestart,
   onEdit,
   onDelete,
+  onToggleEnabled,
   onAdd,
   emptyTitle = 'No cameras configured',
   emptyHint = 'Add your first camera to get started',
@@ -63,6 +65,7 @@ export default function CameraGrid({
           onRestart={onRestart}
           onEdit={onEdit}
           onDelete={onDelete}
+          onToggleEnabled={onToggleEnabled}
         />
       ))}
     </div>

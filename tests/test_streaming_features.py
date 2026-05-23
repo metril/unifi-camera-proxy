@@ -250,9 +250,10 @@ class TestMosaicValidation:
         assert errors == []
 
 
-class TestEnsureStartedAfterSave:
-    """ensure_started_after_save must auto-start tile-source dependencies,
-    then await the go2rtc restart, then start the mosaic process — in order."""
+class TestStartMosaicWithDependencies:
+    """When the user clicks Start on a mosaic, the manager must auto-start
+    its tile-source dependencies, await the go2rtc restart, warm the exec
+    stream, then start the mosaic process — in that order."""
 
     def test_orchestrates_dependency_start_then_apply_then_mosaic(self):
         import asyncio
@@ -297,7 +298,7 @@ class TestEnsureStartedAfterSave:
 
         mgr._warm_up_mosaic_stream = fake_warm_up  # type: ignore[assignment]
 
-        asyncio.run(mgr.ensure_started_after_save("wall1"))
+        asyncio.run(mgr.start_mosaic_with_dependencies("wall1"))
 
         # Tile source must come up FIRST, then go2rtc applies (so its exec has
         # an RTSP input ready), THEN the mosaic stream is warmed up (kicks the
@@ -314,7 +315,7 @@ class TestEnsureStartedAfterSave:
         mgr.instances = {"c1": CameraInstance(id="c1", config=mgr.config["cameras"][0])}
 
         # Should return without touching go2rtc or start_camera.
-        asyncio.run(mgr.ensure_started_after_save("c1"))
+        asyncio.run(mgr.start_mosaic_with_dependencies("c1"))
 
 
 class TestMosaicProbe:

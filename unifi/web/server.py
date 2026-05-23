@@ -139,15 +139,8 @@ async def add_camera(request: web.Request) -> web.Response:
         if errors:
             return web.json_response({"errors": errors}, status=400)
         result = manager.add_camera(data)
-        # A mosaic needs deterministic bring-up: go2rtc gets the new exec stream
-        # and tile sources are auto-started before the mosaic process is spawned.
-        if data.get("type") == "mosaic":
-            try:
-                await asyncio.wait_for(
-                    manager.ensure_started_after_save(result["id"]), timeout=20
-                )
-            except Exception as e:
-                logger.warning(f"Mosaic auto-start incomplete for {result['id']}: {e}")
+        # Save = save; the user clicks Start when they're ready. For mosaics
+        # this is the same behavior as for every other camera type.
         return web.json_response(result, status=201)
     except Exception as e:
         logger.exception(f"Failed to add camera: {e}")
@@ -176,15 +169,6 @@ async def update_camera(request: web.Request) -> web.Response:
         return web.json_response({"errors": errors}, status=400)
     try:
         result = manager.update_camera(camera_id, data)
-        # Re-saving a mosaic should also ensure its dependencies + go2rtc are in
-        # sync; if it's already running, this is a no-op for the mosaic process.
-        if data.get("type") == "mosaic":
-            try:
-                await asyncio.wait_for(
-                    manager.ensure_started_after_save(camera_id), timeout=20
-                )
-            except Exception as e:
-                logger.warning(f"Mosaic re-apply incomplete for {camera_id}: {e}")
         return web.json_response(result)
     except ValueError as e:
         return web.json_response({"error": str(e)}, status=404)
@@ -204,7 +188,15 @@ async def start_camera(request: web.Request) -> web.Response:
     manager = get_manager(request)
     camera_id = request.match_info["id"]
     try:
-        await manager.start_camera(camera_id)
+        instance = manager.instances.get(camera_id)
+        if instance and instance.config.get("type") == "mosaic":
+            # Mosaics need tile-source cameras up + go2rtc rewritten before the
+            # mosaic process pulls from rtsp://127.0.0.1:8554/<id>.
+            await asyncio.wait_for(
+                manager.start_mosaic_with_dependencies(camera_id), timeout=20
+            )
+        else:
+            await manager.start_camera(camera_id)
         return web.json_response({"status": "started"})
     except ValueError as e:
         return web.json_response({"error": str(e)}, status=404)

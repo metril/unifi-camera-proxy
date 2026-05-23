@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { RefreshCw, X, Save } from 'lucide-react';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { api } from '../api';
 import type { CameraConfig, CameraTypeSchemas, FieldSchema, GlobalConfig } from '../types';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { cn } from '@/lib/utils';
 
 interface CameraFormProps {
   isOpen: boolean;
@@ -111,6 +112,12 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
   const [frigateCameras, setFrigateCameras] = useState<string[]>([]);
   const [frigateCamerasLoading, setFrigateCamerasLoading] = useState(false);
   const [syncingName, setSyncingName] = useState(false);
+
+  const initial = useMemo<CameraConfig>(
+    () => (editCamera ? { ...DEFAULT_CAMERA, ...editCamera } : { ...DEFAULT_CAMERA }),
+    [editCamera],
+  );
+  const isDirty = useMemo(() => JSON.stringify(form) !== JSON.stringify(initial), [form, initial]);
 
   useEffect(() => {
     if (editCamera) {
@@ -411,14 +418,39 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        className="max-w-2xl max-h-[90vh] flex flex-col p-0 gap-0"
-        onInteractOutside={(e) => e.preventDefault()}
-      >
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border">
-          <DialogTitle>{editCamera ? 'Edit Camera' : 'Add Camera'}</DialogTitle>
-        </DialogHeader>
+    <DialogPrimitive.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+        />
+        <DialogPrimitive.Content
+          onInteractOutside={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          className="fixed left-[50%] top-[50%] z-50 w-[min(720px,94vw)] max-h-[90vh] -translate-x-1/2 -translate-y-1/2 flex flex-col rounded-lg overflow-hidden surface-panel shadow-2xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+        >
+          <DialogPrimitive.Title className="sr-only">
+            {editCamera ? `Edit ${editCamera.name || 'Camera'}` : 'New camera'}
+          </DialogPrimitive.Title>
+          {/* HUD-style header — own close button, no shadcn auto-X collision. */}
+          <header className="shrink-0 surface-glass border-b border-border px-5 py-3 flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="label-eyebrow text-primary/85">
+                {editCamera ? 'editing camera' : 'new camera'}
+              </div>
+              <div className="text-base font-semibold tracking-tight truncate">
+                {editCamera ? editCamera.name || 'Camera' : 'Add a camera'}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+              aria-label="Close"
+              title="Close (Esc)"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </header>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
           {/* Common fields */}
@@ -617,15 +649,15 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                 checked={form.enabled}
                 onCheckedChange={(v) => handleChange('enabled', v)}
               />
-              <Label htmlFor="cam-enabled">Enabled (auto-start on server launch)</Label>
+              <Label htmlFor="cam-enabled">Auto-start on container boot</Label>
             </div>
           </div>
 
           {/* Type-specific fields */}
           {specificFields.length > 0 && (
             <div className="border-t border-border pt-4 space-y-4">
-              <h4 className="text-sm font-medium text-foreground uppercase tracking-wider">
-                {cameraType} Settings
+              <h4 className="label-eyebrow text-primary/85">
+                {cameraType} settings
               </h4>
               {specificFields.map(renderField)}
             </div>
@@ -634,7 +666,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
           {/* Per-camera Frigate API override (collapsible) */}
           {frigateApiFields.length > 0 && (
             <details className="border-t border-border pt-4">
-              <summary className="text-sm font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
+              <summary className="label-eyebrow text-muted-foreground cursor-pointer hover:text-foreground select-none">
                 Frigate API Override
                 <span className="text-xs text-muted-foreground font-normal ml-2 normal-case">
                   (uses global settings if not overridden)
@@ -650,7 +682,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
           {mqttFields.length > 0 && (
             <details className="border-t border-border pt-4" open={showCustomMqtt}
               onToggle={(e) => setShowCustomMqtt((e.target as HTMLDetailsElement).open)}>
-              <summary className="text-sm font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
+              <summary className="label-eyebrow text-muted-foreground cursor-pointer hover:text-foreground select-none">
                 Custom MQTT Settings
                 <span className="text-xs text-muted-foreground font-normal ml-2 normal-case">
                   (uses global settings if not overridden)
@@ -664,7 +696,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
 
           {/* Per-camera RTSP auth override */}
           <details className="border-t border-border pt-4">
-            <summary className="text-sm font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
+            <summary className="label-eyebrow text-muted-foreground cursor-pointer hover:text-foreground select-none">
               RTSP Authentication
               <span className="text-xs text-muted-foreground font-normal ml-2 normal-case">
                 (uses global credentials if not overridden)
@@ -693,7 +725,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
 
           {/* Per-camera auto-restart override */}
           <details className="border-t border-border pt-4">
-            <summary className="text-sm font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
+            <summary className="label-eyebrow text-muted-foreground cursor-pointer hover:text-foreground select-none">
               Auto-Restart Override
               <span className="text-xs text-muted-foreground font-normal ml-2 normal-case">
                 (uses global setting if not overridden)
@@ -768,7 +800,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
           {/* Base ffmpeg fields (collapsible) */}
           {baseFields.length > 0 && (
             <details className="border-t border-border pt-4">
-              <summary className="text-sm font-medium text-muted-foreground uppercase tracking-wider cursor-pointer hover:text-foreground">
+              <summary className="label-eyebrow text-muted-foreground cursor-pointer hover:text-foreground select-none">
                 Advanced FFmpeg Settings
               </summary>
               <div className="mt-4 rounded-lg border border-border bg-card p-4 space-y-4">
@@ -777,12 +809,46 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
             </details>
           )}
 
-          <div className="flex justify-end gap-3 pt-2 border-t border-border">
-            <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-            <Button type="submit">{editCamera ? 'Update' : 'Add Camera'}</Button>
-          </div>
         </form>
-      </DialogContent>
-    </Dialog>
+
+          {/* Sticky action bar — mirrors SettingsPage's dirty-state save bar. */}
+          <footer className="shrink-0 border-t border-border bg-background/85 backdrop-blur-md px-5 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs">
+              <span
+                className={cn(
+                  'w-1.5 h-1.5 rounded-full transition-colors',
+                  isDirty ? 'bg-[hsl(var(--warm))] animate-signal' : 'bg-muted',
+                )}
+              />
+              <span
+                className={cn(
+                  'label-eyebrow',
+                  isDirty ? 'text-[hsl(var(--warm))]' : 'text-muted-foreground',
+                )}
+              >
+                {editCamera ? (isDirty ? 'unsaved changes' : 'no changes') : 'new camera'}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="ghost" size="sm" className="h-9 text-xs" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="h-9"
+                onClick={() =>
+                  handleSubmit({ preventDefault: () => {} } as unknown as React.FormEvent)
+                }
+                disabled={editCamera ? !isDirty : false}
+              >
+                <Save className="w-3.5 h-3.5 mr-1.5" />
+                {editCamera ? 'Save changes' : 'Add camera'}
+              </Button>
+            </div>
+          </footer>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }

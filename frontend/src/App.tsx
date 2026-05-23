@@ -147,6 +147,25 @@ function App() {
     fetchCameras();
   };
 
+  const handleToggleEnabled = async (id: string, enabled: boolean) => {
+    const cam = cameras.find((c) => c.id === id);
+    if (!cam) return;
+    try {
+      await api.updateCamera(id, { ...cam.config, enabled });
+      addToast(
+        enabled
+          ? `"${cam.config.name || 'Camera'}" will auto-start on boot`
+          : `"${cam.config.name || 'Camera'}" will be skipped on boot`,
+        'success',
+      );
+      fetchCameras();
+    } catch (err) {
+      addToast(
+        `Failed to update camera: ${err instanceof Error ? err.message : 'Unknown error'}`,
+      );
+    }
+  };
+
   const handleEdit = (id: string) => {
     const cam = cameras.find((c) => c.id === id);
     if (!cam) return;
@@ -320,6 +339,7 @@ function App() {
               onRestart={handleRestart}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              onToggleEnabled={handleToggleEnabled}
               onAdd={handleAddCamera}
             />
           ))}
@@ -346,6 +366,7 @@ function App() {
               onRestart={handleRestart}
               onEdit={handleEdit}
               onDelete={handleDelete}
+              onToggleEnabled={handleToggleEnabled}
               onAdd={handleNewGridFusion}
               addLabel="New composition"
               emptyTitle="No compositions yet"

@@ -8,6 +8,8 @@ import {
   ScrollText,
   AlertTriangle,
   Activity,
+  Power,
+  PowerOff,
 } from 'lucide-react';
 import type { CameraStatus } from '../types';
 import { snapshotUrl } from '../api';
@@ -29,6 +31,7 @@ interface CameraCardProps {
   onRestart: (id: string) => void;
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
+  onToggleEnabled: (id: string, enabled: boolean) => void;
 }
 
 function formatUptime(seconds: number | null): string {
@@ -60,6 +63,7 @@ function Thumb({
   onStop,
   onRestart,
   onLogs,
+  onToggleEnabled,
 }: {
   camera: CameraStatus;
   isRunning: boolean;
@@ -67,6 +71,7 @@ function Thumb({
   onStop: (id: string) => void;
   onRestart: (id: string) => void;
   onLogs: () => void;
+  onToggleEnabled: (id: string, enabled: boolean) => void;
 }) {
   const [bust, setBust] = useState(() => Date.now());
   const [ok, setOk] = useState(true);
@@ -167,6 +172,27 @@ function Thumb({
         >
           <ScrollText className="w-3.5 h-3.5" />
         </button>
+        <span className="w-px h-4 bg-white/15 mx-0.5" aria-hidden />
+        <button
+          onClick={() => onToggleEnabled(camera.id, !camera.config.enabled)}
+          title={
+            camera.config.enabled
+              ? 'Auto-start at boot is ON — click to disable'
+              : 'Auto-start at boot is OFF — click to enable'
+          }
+          className={cn(
+            'p-1.5 rounded transition-colors',
+            camera.config.enabled
+              ? 'text-white/85 hover:text-[hsl(var(--good))] hover:bg-[hsl(var(--good))]/15'
+              : 'text-muted-foreground hover:text-[hsl(var(--warm))] hover:bg-[hsl(var(--warm))]/15',
+          )}
+        >
+          {camera.config.enabled ? (
+            <Power className="w-3.5 h-3.5" />
+          ) : (
+            <PowerOff className="w-3.5 h-3.5" />
+          )}
+        </button>
       </div>
 
       {/* Uptime ticker bottom-right when running */}
@@ -190,6 +216,7 @@ export default function CameraCard({
   onRestart,
   onEdit,
   onDelete,
+  onToggleEnabled,
 }: CameraCardProps) {
   const [showLogs, setShowLogs] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -197,6 +224,7 @@ export default function CameraCard({
   const config = camera.config;
   const isRunning = camera.status === 'running';
   const status = STATUS_STYLE[camera.status];
+  const disabled = config.enabled === false;
 
   const handleDeleteSelect = (e: Event) => {
     if (!confirming) {
@@ -211,9 +239,21 @@ export default function CameraCard({
 
   return (
     <>
-      <div className="surface-panel rounded-lg overflow-hidden hover:border-primary/30 transition-colors relative">
-        {/* Status accent — a 1px top stripe in the live color. */}
-        <div className={cn('absolute inset-x-0 top-0 h-px', status.bar, 'opacity-70')} />
+      <div
+        className={cn(
+          'surface-panel rounded-lg overflow-hidden transition-colors relative',
+          disabled ? 'opacity-80 hover:border-[hsl(var(--warm))]/40' : 'hover:border-primary/30',
+        )}
+      >
+        {/* Status accent — a 1px top stripe in the live color. Dimmed when
+            the camera is disabled so the row reads "ignored at boot". */}
+        <div
+          className={cn(
+            'absolute inset-x-0 top-0 h-px',
+            disabled ? 'bg-muted' : status.bar,
+            disabled ? 'opacity-40' : 'opacity-70',
+          )}
+        />
 
         <Thumb
           camera={camera}
@@ -222,6 +262,7 @@ export default function CameraCard({
           onStop={onStop}
           onRestart={onRestart}
           onLogs={() => setShowLogs(true)}
+          onToggleEnabled={onToggleEnabled}
         />
 
         <div className="p-3.5 space-y-2.5">
@@ -269,6 +310,14 @@ export default function CameraCard({
 
           {/* Compact data row — replaces the old DL table. */}
           <div className="flex items-center gap-x-3 gap-y-1 flex-wrap text-[0.6875rem] font-data text-muted-foreground tabular-nums">
+            {disabled && (
+              <span
+                className="chip chip-warm !py-0 !px-1.5"
+                title="This camera will be skipped on container boot. Hover the thumbnail to re-enable."
+              >
+                auto-off
+              </span>
+            )}
             <span className="inline-flex items-center gap-1">
               <span className="text-muted-foreground/60 label-hud">mac</span>
               <span className="text-foreground/80">{config.mac || '—'}</span>

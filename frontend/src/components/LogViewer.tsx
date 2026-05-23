@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LogEntry } from '../types';
-import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+import * as DialogPrimitive from '@radix-ui/react-dialog';
+import { X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
 interface LogViewerProps {
@@ -179,34 +179,53 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
   }, [filteredLogs]);
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col p-0 gap-0 overflow-hidden">
+    <DialogPrimitive.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Overlay
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
+        />
+        <DialogPrimitive.Content
+          onOpenAutoFocus={(e) => e.preventDefault()}
+          className="fixed left-[50%] top-[50%] z-50 w-[min(1100px,96vw)] max-h-[88vh] -translate-x-1/2 -translate-y-1/2 flex flex-col rounded-lg overflow-hidden surface-panel shadow-2xl outline-none data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+        >
+          <DialogPrimitive.Title className="sr-only">{cameraName} logs</DialogPrimitive.Title>
         {/* Header */}
-        <div className="flex items-center gap-4 px-4 py-3 border-b border-border pr-12">
-          <DialogTitle className="text-foreground font-medium">{cameraName}</DialogTitle>
-          <div className="flex gap-1">
-            <Button
-              variant={tab === 'logs' ? 'default' : 'ghost'}
-              size="sm"
-              className="h-7 text-xs px-3"
+        <header className="surface-glass border-b border-border px-4 py-2.5 flex items-center gap-3 shrink-0">
+          <div className="min-w-0 flex-1 flex items-baseline gap-2.5">
+            <div className="label-eyebrow text-primary/85 shrink-0">logs</div>
+            <span className="text-muted-foreground/40">/</span>
+            <div className="text-sm font-semibold tracking-tight truncate">{cameraName}</div>
+            <span
+              className={`w-1.5 h-1.5 rounded-full shrink-0 ${wsConnected ? 'bg-[hsl(var(--good))] animate-signal' : 'bg-muted-foreground/60'}`}
+              title={wsConnected ? 'Live' : 'Disconnected'}
+            />
+          </div>
+          <div className="flex items-center gap-1 rounded-md border border-border bg-card/40 p-0.5">
+            <button
+              type="button"
               onClick={() => setTab('logs')}
+              className={`h-7 px-2.5 text-xs rounded transition-colors ${tab === 'logs' ? 'bg-primary/20 text-primary ring-1 ring-inset ring-primary/40' : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'}`}
             >
               Logs
-            </Button>
-            <Button
-              variant={tab === 'diagnostics' ? 'default' : 'ghost'}
-              size="sm"
-              className="h-7 text-xs px-3"
+            </button>
+            <button
+              type="button"
               onClick={() => setTab('diagnostics')}
+              className={`h-7 px-2.5 text-xs rounded transition-colors ${tab === 'diagnostics' ? 'bg-primary/20 text-primary ring-1 ring-inset ring-primary/40' : 'text-muted-foreground hover:text-foreground hover:bg-accent/40'}`}
             >
               Diagnostics
-            </Button>
+            </button>
           </div>
-          <div
-            className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-400' : 'bg-red-400'}`}
-            title={wsConnected ? 'Live' : 'Disconnected'}
-          />
-        </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+            aria-label="Close"
+            title="Close (Esc)"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </header>
 
         {tab === 'logs' && (
           <>
@@ -492,7 +511,8 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
             )}
           </div>
         )}
-      </DialogContent>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
 
       {/* Snapshot lightbox */}
       {enlargedSnapshot && (
@@ -508,7 +528,7 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
           />
         </div>
       )}
-    </Dialog>
+    </DialogPrimitive.Root>
   );
 }
 
