@@ -61,6 +61,17 @@ class MosaicCam(UnifiCamBase):
     async def run(self) -> None:
         return
 
+    def probe_video_resolution(
+        self, stream_index: str, source_url: str
+    ) -> tuple[int, int]:
+        # The mosaic's output dimensions are configured (--output-width /
+        # --output-height) and the base class' default ffprobe takes the full
+        # 15s timeout when go2rtc's exec stream hasn't started producing yet
+        # — long enough for UniFi Protect to drop the adoption WebSocket before
+        # init_adoption can send its hello. Skip the probe entirely; we already
+        # know the answer.
+        return (int(self.args.output_width), int(self.args.output_height))
+
     async def get_stream_source(self, stream_index: str) -> str:
         # Every quality tier reads the single composed go2rtc path; go2rtc fans
         # the one exec compose out to UniFi's readers and the browser.

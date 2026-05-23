@@ -137,9 +137,69 @@ class CameraManager:
                     )
         # Now write the mosaic's exec into go2rtc.yaml + restart go2rtc.
         await self.go2rtc.apply_config(self.config)
+        # Wake the mosaic's exec stream and surface tile errors before the
+        # camera process spawns. go2rtc lazy-starts its compositing ffmpeg on
+        # first consumer, so we ffprobe the path briefly to kick it off and to
+        # observe whether the tiles actually open. Failures are best-effort
+        # diagnostics — auto-start still proceeds; the camera process is
+        # resilient enough now (probe override + ConnectionClosedError handling)
+        # to wait for the source to come up.
+        await self._warm_up_mosaic_stream(camera_id, instance)
         # Finally, start the mosaic camera process (the one pushing to Protect).
         if instance.status != "running":
             await self.start_camera(camera_id)
+
+    async def _warm_up_mosaic_stream(self, camera_id: str, instance) -> None:
+        """ffprobe the mosaic's go2rtc RTSP for ~3s; log + surface errors."""
+        source = f"rtsp://127.0.0.1:8554/{camera_id}"
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ffprobe",
+                "-v",
+                "error",
+                "-rtsp_transport",
+                "tcp",
+                "-i",
+                source,
+                "-show_entries",
+                "stream=width,height",
+                "-of",
+                "json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3)
+            except asyncio.TimeoutError:
+                proc.kill()
+                logger.warning(
+                    f"Mosaic {camera_id}: go2rtc stream warm-up timed out — "
+                    f"check tile sources"
+                )
+                instance.error_message = (
+                    "Composition source not producing yet — check that all "
+                    "tile cameras are reachable."
+                )
+                return
+            if proc.returncode != 0:
+                detail = (
+                    stderr.decode("utf-8", errors="replace").strip() or "(no detail)"
+                )
+                logger.warning(
+                    f"Mosaic {camera_id}: go2rtc stream warm-up failed: {detail}"
+                )
+                instance.error_message = f"Composition source error: {detail}"
+            else:
+                # Clear any prior warm-up error so a successful re-save resets state.
+                if (
+                    instance.error_message
+                    and "composition source" in instance.error_message.lower()
+                ):
+                    instance.error_message = None
+        except FileNotFoundError:
+            logger.debug("ffprobe not available; skipping mosaic warm-up")
+        except Exception as e:
+            logger.warning(f"Mosaic {camera_id}: warm-up probe error: {e}")
 
     def reload_config(self):
         self.config = load_config(self.config_path)

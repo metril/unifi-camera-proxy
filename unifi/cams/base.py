@@ -1820,8 +1820,20 @@ class UnifiCamBase(
     async def send(self, msg: AVClientRequest) -> None:
         self.logger.debug(f"Sending: {msg}")
         ws = self._session
-        if ws:
+        if not ws:
+            return
+        try:
             await ws.send(json.dumps(msg).encode())
+        except websockets.exceptions.ConnectionClosedError:
+            # The receive loop already turns a closed WS into a RetryableError;
+            # do the same here so a Protect-side disconnect during a send
+            # (e.g. mid-adoption hello) doesn't crash the process with an
+            # uncaught ConnectionClosedError from websockets' send_context.
+            self.logger.info(
+                f"Connection to {self.args.host} was closed while sending."
+            )
+            self._session = None
+            raise RetryableError()
 
     async def process(self, msg: bytes) -> bool:
         m = json.loads(msg)

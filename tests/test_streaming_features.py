@@ -292,11 +292,17 @@ class TestEnsureStartedAfterSave:
         mgr.go2rtc = FakeGo2rtc()
         mgr.start_camera = fake_start_camera  # type: ignore[assignment]
 
+        async def fake_warm_up(cam_id, _instance):
+            calls.append(f"warm:{cam_id}")
+
+        mgr._warm_up_mosaic_stream = fake_warm_up  # type: ignore[assignment]
+
         asyncio.run(mgr.ensure_started_after_save("wall1"))
 
         # Tile source must come up FIRST, then go2rtc applies (so its exec has
-        # an RTSP input ready), then the mosaic process spawns.
-        assert calls == ["start:src1", "apply_config", "start:wall1"]
+        # an RTSP input ready), THEN the mosaic stream is warmed up (kicks the
+        # exec ffmpeg + surfaces tile errors), THEN the mosaic process spawns.
+        assert calls == ["start:src1", "apply_config", "warm:wall1", "start:wall1"]
 
     def test_noop_for_non_mosaic(self):
         import asyncio
@@ -309,6 +315,25 @@ class TestEnsureStartedAfterSave:
 
         # Should return without touching go2rtc or start_camera.
         asyncio.run(mgr.ensure_started_after_save("c1"))
+
+
+class TestMosaicProbe:
+    """The 15s ffprobe of the go2rtc exec source was holding init_adoption open
+    long enough for UniFi Protect to drop the WebSocket. The mosaic knows its
+    output dimensions from its config, so it must short-circuit the probe."""
+
+    def test_returns_configured_output_dims_without_ffprobe(self):
+        import argparse
+
+        from unifi.cams.mosaic import MosaicCam
+
+        cam = object.__new__(MosaicCam)
+        cam.args = argparse.Namespace(output_width=1920, output_height=1080)
+        # Source URL is irrelevant — the override never calls ffprobe.
+        assert cam.probe_video_resolution("video1", "rtsp://does-not-exist/x") == (
+            1920,
+            1080,
+        )
 
 
 class TestMosaicConfigToArgs:
