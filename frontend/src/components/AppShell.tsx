@@ -1,7 +1,8 @@
-import { memo, useEffect, useState, type ReactNode } from 'react';
+import { memo, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Cctv, Grid2x2, MonitorPlay, Settings, LogOut, Radio, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useDocumentVisible } from '@/lib/useDocumentVisible';
+import { useRingBuffer } from '@/lib/useRingBuffer';
 
 export type View = 'cameras' | 'live-views' | 'wall' | 'settings';
 
@@ -31,6 +32,53 @@ interface AppShellProps {
   actions?: ReactNode;
   children: ReactNode;
 }
+
+/** Tiny inline SVG sparkline of running-count over the last ~5 minutes.
+ *  Sampled at 10 s, capped at 30 samples. The path is a single polyline
+ *  with a flood-filled area underneath. No animation; just freshness. */
+const RunningSparkline = memo(function RunningSparkline({
+  running,
+  total,
+}: {
+  running: number;
+  total: number;
+}) {
+  // 30 samples × 10 s = 5 minutes of history.
+  const samples = useRingBuffer(running, 30, 10000);
+  // Y-axis is normalized to total so an 11-camera dashboard shows the same
+  // shape regardless of absolute count.
+  const W = 40;
+  const H = 16;
+  const max = Math.max(1, total);
+  const points = useMemo(() => {
+    const step = samples.length > 1 ? W / (samples.length - 1) : W;
+    return samples
+      .map((v, i) => {
+        const x = i * step;
+        const y = H - (v / max) * H;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(' ');
+  }, [samples, max]);
+  const areaPoints = `0,${H} ${points} ${W},${H}`;
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="h-4 w-10 shrink-0 overflow-visible"
+      aria-hidden
+    >
+      <polygon points={areaPoints} fill="hsl(var(--signal) / 0.12)" />
+      <polyline
+        points={points}
+        fill="none"
+        stroke="hsl(var(--signal))"
+        strokeWidth="1"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+});
 
 /** Self-contained 1 Hz UTC clock — keeps its tick local so AppShell doesn't
  *  re-render every second. Also auto-pauses when the tab is hidden. */
@@ -149,6 +197,7 @@ export default function AppShell({
                 {runningCount}
               </span>
               <span className="font-data text-sm text-muted-foreground leading-none pb-0.5">/ {cameraCount}</span>
+              <RunningSparkline running={runningCount} total={cameraCount} />
               <span className="label-hud text-muted-foreground/70 ml-auto pb-1">{isLive ? 'live' : 'idle'}</span>
             </div>
             <div className="mt-2 h-0.5 rounded-full bg-muted/30 overflow-hidden">

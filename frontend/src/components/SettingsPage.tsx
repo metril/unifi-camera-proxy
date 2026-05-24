@@ -109,18 +109,50 @@ const TABS = [
   { id: 'reliability', label: 'Reliability', icon: RefreshCw },
 ];
 
-function diffCount(a: GlobalConfig, b: GlobalConfig): number {
+/** Pretty field names for the dirty-state tooltip — only the ones a human
+ *  shouldn't have to mentally translate from snake_case. */
+const DIRTY_FIELD_LABELS: Partial<Record<keyof GlobalConfig, string>> = {
+  host: 'Protect host',
+  cert: 'Certificate path',
+  nvr_username: 'NVR username',
+  nvr_password: 'NVR password',
+  api_key: 'API key',
+  token: 'Adoption token',
+  mqtt_host: 'MQTT host',
+  mqtt_port: 'MQTT port',
+  mqtt_username: 'MQTT username',
+  mqtt_password: 'MQTT password',
+  mqtt_prefix: 'MQTT topic prefix',
+  mqtt_ssl: 'MQTT SSL/TLS',
+  rtsp_username: 'RTSP username',
+  rtsp_password: 'RTSP password',
+  frigate_http_url: 'Frigate HTTP URL',
+  frigate_username: 'Frigate username',
+  frigate_password: 'Frigate password',
+  frigate_verify_ssl: 'Frigate verify SSL',
+  webrtc_candidate: 'WebRTC candidate',
+  oidc_issuer: 'OIDC issuer',
+  oidc_client_id: 'OIDC client ID',
+  oidc_client_secret: 'OIDC client secret',
+  auto_restart_enabled: 'Auto-restart',
+  auto_restart_max_attempts: 'Max restart attempts',
+  auto_restart_initial_delay: 'Initial restart delay',
+  auto_restart_max_delay: 'Max restart delay',
+  verbose: 'Verbose logging',
+};
+
+function diff(a: GlobalConfig, b: GlobalConfig): { count: number; keys: (keyof GlobalConfig)[] } {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]) as Set<keyof GlobalConfig>;
-  let n = 0;
+  const changed: (keyof GlobalConfig)[] = [];
   for (const k of keys) {
     if (k === 'has_oidc') continue;
     const av = a[k];
     const bv = b[k];
     // Treat null/undefined/empty string as equivalent for the diff check.
     const norm = (v: unknown) => (v === null || v === undefined || v === '' ? '' : v);
-    if (norm(av) !== norm(bv)) n += 1;
+    if (norm(av) !== norm(bv)) changed.push(k);
   }
-  return n;
+  return { count: changed.length, keys: changed };
 }
 
 export default function SettingsPage({ config, onSave }: SettingsPageProps) {
@@ -137,8 +169,9 @@ export default function SettingsPage({ config, onSave }: SettingsPageProps) {
   const set = (field: keyof GlobalConfig, value: unknown) =>
     setForm((p) => ({ ...p, [field]: value }));
 
-  const pending = useMemo(() => diffCount(form, config), [form, config]);
+  const { count: pending, keys: pendingKeys } = useMemo(() => diff(form, config), [form, config]);
   const isDirty = pending > 0;
+  const pendingLabels = pendingKeys.map((k) => DIRTY_FIELD_LABELS[k] ?? String(k));
 
   const genCert = async () => {
     setCert({ type: 'loading', message: 'Generating certificate…' });
@@ -579,35 +612,53 @@ export default function SettingsPage({ config, onSave }: SettingsPageProps) {
         </TabsContent>
       </Tabs>
 
-      {/* Sticky save bar — shows dirty state, lets you discard. */}
-      <div className="fixed bottom-0 right-0 left-64 border-t border-border bg-background/85 backdrop-blur-md px-8 py-3 flex items-center justify-between gap-3 z-10">
-        <div className="flex items-center gap-2 text-xs">
-          <span
-            className={cn(
-              'w-1.5 h-1.5 rounded-full transition-colors',
-              isDirty ? 'bg-[hsl(var(--warm))] animate-signal' : 'bg-muted',
-            )}
-          />
-          <span className={cn('label-eyebrow', isDirty ? 'text-[hsl(var(--warm))]' : 'text-muted-foreground')}>
-            {isDirty
-              ? `${pending} change${pending === 1 ? '' : 's'} pending`
-              : 'no changes'}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-9 text-xs"
-            disabled={!isDirty}
-            onClick={() => setForm(config)}
+      {/* Sticky save bar — shows dirty state, lets you discard. The
+          full-width strip stays so the dark backdrop reads as an anchor;
+          the inner row centers to the form's max width so the indicator
+          and buttons land directly under the content column instead of
+          stranded at the screen edges. */}
+      <div className="fixed bottom-0 right-0 left-64 border-t border-border bg-background/85 backdrop-blur-md z-10">
+        <div className="max-w-4xl mx-auto px-8 py-3 flex items-center justify-between gap-3">
+          <div
+            className="flex items-center gap-2 text-xs cursor-default"
+            title={
+              isDirty
+                ? `Changed fields:\n• ${pendingLabels.join('\n• ')}`
+                : undefined
+            }
           >
-            <Undo2 className="w-3.5 h-3.5 mr-1.5" /> Discard
-          </Button>
-          <Button size="sm" className="h-9" disabled={!isDirty} onClick={() => onSave(form)}>
-            <Save className="w-3.5 h-3.5 mr-1.5" /> Save changes
-          </Button>
+            <span
+              className={cn(
+                'w-1.5 h-1.5 rounded-full transition-colors',
+                isDirty ? 'bg-[hsl(var(--warm))] animate-signal' : 'bg-muted',
+              )}
+            />
+            <span
+              className={cn(
+                'label-eyebrow',
+                isDirty ? 'text-[hsl(var(--warm))]' : 'text-muted-foreground',
+              )}
+            >
+              {isDirty
+                ? `${pending} change${pending === 1 ? '' : 's'} pending`
+                : 'no changes'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-9 text-xs"
+              disabled={!isDirty}
+              onClick={() => setForm(config)}
+            >
+              <Undo2 className="w-3.5 h-3.5 mr-1.5" /> Discard
+            </Button>
+            <Button size="sm" className="h-9" disabled={!isDirty} onClick={() => onSave(form)}>
+              <Save className="w-3.5 h-3.5 mr-1.5" /> Save changes
+            </Button>
+          </div>
         </div>
       </div>
     </div>

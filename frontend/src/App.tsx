@@ -10,6 +10,8 @@ import LiveWall from './components/LiveWall';
 import LiveViewsPage from './components/LiveViewsPage';
 import LiveViewEditor from './components/LiveViewEditor';
 import LiveViewPlayer from './components/LiveViewPlayer';
+import LogViewer from './components/LogViewer';
+import CommandPalette from './components/CommandPalette';
 import Toast, { type ToastMessage } from './components/Toast';
 import LoginPage from './components/LoginPage';
 import { Button } from '@/components/ui/button';
@@ -74,6 +76,14 @@ function AppShellApp() {
   // Live View editor state: null = index, string = editing existing id,
   // '' = creating a new one.
   const [editingLiveViewId, setEditingLiveViewId] = useState<string | null>(null);
+  // Single app-level LogViewer instance so the command palette can open
+  // logs from outside any specific CameraCard. Each card / row dispatches
+  // through `handleOpenLogs(id)` instead of owning its own modal.
+  const [activeLogsCameraId, setActiveLogsCameraId] = useState<string | null>(null);
+  // For the palette's "Jump to" action — the target id is set, the cards
+  // page comes forward, and the matching card scrolls into view + briefly
+  // pulses. Cleared after the highlight fades.
+  const [highlightCameraId, setHighlightCameraId] = useState<string | null>(null);
 
   const addToast = useCallback((text: string, type: ToastMessage['type'] = 'error') => {
     setToasts((prev) => [...prev, { id: Date.now(), text, type }]);
@@ -268,6 +278,30 @@ function AppShellApp() {
     setShowForm(true);
   }, []);
 
+  const handleOpenLogs = useCallback((id: string) => {
+    setActiveLogsCameraId(id);
+  }, []);
+  const handleCloseLogs = useCallback(() => setActiveLogsCameraId(null), []);
+
+  const handleJumpToCamera = useCallback((id: string) => {
+    setView('cameras');
+    // A tick later so the cameras view has mounted; the highlight effect
+    // is owned by App + read by CameraCard.
+    setHighlightCameraId(id);
+  }, []);
+
+  // Auto-clear the highlight 2.5 s after it lands so the pulse animation
+  // gets one cycle and then the card settles. Also dispatches a document
+  // event so CameraCard can scroll itself into view without prop drilling.
+  useEffect(() => {
+    if (!highlightCameraId) return;
+    document.dispatchEvent(
+      new CustomEvent('unifi:jump-camera', { detail: { id: highlightCameraId } }),
+    );
+    const t = setTimeout(() => setHighlightCameraId(null), 2500);
+    return () => clearTimeout(t);
+  }, [highlightCameraId]);
+
   const handleLogout = useCallback(() => {
     const token = localStorage.getItem('ui_token');
     localStorage.removeItem('ui_token');
@@ -350,6 +384,7 @@ function AppShellApp() {
               onEdit={handleEdit}
               onDelete={handleDelete}
               onToggleEnabled={handleToggleEnabled}
+              onOpenLogs={handleOpenLogs}
               onAdd={handleAddCamera}
             />
           ))}
@@ -374,7 +409,15 @@ function AppShellApp() {
             />
           ))}
 
-        {view === 'wall' && <LiveWall cameras={cameras} />}
+        {view === 'wall' && (
+          <LiveWall
+            cameras={cameras}
+            onEditView={(id) => {
+              setEditingLiveViewId(id ?? '');
+              setView('live-views');
+            }}
+          />
+        )}
 
         {view === 'settings' && <SettingsPage config={globalConfig} onSave={handleSaveGlobal} />}
       </AppShell>
@@ -394,6 +437,32 @@ function AppShellApp() {
       />
 
       <Toast messages={toasts} onDismiss={dismissToast} />
+
+      {/* App-level LogViewer so the command palette + future surfaces can
+          open it without prop-drilling into every card. */}
+      <LogViewer
+        cameraId={activeLogsCameraId ?? ''}
+        cameraName={
+          (activeLogsCameraId
+            ? cameras.find((c) => c.id === activeLogsCameraId)?.config.name
+            : null) || 'Camera'
+        }
+        isOpen={!!activeLogsCameraId}
+        onClose={handleCloseLogs}
+      />
+
+      <CommandPalette
+        cameras={cameras}
+        onJumpToCamera={handleJumpToCamera}
+        onStart={handleStart}
+        onStop={handleStop}
+        onRestart={handleRestart}
+        onToggleEnabled={handleToggleEnabled}
+        onOpenLogs={handleOpenLogs}
+        onSwitchView={setView}
+        onStartAll={handleStartAll}
+        onStopAll={handleStopAll}
+      />
     </>
   );
 }

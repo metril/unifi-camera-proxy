@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { LiveView } from '../types';
 import HlsPlayer from './HlsPlayer';
+import { fitCanvas, tileRect } from '@/lib/liveViewLayout';
 
 interface LiveViewPlayerProps {
   viewId: string;
@@ -95,13 +96,7 @@ export default function LiveViewPlayer({ viewId, kioskToken }: LiveViewPlayerPro
   }
 
   const { canvas, tiles } = view;
-  // Compute the scale and centering offsets so the canvas fits the viewport
-  // with letterboxing (or pillarboxing) — same idea as object-fit: contain.
-  const scale = Math.min(viewport.w / canvas.w, viewport.h / canvas.h);
-  const renderedW = canvas.w * scale;
-  const renderedH = canvas.h * scale;
-  const offsetX = (viewport.w - renderedW) / 2;
-  const offsetY = (viewport.h - renderedH) / 2;
+  const fit = fitCanvas(canvas, viewport);
 
   return (
     <div
@@ -110,26 +105,20 @@ export default function LiveViewPlayer({ viewId, kioskToken }: LiveViewPlayerPro
     >
       <div
         className="absolute"
-        style={{ left: offsetX, top: offsetY, width: renderedW, height: renderedH }}
+        style={{ left: fit.offsetX, top: fit.offsetY, width: fit.width, height: fit.height }}
       >
-        {tiles.map((t, i) => (
-          <div
-            key={i}
-            className="absolute overflow-hidden"
-            style={{
-              left: t.x * scale,
-              top: t.y * scale,
-              width: t.w * scale,
-              height: t.h * scale,
-            }}
-          >
-            <HlsPlayer
-              cameraId={t.camera_id}
-              className="w-full h-full object-cover"
-              authToken={kioskToken}
-            />
-          </div>
-        ))}
+        {tiles.map((t, i) => {
+          const rect = tileRect(t, fit.scale);
+          return (
+            <div key={i} className="absolute overflow-hidden" style={rect}>
+              <HlsPlayer
+                cameraId={t.camera_id}
+                className="w-full h-full object-cover"
+                authToken={kioskToken}
+              />
+            </div>
+          );
+        })}
       </div>
     </div>
   );

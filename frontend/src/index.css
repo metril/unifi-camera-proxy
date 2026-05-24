@@ -199,6 +199,42 @@ html[data-tab-hidden] .animate-spin {
   animation-play-state: paused !important;
 }
 
+/* When the tab is hidden, dim the sidebar status block so a returning
+   operator can SEE the dashboard was in low-power mode. The transition
+   doubles as a subtle "welcome back" cue when the tab is unhidden. */
+html[data-tab-hidden] aside .surface-panel,
+html[data-tab-hidden] aside [class*="surface-panel"] {
+  opacity: 0.6;
+  transition: opacity 200ms ease;
+}
+
+/* Empty-state animated backdrop — a slow lateral drift on a subtle radial
+   tint, GPU-cheap (transform only). The .empty-stage class applies it. */
+@keyframes empty-stage-drift {
+  0%   { transform: translate3d(-2%, 0, 0); }
+  50%  { transform: translate3d(2%, 0, 0); }
+  100% { transform: translate3d(-2%, 0, 0); }
+}
+.empty-stage::before {
+  content: "";
+  position: absolute;
+  inset: -10%;
+  background: radial-gradient(circle at 30% 50%, hsl(var(--signal) / 0.06), transparent 55%),
+              radial-gradient(circle at 70% 50%, hsl(var(--signal) / 0.04), transparent 50%);
+  animation: empty-stage-drift 24s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Focus rings: replace browser defaults on interactive shell controls
+   with a signal-color outline that matches the operations-console
+   aesthetic. Scoped to elements not already managed by Radix/shadcn
+   (they ship their own focus-visible treatments). */
+:where(button, [role="button"], input, select, textarea, a):focus-visible {
+  outline: 2px solid hsl(var(--signal) / 0.55);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 /* ---------- surfaces ---------- */
 
 /* Glass panel — used on tile HUDs, modal headers, footers. */

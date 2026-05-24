@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import {
   MoreHorizontal,
   Cctv,
@@ -21,7 +21,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import LogViewer from './LogViewer';
 import { cn } from '@/lib/utils';
 import { useDocumentVisible } from '@/lib/useDocumentVisible';
 import { useTicker } from '@/lib/useTicker';
@@ -34,6 +33,7 @@ interface CameraCardProps {
   onEdit: (id: string) => void;
   onDelete: (id: string) => void;
   onToggleEnabled: (id: string, enabled: boolean) => void;
+  onOpenLogs: (id: string) => void;
 }
 
 function formatUptime(seconds: number | null): string {
@@ -129,13 +129,20 @@ function Thumb({
         </div>
       )}
 
-      {/* Status chip — always visible, top-left. */}
+      {/* Status chip — always visible, top-left. The stability halo wraps
+          it when restart_attempt > 0 to surface "this just recovered" /
+          "this is flapping" without a separate chip. */}
       <div className="absolute top-2 left-2 flex items-center gap-1.5">
         <span
           className={cn(
-            'chip !py-0 !px-1.5',
+            'chip !py-0 !px-1.5 relative',
             STATUS_STYLE[camera.status].chip,
             isRunning && 'animate-tick',
+            camera.restart_attempt >= 1 &&
+              camera.restart_attempt <= 2 &&
+              'ring-1 ring-[hsl(var(--warm))]/60 shadow-[0_0_0_2px_hsl(var(--warm)/0.15)]',
+            camera.restart_attempt >= 3 &&
+              'ring-1 ring-destructive/70 shadow-[0_0_0_2px_hsl(var(--destructive)/0.2)] animate-signal',
           )}
         >
           {isRunning && <span className="w-1 h-1 rounded-full bg-current animate-signal" />}
@@ -144,6 +151,14 @@ function Thumb({
         {restartCountdown != null && (
           <span className="chip chip-warm !py-0 !px-1.5 font-data tabular-nums">
             {restartCountdown}s
+          </span>
+        )}
+        {camera.restart_attempt > 0 && (
+          <span
+            className="chip chip-warm !py-0 !px-1.5 font-data tabular-nums"
+            title={`Restart attempts since the last clean run (resets after 5 min stable).`}
+          >
+            ↻{camera.restart_attempt}
           </span>
         )}
       </div>
@@ -237,9 +252,27 @@ function CameraCardImpl({
   onEdit,
   onDelete,
   onToggleEnabled,
+  onOpenLogs,
 }: CameraCardProps) {
-  const [showLogs, setShowLogs] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [highlight, setHighlight] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Listen for cmd+K palette "Jump to" events. The card with the matching
+  // id scrolls itself into view and pulses for ~2 s. Document-level event
+  // so it doesn't burn a prop slot on every card.
+  useEffect(() => {
+    const onJump = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string }>).detail;
+      if (detail?.id !== camera.id) return;
+      rootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setHighlight(true);
+      const t = setTimeout(() => setHighlight(false), 2200);
+      return () => clearTimeout(t);
+    };
+    document.addEventListener('unifi:jump-camera', onJump);
+    return () => document.removeEventListener('unifi:jump-camera', onJump);
+  }, [camera.id]);
 
   const config = camera.config;
   const isRunning = camera.status === 'running';
@@ -260,9 +293,11 @@ function CameraCardImpl({
   return (
     <>
       <div
+        ref={rootRef}
         className={cn(
-          'surface-panel rounded-lg overflow-hidden transition-colors relative',
+          'surface-panel rounded-lg overflow-hidden transition-all relative',
           disabled ? 'opacity-80 hover:border-[hsl(var(--warm))]/40' : 'hover:border-primary/30',
+          highlight && 'ring-2 ring-primary shadow-[0_0_0_4px_hsl(var(--signal)/0.25),0_0_24px_-4px_hsl(var(--signal)/0.55)]',
         )}
       >
         {/* Status accent — a 1px top stripe in the live color. Dimmed when
@@ -281,7 +316,7 @@ function CameraCardImpl({
           onStart={onStart}
           onStop={onStop}
           onRestart={onRestart}
-          onLogs={() => setShowLogs(true)}
+          onLogs={() => onOpenLogs(camera.id)}
           onToggleEnabled={onToggleEnabled}
         />
 
@@ -370,12 +405,30 @@ function CameraCardImpl({
                 </span>
               </span>
             )}
+            {isRunning && camera.pid != null && (
+              <span
+                className="inline-flex items-center gap-1"
+                title="Subprocess PID — match this against `docker logs` or `ps` for low-level debugging."
+              >
+                <span className="text-muted-foreground/60 label-hud">pid</span>
+                <span className="text-foreground/80">{camera.pid}</span>
+              </span>
+            )}
+            {isRunning && camera.restart_attempt === 0 && camera.started_at != null && (
+              <span
+                className="inline-flex items-center gap-1 text-[hsl(var(--good))]/80"
+                title="No restart attempts since this run began. The 5 min stability timer auto-clears earlier flaps."
+              >
+                <span className="w-1 h-1 rounded-full bg-current animate-signal" />
+                <span className="label-hud">stable</span>
+              </span>
+            )}
           </div>
 
           {camera.error_message && (
             <button
               type="button"
-              onClick={() => setShowLogs(true)}
+              onClick={() => onOpenLogs(camera.id)}
               title="Open logs"
               className="w-full text-left text-[0.6875rem] text-destructive/90 bg-destructive/10 border border-destructive/25 hover:bg-destructive/15 hover:border-destructive/40 transition-colors rounded-md px-2.5 py-1.5 line-clamp-3 font-data cursor-pointer focus:outline-none focus-visible:ring-1 focus-visible:ring-destructive/50"
             >
@@ -384,13 +437,6 @@ function CameraCardImpl({
           )}
         </div>
       </div>
-
-      <LogViewer
-        cameraId={camera.id}
-        cameraName={config.name || 'Unnamed'}
-        isOpen={showLogs}
-        onClose={() => setShowLogs(false)}
-      />
     </>
   );
 }
@@ -410,7 +456,9 @@ function cameraCardEqual(prev: CameraCardProps, next: CameraCardProps): boolean 
     a.started_at !== b.started_at ||
     a.next_restart_at !== b.next_restart_at ||
     a.error_message !== b.error_message ||
-    a.effective_fw_version !== b.effective_fw_version
+    a.effective_fw_version !== b.effective_fw_version ||
+    a.restart_attempt !== b.restart_attempt ||
+    a.pid !== b.pid
   ) {
     return false;
   }
@@ -432,7 +480,8 @@ function cameraCardEqual(prev: CameraCardProps, next: CameraCardProps): boolean 
     prev.onRestart === next.onRestart &&
     prev.onEdit === next.onEdit &&
     prev.onDelete === next.onDelete &&
-    prev.onToggleEnabled === next.onToggleEnabled
+    prev.onToggleEnabled === next.onToggleEnabled &&
+    prev.onOpenLogs === next.onOpenLogs
   );
 }
 
