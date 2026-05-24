@@ -448,6 +448,9 @@ class TestUpdateFirmwareRequestHandler:
 
         class FakeArgs:
             fw_version = "UVC.S5L.v4.69.55.0.7f45c5b.241212.1510"
+            # Lowercase + colons to exercise the .upper() in the deviceID
+            # transform (v1.7.5).
+            mac = "aa:bb:cc:11:22:33"
 
         cam.args = FakeArgs()
         sent: list[dict] = []
@@ -486,7 +489,14 @@ class TestUpdateFirmwareRequestHandler:
         ack, downloading, updating = sent
         assert ack["functionName"] == "UpdateFirmwareRequest"
         assert ack["inResponseTo"] == 42
-        assert ack["payload"] == {"statusCode": 0, "status": "ok"}
+        # v1.7.5: deviceID is the idempotency key Protect uses to recognize
+        # "this device already accepted this upgrade" — without it Protect
+        # re-issues UpdateFirmwareRequest on every reconnect.
+        assert ack["payload"] == {
+            "statusCode": 0,
+            "status": "ok",
+            "deviceID": "AA:BB:CC:11:22:33",
+        }
 
         assert downloading["functionName"] == "EventUpdateFirmwareStatus"
         assert downloading["payload"] == {"status": "FW_DOWNLOADING"}

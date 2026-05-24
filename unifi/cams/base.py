@@ -1980,7 +1980,16 @@ class UnifiCamBase(
             # FW_DOWNLOADING / FW_UPDATING / close-1012 dance, then force
             # the reconnect that completes the simulated reboot.
             ack = self.gen_response("UpdateFirmwareRequest", response_to=m["messageId"])
-            ack["payload"] = {"statusCode": 0, "status": "ok"}
+            ack["payload"] = {
+                "statusCode": 0,
+                "status": "ok",
+                # Idempotency key Protect uses to recognize "this device
+                # already accepted this upgrade"; without it Protect
+                # re-issues UpdateFirmwareRequest on every reconnect. Format
+                # mirrors redalert11/unifi-cam-proxy `_device_id` — uppercase
+                # MAC with colons preserved.
+                "deviceID": str(self.args.mac).upper(),
+            }
             await self.send(ack)
             await self.process_upgrade(m)
             return True
