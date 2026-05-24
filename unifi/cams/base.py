@@ -4,6 +4,7 @@ import atexit
 import json
 import logging
 import os
+import re
 import signal
 import ssl
 import subprocess
@@ -29,16 +30,26 @@ from unifi.model_db import extract_semver
 AVClientRequest = AVClientResponse = dict[str, Any]
 
 
+# Strict UVC firmware shape: ``UVC.<platform>.v<X>.<Y>.<Z>...``. v1.7.7
+# added this gate after v1.7.6 happily parsed 50 bytes of printable hex
+# from a G6 PTZ firmware binary (which embeds its version in a different
+# byte layout) and poisoned the next adoption hello — Protect rejected
+# with WS close code 4012, exactly the failure the v1.6.5 commit was
+# meant to prevent. The structural NUL/0x20-0x7E filter is necessary
+# but not sufficient; the regex makes it sufficient.
+_VALID_UVC_FW_RE = re.compile(r"^UVC\.[A-Z0-9_]+\.v\d+\.\d+\.\d+(\.|$)")
+
+
 def _parse_firmware_version(blob: bytes) -> str:
     """Parse a UVC firmware version string out of the upgrade-binary header.
 
-    Real UVC firmware binaries embed an ASCII version string (e.g.
-    ``UVC.S5L.v4.79.55.0.deadbeef.250101.1500``) starting at byte 4,
-    NUL-terminated, fitting in 50 bytes. Stops at the first NUL; drops
-    anything outside printable ASCII (0x20-0x7E) — a sane fw string is
-    printable ASCII only. Returns the parsed string (may be empty if the
-    blob carried nothing usable — callers must NOT mutate ``fw_version``
-    in that case, garbage there triggers Protect WS close code 4012).
+    Returns the parsed slice ONLY if it matches the UVC firmware shape
+    (``UVC.<platform>.vX.Y.Z...``); any other printable-ASCII run is
+    rejected. UVC firmware binaries for G3/G4 embed an ASCII version at
+    byte 4, NUL-terminated, fitting in 50 bytes — but newer platforms
+    (notably G6) lay their headers out differently and the first 50
+    bytes can easily look like clean ASCII without being a version.
+    Callers must NOT mutate ``fw_version`` when this returns ``""``.
     """
     if len(blob) < 5:
         return ""
@@ -48,7 +59,8 @@ def _parse_firmware_version(blob: bytes) -> str:
             break
         if 0x20 <= b <= 0x7E:
             chars.append(chr(b))
-    return "".join(chars)
+    candidate = "".join(chars)
+    return candidate if _VALID_UVC_FW_RE.match(candidate) else ""
 
 
 def _close_detail(exc: BaseException) -> str:
@@ -1850,6 +1862,7 @@ class UnifiCamBase(
         # status events alone would suffice; v1.7.4/v1.7.5 confirmed they
         # don't — v1.7.6 puts the version bump back.
         url = msg["payload"]["uri"]
+        self.logger.info(f"UpdateFirmwareRequest URI: {url}")
         headers = {"Range": "bytes=0-100"}
         try:
             async with aiohttp.ClientSession() as session:
@@ -1863,12 +1876,17 @@ class UnifiCamBase(
             return
         version = _parse_firmware_version(content)
         if not version:
-            # Bad/short/garbage payload — don't poison fw_version,
-            # which would feed an invalid value into the next adoption
-            # hello and trigger a Protect close (code 4012).
+            # Either short, all-NUL, or not UVC-shape. v1.7.7 added the
+            # shape check to prevent the G6-PTZ regression where 50 bytes
+            # of clean hex ASCII (``646b7432...``) parsed past the v1.6.5
+            # filter, got stored in fw_version, and triggered WS close
+            # 4012 on the next adoption hello. The hex dump below tells
+            # us how G6 firmware binaries actually lay out their header
+            # so we can plan a smarter parse next iteration.
             self.logger.warning(
-                "process_upgrade: could not parse a firmware version from "
-                "the binary; keeping current fw_version."
+                "process_upgrade: parsed header doesn't match the UVC "
+                f"firmware shape (first 54 bytes hex: {content.hex()}); "
+                "keeping current fw_version. Protect may re-issue."
             )
             return
         self.logger.info(f"Pretending to upgrade to: {version}")

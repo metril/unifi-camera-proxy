@@ -417,25 +417,54 @@ class TestHelloSemverConsistency:
 
 
 class TestFirmwareVersionParse:
-    """Restored in v1.7.6: ``process_upgrade`` parses the version out of the
-    upgrade binary's header so the post-reconnect hello reports the version
-    Protect just tried to push. v1.6.5 introduced this helper to fix a
-    bytes-vs-int comparison bug that concatenated raw binary noise into
-    ``self.args.fw_version`` (which then got persisted to config.yaml and
-    triggered WS close 4012 on the next adoption)."""
+    """``process_upgrade`` parses the version out of the upgrade binary's
+    header so the post-reconnect hello reports the version Protect just
+    tried to push. v1.6.5 introduced this helper to fix a bytes-vs-int
+    comparison bug that concatenated raw binary noise into
+    ``self.args.fw_version``. v1.7.7 added a strict UVC-shape regex
+    gate: G6 firmware binaries embed their version somewhere other than
+    byte 4, so the first 50 bytes can look like clean hex ASCII without
+    being a UVC version string. Without the regex, that ASCII run gets
+    stored in fw_version and Protect closes the next hello with code
+    4012."""
 
-    def test_stops_at_null_byte_and_returns_ascii(self):
+    def test_accepts_valid_uvc_string(self):
         from unifi.cams.base import _parse_firmware_version
 
-        blob = b"\x00\x00\x00\x00" + b"UVC.S2L.v4" + b"\x00" + b"\x80\xff\x00"
+        version = b"UVC.SAV539GP.v4.79.55.0.deadbeef.250101.1500"
+        blob = b"\x00\x00\x00\x00" + version + b"\x00" * (54 - 4 - len(version))
+        assert len(blob) == 54
+        assert _parse_firmware_version(blob) == version.decode("ascii")
+
+    def test_rejects_g6_ptz_hex_run_regression(self):
+        """v1.7.6 stored ``646b7432306f4ae2617ff17c769c94f3260ce87ac5bd05b2ba``
+        as fw_version on a G6 PTZ, triggered Protect WS close 4012.
+        v1.7.7's regex gate rejects this and any other non-UVC-shape
+        printable-ASCII run."""
+        from unifi.cams.base import _parse_firmware_version
+
+        blob = (
+            b"\x00\x00\x00\x00" + b"646b7432306f4ae2617ff17c769c94f3260ce87ac5bd05b2ba"
+        )
+        assert len(blob) == 54
+        assert _parse_firmware_version(blob) == ""
+
+    def test_rejects_truncated_uvc_prefix(self):
+        """``UVC.S2L.v4`` (no minor.patch) is structurally close but
+        not a complete version string — Protect would reject it too."""
+        from unifi.cams.base import _parse_firmware_version
+
+        blob = b"\x00\x00\x00\x00" + b"UVC.S2L.v4" + b"\x00" * (54 - 4 - 10)
+        assert _parse_firmware_version(blob) == ""
+
+    def test_stops_at_null_byte_when_shape_matches(self):
+        from unifi.cams.base import _parse_firmware_version
+
+        version_prefix = b"UVC.S2L.v4.23.8"
+        # 4-byte preamble + version + NUL + junk; NUL must terminate first.
+        blob = b"\x00\x00\x00\x00" + version_prefix + b"\x00" + b"junkjunk"
         blob = blob + b"\x00" * (54 - len(blob))
-        assert _parse_firmware_version(blob) == "UVC.S2L.v4"
-
-    def test_drops_non_printable_bytes(self):
-        from unifi.cams.base import _parse_firmware_version
-
-        blob = b"\x00\x00\x00\x00" + b"U\xffV\x01C\x80.\x80S\x002\x00" + b"\x00" * 50
-        assert _parse_firmware_version(blob[:54]) == "UVC.S"
+        assert _parse_firmware_version(blob) == version_prefix.decode("ascii")
 
     def test_returns_empty_when_first_byte_is_null(self):
         from unifi.cams.base import _parse_firmware_version
