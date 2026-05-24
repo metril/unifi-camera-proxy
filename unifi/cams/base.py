@@ -13,6 +13,7 @@ from abc import ABCMeta, abstractmethod
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import parse_qs, urlparse
 
 import aiohttp
 import websockets
@@ -25,7 +26,7 @@ from unifi.cams.handlers import (
 )
 from unifi.cams.handlers.video_stream_handlers import StreamState
 from unifi.core import RetryableError
-from unifi.model_db import extract_semver
+from unifi.model_db import FW_VERSION_TEMPLATE, extract_semver, get_model_info
 
 AVClientRequest = AVClientResponse = dict[str, Any]
 
@@ -38,6 +39,42 @@ AVClientRequest = AVClientResponse = dict[str, Any]
 # meant to prevent. The structural NUL/0x20-0x7E filter is necessary
 # but not sufficient; the regex makes it sufficient.
 _VALID_UVC_FW_RE = re.compile(r"^UVC\.[A-Z0-9_]+\.v\d+\.\d+\.\d+(\.|$)")
+
+# Plain X.Y.Z semver shape used to validate the ``version`` query-string
+# param Protect 4.x+ sends on UpdateFirmwareRequest URIs.
+_URI_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+def _extract_uri_version(uri: str) -> str:
+    """Pull ``version=X.Y.Z`` from Protect's UpdateFirmwareRequest URI.
+
+    Protect 4.x+ exposes the target version as a query-string param on a
+    metadata endpoint (``/internal/update?version=5.2.73…``). That's the
+    authoritative source — the endpoint is NOT a firmware binary on
+    newer controllers, just text body, so v1.7.6's "parse 54 bytes from
+    the URI" approach was wrong. Returns ``""`` if no parseable version.
+    """
+    try:
+        params = parse_qs(urlparse(uri).query)
+    except Exception:
+        return ""
+    version = (params.get("version") or [""])[0]
+    return version if _URI_SEMVER_RE.match(version) else ""
+
+
+def _compose_fw_version(model: str, version: str) -> str:
+    """Build a full UVC firmware string from model + a ``X.Y.Z`` semver.
+
+    Platform comes from ``model_db.get_model_info``; the
+    commit/date/time suffix is reused verbatim from
+    ``FW_VERSION_TEMPLATE`` — Protect's match is on ``semver`` (extracted
+    from this composed string by ``extract_semver``) so the suffix is
+    cosmetic.
+    """
+    platform, _ = get_model_info(model)
+    template = FW_VERSION_TEMPLATE.format(platform=platform.upper())
+    current_semver = extract_semver(template)
+    return template.replace(current_semver, f"v{version}", 1)
 
 
 def _parse_firmware_version(blob: bytes) -> str:
@@ -1863,6 +1900,21 @@ class UnifiCamBase(
         # don't — v1.7.6 puts the version bump back.
         url = msg["payload"]["uri"]
         self.logger.info(f"UpdateFirmwareRequest URI: {url}")
+
+        # Path 1 (Protect 4.x+): the version is right in the URI query
+        # string (``/internal/update?version=5.2.73…``). Authoritative.
+        uri_version = _extract_uri_version(url)
+        if uri_version:
+            new_fw = _compose_fw_version(self.args.model, uri_version)
+            self.logger.info(f"Upgrading to {new_fw} (from URI version={uri_version})")
+            self.args.fw_version = new_fw
+            return
+
+        # Path 2 (Protect 3.x and older): the version is embedded in the
+        # firmware binary's header at byte 4-54. Slower, can fail on
+        # platforms whose binaries lay headers out differently (G6+),
+        # but it's the only thing we have when the URI doesn't carry a
+        # version param.
         headers = {"Range": "bytes=0-100"}
         try:
             async with aiohttp.ClientSession() as session:
@@ -1870,27 +1922,20 @@ class UnifiCamBase(
                     content = await r.content.readexactly(54)
         except Exception as e:
             self.logger.warning(
-                f"process_upgrade: firmware fetch failed: {e}; "
-                "keeping current fw_version (Protect may re-issue)."
+                f"process_upgrade: no version in URI and firmware fetch "
+                f"failed: {e}; keeping current fw_version (Protect may re-issue)."
             )
             return
-        version = _parse_firmware_version(content)
-        if not version:
-            # Either short, all-NUL, or not UVC-shape. v1.7.7 added the
-            # shape check to prevent the G6-PTZ regression where 50 bytes
-            # of clean hex ASCII (``646b7432...``) parsed past the v1.6.5
-            # filter, got stored in fw_version, and triggered WS close
-            # 4012 on the next adoption hello. The hex dump below tells
-            # us how G6 firmware binaries actually lay out their header
-            # so we can plan a smarter parse next iteration.
+        parsed = _parse_firmware_version(content)
+        if not parsed:
             self.logger.warning(
-                "process_upgrade: parsed header doesn't match the UVC "
-                f"firmware shape (first 54 bytes hex: {content.hex()}); "
+                "process_upgrade: no version in URI and binary header "
+                f"isn't UVC-shape (first 54 bytes hex: {content.hex()}); "
                 "keeping current fw_version. Protect may re-issue."
             )
             return
-        self.logger.info(f"Pretending to upgrade to: {version}")
-        self.args.fw_version = version
+        self.logger.info(f"Upgrading to {parsed} (parsed from binary)")
+        self.args.fw_version = parsed
 
     def gen_response(
         self, name: str, response_to: int = 0, payload: Optional[dict[str, Any]] = None

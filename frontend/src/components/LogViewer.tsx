@@ -143,9 +143,24 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
 
   useEffect(() => {
     if (autoScroll) {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      // Instant scroll (no `behavior: 'smooth'`): a smooth animation in
+      // flight when the user toggles auto-scroll off keeps animating
+      // and feels like the toggle didn't work.
+      bottomRef.current?.scrollIntoView({ block: 'end' });
     }
   }, [logs, autoScroll]);
+
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    // Standard chat/terminal pattern: scrolling away from the bottom
+    // pauses auto-scroll; scrolling back resumes it. Threshold absorbs
+    // sub-pixel rounding errors. Note the autoScroll effect above ALSO
+    // fires scrollIntoView, which dispatches a scroll event — that's
+    // the no-op branch (we're already at the bottom so nearBottom is
+    // true and the state doesn't change).
+    const el = e.currentTarget;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
+    setAutoScroll((current) => (current === nearBottom ? current : nearBottom));
+  }, []);
 
   const toggleLevel = useCallback((level: string) => {
     setLevels((prev) => {
@@ -290,7 +305,10 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
             </div>
 
             {/* Log content */}
-            <div className="flex-1 overflow-auto p-2 font-mono text-xs bg-black/30">
+            <div
+              className="flex-1 overflow-auto p-2 font-mono text-xs bg-black/30"
+              onScroll={handleScroll}
+            >
               {filteredLogs.length === 0 ? (
                 <p className="text-muted-foreground italic p-2">
                   {logs.length === 0 ? 'No logs available' : 'No logs match current filters'}

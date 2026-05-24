@@ -479,16 +479,77 @@ class TestFirmwareVersionParse:
         assert _parse_firmware_version(b"\x00\x00\x00") == ""
 
 
-class TestUpdateFirmwareRequestHandler:
-    """v1.7.6: ``process_upgrade`` fetches the first 54 bytes of the upgrade
-    binary, parses out the version string, and mutates ``self.args.fw_version``
-    so the post-reconnect adoption hello reports it. v1.7.5 only ACKed and
-    danced — Protect re-issued UpdateFirmwareRequest on every reconnect
-    because the reported version never changed (a slow ~12s cycle).
-    Restoring the hondrew upstream behavior breaks the loop."""
+class TestExtractUriVersion:
+    """v1.7.8: Protect 4.x exposes the target firmware version as a
+    query-string param on the UpdateFirmwareRequest URI. Parsing it
+    out is the authoritative way to know what Protect wants the camera
+    to report on the post-upgrade hello — far better than guessing
+    where the version lives in a firmware binary's bytes."""
 
-    BUMPED = "UVC.S5L.v4.79.55.0.deadbeef.250101.1500"
-    BASELINE = "UVC.S5L.v4.69.55.0.7f45c5b.241212.1510"
+    REAL_URI = (
+        "https://unifi-protect:7444/internal/update?platform=sav539gp"
+        "&product=uvc&updateType=firmware&version=5.2.73&mac=AABBCC5B04C3"
+    )
+
+    def test_extracts_semver_from_real_uri(self):
+        from unifi.cams.base import _extract_uri_version
+
+        assert _extract_uri_version(self.REAL_URI) == "5.2.73"
+
+    def test_returns_empty_when_no_version_param(self):
+        from unifi.cams.base import _extract_uri_version
+
+        assert _extract_uri_version("https://h/firmware.bin") == ""
+        assert _extract_uri_version("https://h/firmware.bin?platform=s5l") == ""
+
+    def test_rejects_non_semver_version_param(self):
+        from unifi.cams.base import _extract_uri_version
+
+        assert _extract_uri_version("https://h/u?version=garbage") == ""
+        assert _extract_uri_version("https://h/u?version=5.2") == ""
+        assert _extract_uri_version("https://h/u?version=v5.2.73") == ""
+
+
+class TestComposeFwVersion:
+    """v1.7.8 builds a full UVC firmware string from the model and the
+    bare ``X.Y.Z`` semver pulled out of the upgrade URI. The platform
+    comes from ``model_db``; the suffix mirrors ``FW_VERSION_TEMPLATE``
+    so the result is fully shaped."""
+
+    def test_builds_string_using_g6_ptz_platform(self):
+        from unifi.cams.base import _compose_fw_version
+
+        fw = _compose_fw_version("UVC G6 PTZ", "5.2.73")
+        assert fw.startswith("UVC.SAV539GP.v5.2.73")
+        assert ".7f45c5b.241212.1510" in fw
+
+    def test_builds_string_using_g4_bullet_platform(self):
+        from unifi.cams.base import _compose_fw_version
+
+        fw = _compose_fw_version("UVC G4 Bullet", "4.79.55")
+        assert fw.startswith("UVC.S5L.v4.79.55")
+
+    def test_unknown_model_falls_back_to_default_platform(self):
+        from unifi.cams.base import _compose_fw_version
+        from unifi.model_db import DEFAULT_PLATFORM
+
+        fw = _compose_fw_version("Definitely Not A UVC", "1.2.3")
+        assert fw.startswith(f"UVC.{DEFAULT_PLATFORM.upper()}.v1.2.3")
+
+
+class TestUpdateFirmwareRequestHandler:
+    """v1.7.8: ``process_upgrade`` extracts the target version from the
+    UpdateFirmwareRequest URI's ``version`` query param (Protect 4.x+)
+    and composes a full UVC fw string via ``_compose_fw_version``. Falls
+    back to v1.7.6's binary-header parse when the URI doesn't carry a
+    version. The cycle finally breaks because the post-reconnect hello
+    reports the version Protect actually wanted."""
+
+    BASELINE = "UVC.SAV539GP.v4.69.55.0.7f45c5b.241212.1510"
+    REAL_URI = (
+        "https://unifi-protect:7444/internal/update?platform=sav539gp"
+        "&product=uvc&updateType=firmware&version=5.2.73&mac=AABBCC5B04C3"
+    )
 
     def _make_cam(self):
         import logging
@@ -501,16 +562,18 @@ class TestUpdateFirmwareRequestHandler:
         cam._session = None
 
         class FakeArgs:
-            fw_version = self.BASELINE
+            fw_version = "UVC.SAV539GP.v4.69.55.0.7f45c5b.241212.1510"
             mac = "aa:bb:cc:11:22:33"
+            model = "UVC G6 PTZ"
 
         cam.args = FakeArgs()
         return cam
 
     def _patch_aiohttp_session(self, monkeypatch, blob_or_exc):
-        """Stub ``aiohttp.ClientSession`` so ``session.get(...)`` yields a
-        context manager whose ``content.readexactly(54)`` returns the blob
-        — or raises if blob_or_exc is an exception instance."""
+        """Stub ``aiohttp.ClientSession`` for the binary-fallback path.
+        The URI-extraction path never invokes aiohttp, so tests that go
+        through it can skip this entirely (and any aiohttp use would
+        be a regression)."""
         import unifi.cams.base as base_module
 
         class FakeContent:
@@ -551,17 +614,39 @@ class TestUpdateFirmwareRequestHandler:
             lambda *a, **kw: FakeSession(blob_or_exc),
         )
 
-    def test_process_upgrade_bumps_fw_version_on_successful_parse(self, monkeypatch):
+    def test_process_upgrade_bumps_fw_version_from_uri(self, monkeypatch):
+        """The Protect-4.x URI path: extract ``version=5.2.73`` from the
+        query string and compose the new fwVersion. NO aiohttp call —
+        guard against regression by patching it to raise."""
         import asyncio
 
         from unifi.cams.base import UnifiCamBase
 
-        # 4-byte preamble + version + NUL pad to 54 bytes.
-        version = self.BUMPED.encode("ascii")
-        blob = b"\x00\x00\x00\x00" + version + b"\x00" * (54 - 4 - len(version))
-        assert len(blob) == 54
+        cam = self._make_cam()
+        # If we accidentally hit aiohttp, this raise would propagate to
+        # the warning branch and the test would still pass mutation, so
+        # also assert the new fw matches the URI-path composer output.
+        self._patch_aiohttp_session(
+            monkeypatch, AssertionError("URI path must not call aiohttp")
+        )
+
+        async def run():
+            await UnifiCamBase.process_upgrade(cam, {"payload": {"uri": self.REAL_URI}})
+
+        asyncio.run(run())
+        assert cam.args.fw_version == "UVC.SAV539GP.v5.2.73.0.7f45c5b.241212.1510"
+
+    def test_process_upgrade_falls_back_to_binary_parse(self, monkeypatch):
+        """No ``version`` in URI → fall back to the v1.7.6 binary parse.
+        Provide a synthetic blob with a UVC-shape ASCII version."""
+        import asyncio
+
+        from unifi.cams.base import UnifiCamBase
 
         cam = self._make_cam()
+        target = b"UVC.SAV539GP.v5.0.99.0.deadbeef.260101.0000"
+        blob = b"\x00\x00\x00\x00" + target + b"\x00" * (54 - 4 - len(target))
+        assert len(blob) == 54
         self._patch_aiohttp_session(monkeypatch, blob)
 
         async def run():
@@ -570,15 +655,17 @@ class TestUpdateFirmwareRequestHandler:
             )
 
         asyncio.run(run())
-        assert cam.args.fw_version == self.BUMPED
+        assert cam.args.fw_version == target.decode("ascii")
 
-    def test_process_upgrade_keeps_fw_version_on_failed_parse(self, monkeypatch):
+    def test_process_upgrade_keeps_fw_version_when_both_paths_fail(self, monkeypatch):
+        """No URI version AND binary parse fails → no mutation, no raise."""
         import asyncio
 
         from unifi.cams.base import UnifiCamBase
 
         cam = self._make_cam()
-        # All-NUL blob → _parse_firmware_version returns "".
+        # All-NUL blob is structurally valid but produces "" from
+        # _parse_firmware_version → caller keeps fw_version.
         self._patch_aiohttp_session(monkeypatch, b"\x00" * 54)
 
         async def run():
@@ -589,35 +676,15 @@ class TestUpdateFirmwareRequestHandler:
         asyncio.run(run())
         assert cam.args.fw_version == self.BASELINE
 
-    def test_process_upgrade_keeps_fw_version_on_fetch_error(self, monkeypatch):
-        import asyncio
-
-        from unifi.cams.base import UnifiCamBase
-
-        cam = self._make_cam()
-        self._patch_aiohttp_session(monkeypatch, ConnectionError("boom"))
-
-        async def run():
-            # Must not raise — the warning path swallows the exception.
-            await UnifiCamBase.process_upgrade(
-                cam, {"payload": {"uri": "https://protect/firmware.bin"}}
-            )
-
-        asyncio.run(run())
-        assert cam.args.fw_version == self.BASELINE
-
     def test_dispatch_acks_with_device_id_and_forces_reconnect(self, monkeypatch):
-        """End-to-end: process(UpdateFirmwareRequest) sends exactly ONE
-        message (the ACK with deviceID), no status events, no explicit
-        close, and returns True. v1.7.6 dropped the dance because the
-        version bump alone breaks the cycle."""
+        """End-to-end via the URI path: process(UpdateFirmwareRequest)
+        sends exactly the ACK with deviceID, no status events, no
+        explicit close, returns True, and ``args.fw_version`` is bumped
+        to the URI-composed value — that's the cycle-breaking change."""
         import asyncio
         import json
 
         from unifi.cams.base import UnifiCamBase
-
-        version = self.BUMPED.encode("ascii")
-        blob = b"\x00\x00\x00\x00" + version + b"\x00" * (54 - 4 - len(version))
 
         cam = self._make_cam()
         sent: list[dict] = []
@@ -626,7 +693,10 @@ class TestUpdateFirmwareRequestHandler:
             sent.append(msg)
 
         cam.send = fake_send  # type: ignore[method-assign]
-        self._patch_aiohttp_session(monkeypatch, blob)
+        # Guard: URI path must NOT touch aiohttp.
+        self._patch_aiohttp_session(
+            monkeypatch, AssertionError("URI path must not call aiohttp")
+        )
 
         close_calls: list[dict] = []
 
@@ -640,7 +710,7 @@ class TestUpdateFirmwareRequestHandler:
             "functionName": "UpdateFirmwareRequest",
             "messageId": 42,
             "responseExpected": True,
-            "payload": {"uri": "https://protect/firmware.bin"},
+            "payload": {"uri": self.REAL_URI},
         }
 
         async def run():
@@ -648,10 +718,7 @@ class TestUpdateFirmwareRequestHandler:
 
         force_reconnect = asyncio.run(run())
         assert force_reconnect is True
-
-        assert (
-            len(sent) == 1
-        ), f"v1.7.6 dropped the dance — expected only the ACK, got {sent!r}"
+        assert len(sent) == 1, f"expected only the ACK, got {sent!r}"
         ack = sent[0]
         assert ack["functionName"] == "UpdateFirmwareRequest"
         assert ack["inResponseTo"] == 42
@@ -660,14 +727,8 @@ class TestUpdateFirmwareRequestHandler:
             "status": "ok",
             "deviceID": "AA:BB:CC:11:22:33",
         }
-        assert close_calls == [], (
-            "v1.7.6 no longer explicitly closes the WS; the existing "
-            "`return True` → RetryableError path handles the reconnect."
-        )
-        assert cam.args.fw_version == self.BUMPED, (
-            "Dispatch must have run process_upgrade which bumps fw_version "
-            "to whatever Protect pushed — that's the cycle-breaking change."
-        )
+        assert close_calls == []
+        assert cam.args.fw_version == "UVC.SAV539GP.v5.2.73.0.7f45c5b.241212.1510"
 
 
 class TestLiveViewValidation:
