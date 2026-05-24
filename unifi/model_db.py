@@ -87,13 +87,18 @@ _SEMVER_RE = re.compile(r"v\d+\.\d+\.\d+")
 _FALLBACK_SEMVER = "v4.69.55"
 
 
-def get_semver(model: str) -> str:
-    """Return the vX.Y.Z slice of the model's firmware string.
+def extract_semver(firmware_version: str) -> str:
+    """Extract the vX.Y.Z slice from any UVC firmware string.
 
-    Protect uses ``semver`` as the authoritative version field in the
-    adoption hello; keeping it derived from the same template as
-    ``get_firmware_version`` prevents the two from drifting and
-    triggering spurious UpdateFirmwareRequest prompts.
+    Used by the adoption hello to keep ``semver`` aligned with
+    ``fwVersion``. The runtime ``args.fw_version`` may be mutated by
+    ``process_upgrade`` (after Protect pushes an upgrade), so semver
+    must follow that value — not the static model template.
     """
-    match = _SEMVER_RE.search(get_firmware_version(model))
+    match = _SEMVER_RE.search(firmware_version)
     return match.group(0) if match else _FALLBACK_SEMVER
+
+
+def get_semver(model: str) -> str:
+    """Return the vX.Y.Z slice of the model's firmware template."""
+    return extract_semver(get_firmware_version(model))

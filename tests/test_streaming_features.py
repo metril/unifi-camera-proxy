@@ -370,6 +370,28 @@ class TestGetSemver:
         assert get_semver("Definitely Not A UVC") == "v4.69.55"
 
 
+class TestExtractSemver:
+    """``extract_semver`` is the pure-string variant of ``get_semver`` —
+    callable on a runtime-mutated ``args.fw_version`` so semver follows
+    the value ``process_upgrade`` bumps it to (v1.7.6)."""
+
+    def test_pulls_xyz_out_of_modern_fw_string(self):
+        from unifi.model_db import extract_semver
+
+        assert extract_semver("UVC.S5L.v4.79.55.0.deadbeef.250101.1500") == "v4.79.55"
+
+    def test_pulls_xyz_out_of_legacy_fw_string(self):
+        from unifi.model_db import extract_semver
+
+        assert extract_semver("UVC.S2L.v4.23.8.67.0eba6e3.200526.1046") == "v4.23.8"
+
+    def test_falls_back_when_no_semver_present(self):
+        from unifi.model_db import _FALLBACK_SEMVER, extract_semver
+
+        assert extract_semver("garbage with no version") == _FALLBACK_SEMVER
+        assert extract_semver("") == _FALLBACK_SEMVER
+
+
 class TestHelloSemverConsistency:
     """Guard against future template drift: for every model in MODEL_DB, the
     semver string we put in the hello must be a substring of the fwVersion
@@ -384,81 +406,198 @@ class TestHelloSemverConsistency:
             sv = get_semver(model)
             assert sv in fw, f"{model}: semver {sv!r} not in fwVersion {fw!r}"
 
+    def test_extract_semver_follows_a_runtime_bump(self):
+        """After ``process_upgrade`` mutates ``args.fw_version`` to whatever
+        Protect pushed, the hello reads ``extract_semver(args.fw_version)``
+        — that pair must still be consistent."""
+        from unifi.model_db import extract_semver
+
+        bumped = "UVC.S5L.v4.79.55.0.deadbeef.250101.1500"
+        assert extract_semver(bumped) in bumped
+
+
+class TestFirmwareVersionParse:
+    """Restored in v1.7.6: ``process_upgrade`` parses the version out of the
+    upgrade binary's header so the post-reconnect hello reports the version
+    Protect just tried to push. v1.6.5 introduced this helper to fix a
+    bytes-vs-int comparison bug that concatenated raw binary noise into
+    ``self.args.fw_version`` (which then got persisted to config.yaml and
+    triggered WS close 4012 on the next adoption)."""
+
+    def test_stops_at_null_byte_and_returns_ascii(self):
+        from unifi.cams.base import _parse_firmware_version
+
+        blob = b"\x00\x00\x00\x00" + b"UVC.S2L.v4" + b"\x00" + b"\x80\xff\x00"
+        blob = blob + b"\x00" * (54 - len(blob))
+        assert _parse_firmware_version(blob) == "UVC.S2L.v4"
+
+    def test_drops_non_printable_bytes(self):
+        from unifi.cams.base import _parse_firmware_version
+
+        blob = b"\x00\x00\x00\x00" + b"U\xffV\x01C\x80.\x80S\x002\x00" + b"\x00" * 50
+        assert _parse_firmware_version(blob[:54]) == "UVC.S"
+
+    def test_returns_empty_when_first_byte_is_null(self):
+        from unifi.cams.base import _parse_firmware_version
+
+        blob = b"\x00\x00\x00\x00" + b"\x00" * 50
+        assert _parse_firmware_version(blob) == ""
+
+    def test_handles_short_blob(self):
+        from unifi.cams.base import _parse_firmware_version
+
+        assert _parse_firmware_version(b"") == ""
+        assert _parse_firmware_version(b"\x00\x00\x00") == ""
+
 
 class TestUpdateFirmwareRequestHandler:
-    """v1.7.4: Protect issues ``UpdateFirmwareRequest`` on adoption even when
-    ``semver`` and ``fwVersion`` agree (it pushes its bundled build to newly
-    identified models). v1.7.3 ACKed but did nothing else — Protect's UI hung
-    on "Preparing update". v1.7.4 ports redalert11's flow: ACK, send
-    FW_DOWNLOADING + FW_UPDATING status events, close WS with code 1012, and
-    force reconnect. Protect treats the close-then-reconnect as a completed
-    upgrade + reboot and clears the stuck status."""
+    """v1.7.6: ``process_upgrade`` fetches the first 54 bytes of the upgrade
+    binary, parses out the version string, and mutates ``self.args.fw_version``
+    so the post-reconnect adoption hello reports it. v1.7.5 only ACKed and
+    danced — Protect re-issued UpdateFirmwareRequest on every reconnect
+    because the reported version never changed (a slow ~12s cycle).
+    Restoring the hondrew upstream behavior breaks the loop."""
 
-    def test_process_upgrade_does_not_mutate_fw_version(self, monkeypatch):
-        """The dance must not touch ``args.fw_version``; the original v1.6.5
-        bug was that ``process_upgrade`` parsed garbage bytes into it."""
-        import asyncio
+    BUMPED = "UVC.S5L.v4.79.55.0.deadbeef.250101.1500"
+    BASELINE = "UVC.S5L.v4.69.55.0.7f45c5b.241212.1510"
+
+    def _make_cam(self):
         import logging
 
-        import unifi.cams.base as base_module
-        from unifi.cams.base import UnifiCamBase
         from unifi.cams.rtsp import RTSPCam
-
-        monkeypatch.setattr(base_module, "_FW_UPGRADE_STEP_DELAY_S", 0)
 
         cam = object.__new__(RTSPCam)
         cam.logger = logging.getLogger("test")
         cam._msg_id = 0
-        cam._session = None  # closing branch is skipped; sends still work
+        cam._session = None
 
         class FakeArgs:
-            fw_version = "UVC.S5L.v4.69.55.0.7f45c5b.241212.1510"
-
-        cam.args = FakeArgs()
-
-        async def noop_send(msg):
-            return None
-
-        cam.send = noop_send  # type: ignore[method-assign]
-
-        async def run():
-            await UnifiCamBase.process_upgrade(
-                cam, {"payload": {"uri": "http://example/firmware.bin"}}
-            )
-
-        asyncio.run(run())
-        assert cam.args.fw_version == "UVC.S5L.v4.69.55.0.7f45c5b.241212.1510"
-
-    def test_dispatch_sends_ack_then_simulates_upgrade(self, monkeypatch):
-        """The full dispatch path: ACK, FW_DOWNLOADING, FW_UPDATING,
-        close(code=1012, reason="rebooting"), return True."""
-        import asyncio
-        import json
-        import logging
-
-        import unifi.cams.base as base_module
-        from unifi.cams.base import UnifiCamBase
-        from unifi.cams.rtsp import RTSPCam
-
-        monkeypatch.setattr(base_module, "_FW_UPGRADE_STEP_DELAY_S", 0)
-
-        cam = object.__new__(RTSPCam)
-        cam.logger = logging.getLogger("test")
-        cam._msg_id = 0
-
-        class FakeArgs:
-            fw_version = "UVC.S5L.v4.69.55.0.7f45c5b.241212.1510"
-            # Lowercase + colons to exercise the .upper() in the deviceID
-            # transform (v1.7.5).
+            fw_version = self.BASELINE
             mac = "aa:bb:cc:11:22:33"
 
         cam.args = FakeArgs()
+        return cam
+
+    def _patch_aiohttp_session(self, monkeypatch, blob_or_exc):
+        """Stub ``aiohttp.ClientSession`` so ``session.get(...)`` yields a
+        context manager whose ``content.readexactly(54)`` returns the blob
+        — or raises if blob_or_exc is an exception instance."""
+        import unifi.cams.base as base_module
+
+        class FakeContent:
+            def __init__(self, blob):
+                self.blob = blob
+
+            async def readexactly(self, n):
+                return self.blob[:n]
+
+        class FakeResponse:
+            def __init__(self, blob):
+                self.content = FakeContent(blob)
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+        class FakeSession:
+            def __init__(self, blob_or_exc):
+                self._blob_or_exc = blob_or_exc
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            def get(self, url, headers=None, ssl=None):
+                if isinstance(self._blob_or_exc, BaseException):
+                    raise self._blob_or_exc
+                return FakeResponse(self._blob_or_exc)
+
+        monkeypatch.setattr(
+            base_module.aiohttp,
+            "ClientSession",
+            lambda *a, **kw: FakeSession(blob_or_exc),
+        )
+
+    def test_process_upgrade_bumps_fw_version_on_successful_parse(self, monkeypatch):
+        import asyncio
+
+        from unifi.cams.base import UnifiCamBase
+
+        # 4-byte preamble + version + NUL pad to 54 bytes.
+        version = self.BUMPED.encode("ascii")
+        blob = b"\x00\x00\x00\x00" + version + b"\x00" * (54 - 4 - len(version))
+        assert len(blob) == 54
+
+        cam = self._make_cam()
+        self._patch_aiohttp_session(monkeypatch, blob)
+
+        async def run():
+            await UnifiCamBase.process_upgrade(
+                cam, {"payload": {"uri": "https://protect/firmware.bin"}}
+            )
+
+        asyncio.run(run())
+        assert cam.args.fw_version == self.BUMPED
+
+    def test_process_upgrade_keeps_fw_version_on_failed_parse(self, monkeypatch):
+        import asyncio
+
+        from unifi.cams.base import UnifiCamBase
+
+        cam = self._make_cam()
+        # All-NUL blob → _parse_firmware_version returns "".
+        self._patch_aiohttp_session(monkeypatch, b"\x00" * 54)
+
+        async def run():
+            await UnifiCamBase.process_upgrade(
+                cam, {"payload": {"uri": "https://protect/firmware.bin"}}
+            )
+
+        asyncio.run(run())
+        assert cam.args.fw_version == self.BASELINE
+
+    def test_process_upgrade_keeps_fw_version_on_fetch_error(self, monkeypatch):
+        import asyncio
+
+        from unifi.cams.base import UnifiCamBase
+
+        cam = self._make_cam()
+        self._patch_aiohttp_session(monkeypatch, ConnectionError("boom"))
+
+        async def run():
+            # Must not raise — the warning path swallows the exception.
+            await UnifiCamBase.process_upgrade(
+                cam, {"payload": {"uri": "https://protect/firmware.bin"}}
+            )
+
+        asyncio.run(run())
+        assert cam.args.fw_version == self.BASELINE
+
+    def test_dispatch_acks_with_device_id_and_forces_reconnect(self, monkeypatch):
+        """End-to-end: process(UpdateFirmwareRequest) sends exactly ONE
+        message (the ACK with deviceID), no status events, no explicit
+        close, and returns True. v1.7.6 dropped the dance because the
+        version bump alone breaks the cycle."""
+        import asyncio
+        import json
+
+        from unifi.cams.base import UnifiCamBase
+
+        version = self.BUMPED.encode("ascii")
+        blob = b"\x00\x00\x00\x00" + version + b"\x00" * (54 - 4 - len(version))
+
+        cam = self._make_cam()
         sent: list[dict] = []
 
         async def fake_send(msg):
             sent.append(msg)
 
         cam.send = fake_send  # type: ignore[method-assign]
+        self._patch_aiohttp_session(monkeypatch, blob)
 
         close_calls: list[dict] = []
 
@@ -472,41 +611,33 @@ class TestUpdateFirmwareRequestHandler:
             "functionName": "UpdateFirmwareRequest",
             "messageId": 42,
             "responseExpected": True,
-            "payload": {"uri": "http://example/firmware.bin"},
+            "payload": {"uri": "https://protect/firmware.bin"},
         }
 
         async def run():
             return await UnifiCamBase.process(cam, json.dumps(request).encode())
 
         force_reconnect = asyncio.run(run())
+        assert force_reconnect is True
 
-        assert force_reconnect is True, (
-            "v1.7.4: UpdateFirmwareRequest MUST force reconnect to complete "
-            "the simulated reboot cycle Protect is waiting for."
-        )
-        assert len(sent) == 3, f"expected ACK + 2 status events, got {sent!r}"
-
-        ack, downloading, updating = sent
+        assert (
+            len(sent) == 1
+        ), f"v1.7.6 dropped the dance — expected only the ACK, got {sent!r}"
+        ack = sent[0]
         assert ack["functionName"] == "UpdateFirmwareRequest"
         assert ack["inResponseTo"] == 42
-        # v1.7.5: deviceID is the idempotency key Protect uses to recognize
-        # "this device already accepted this upgrade" — without it Protect
-        # re-issues UpdateFirmwareRequest on every reconnect.
         assert ack["payload"] == {
             "statusCode": 0,
             "status": "ok",
             "deviceID": "AA:BB:CC:11:22:33",
         }
-
-        assert downloading["functionName"] == "EventUpdateFirmwareStatus"
-        assert downloading["payload"] == {"status": "FW_DOWNLOADING"}
-
-        assert updating["functionName"] == "EventUpdateFirmwareStatus"
-        assert updating["payload"] == {"status": "FW_UPDATING"}
-
-        assert close_calls == [{"code": 1012, "reason": "rebooting"}], (
-            "WS must close with code 1012 / reason 'rebooting' so Protect "
-            "marks the upgrade complete after the reconnect."
+        assert close_calls == [], (
+            "v1.7.6 no longer explicitly closes the WS; the existing "
+            "`return True` → RetryableError path handles the reconnect."
+        )
+        assert cam.args.fw_version == self.BUMPED, (
+            "Dispatch must have run process_upgrade which bumps fw_version "
+            "to whatever Protect pushed — that's the cycle-breaking change."
         )
 
 

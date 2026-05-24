@@ -24,13 +24,31 @@ from unifi.cams.handlers import (
 )
 from unifi.cams.handlers.video_stream_handlers import StreamState
 from unifi.core import RetryableError
-from unifi.model_db import get_semver
+from unifi.model_db import extract_semver
 
 AVClientRequest = AVClientResponse = dict[str, Any]
 
-# Total wait ~10s; matches redalert11's pacing so Protect's UI sees a
-# realistic firmware-upgrade cycle. Module-level so tests can collapse it.
-_FW_UPGRADE_STEP_DELAY_S = 5
+
+def _parse_firmware_version(blob: bytes) -> str:
+    """Parse a UVC firmware version string out of the upgrade-binary header.
+
+    Real UVC firmware binaries embed an ASCII version string (e.g.
+    ``UVC.S5L.v4.79.55.0.deadbeef.250101.1500``) starting at byte 4,
+    NUL-terminated, fitting in 50 bytes. Stops at the first NUL; drops
+    anything outside printable ASCII (0x20-0x7E) — a sane fw string is
+    printable ASCII only. Returns the parsed string (may be empty if the
+    blob carried nothing usable — callers must NOT mutate ``fw_version``
+    in that case, garbage there triggers Protect WS close code 4012).
+    """
+    if len(blob) < 5:
+        return ""
+    chars: list[str] = []
+    for b in blob[4:54]:
+        if b == 0:
+            break
+        if 0x20 <= b <= 0x7E:
+            chars.append(chr(b))
+    return "".join(chars)
 
 
 def _close_detail(exc: BaseException) -> str:
@@ -1808,7 +1826,7 @@ class UnifiCamBase(
                     "name": self.args.name,
                     "protocolVersion": 67,
                     "rebootTimeoutSec": 30,
-                    "semver": get_semver(self.args.model),
+                    "semver": extract_semver(self.args.fw_version),
                     "totalLoad": 0.5474,
                     "upgradeTimeoutSec": 150,
                     "uptime": int(self.get_uptime()),
@@ -1821,37 +1839,40 @@ class UnifiCamBase(
         asyncio.create_task(self.get_snapshot())
 
     async def process_upgrade(self, msg: AVClientRequest) -> None:
-        # Protect issues ``UpdateFirmwareRequest`` on adoption even when
-        # ``semver`` and ``fwVersion`` agree — it pushes its bundled build
-        # to newly identified models. A bare ACK (v1.7.3) leaves Protect
-        # forever in "Preparing update". Ported from redalert11's flow: send
-        # FW_DOWNLOADING + FW_UPDATING events, then close the WS with code
-        # 1012 ("service restart") and let backoff reconnect. Protect treats
-        # the close-then-reconnect as a completed upgrade + reboot and
-        # clears the stuck status. We deliberately keep reporting the same
-        # ``fwVersion`` on reconnect — redalert11 does the same and Protect
-        # accepts the cycle as complete.
-        self.logger.info("Simulating firmware upgrade for Protect")
-        await self.send(
-            self.gen_response(
-                "EventUpdateFirmwareStatus",
-                payload={"status": "FW_DOWNLOADING"},
+        # Protect's UI cycles "Preparing update" forever unless the camera
+        # reports the NEW firmware version on the post-upgrade reconnect.
+        # The hondrew upstream behavior (proven against multiple Protect
+        # generations): fetch the header of the binary Protect is pushing,
+        # parse the embedded ASCII version string, mutate
+        # ``self.args.fw_version`` so the next adoption hello reports it.
+        # Protect sees "device upgraded to the version I sent" and closes
+        # the loop. v1.7.3 deleted this path on the wrong assumption that
+        # status events alone would suffice; v1.7.4/v1.7.5 confirmed they
+        # don't — v1.7.6 puts the version bump back.
+        url = msg["payload"]["uri"]
+        headers = {"Range": "bytes=0-100"}
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers, ssl=False) as r:
+                    content = await r.content.readexactly(54)
+        except Exception as e:
+            self.logger.warning(
+                f"process_upgrade: firmware fetch failed: {e}; "
+                "keeping current fw_version (Protect may re-issue)."
             )
-        )
-        await asyncio.sleep(_FW_UPGRADE_STEP_DELAY_S)
-        await self.send(
-            self.gen_response(
-                "EventUpdateFirmwareStatus",
-                payload={"status": "FW_UPDATING"},
+            return
+        version = _parse_firmware_version(content)
+        if not version:
+            # Bad/short/garbage payload — don't poison fw_version,
+            # which would feed an invalid value into the next adoption
+            # hello and trigger a Protect close (code 4012).
+            self.logger.warning(
+                "process_upgrade: could not parse a firmware version from "
+                "the binary; keeping current fw_version."
             )
-        )
-        await asyncio.sleep(_FW_UPGRADE_STEP_DELAY_S)
-        ws = self._session
-        if ws is not None:
-            try:
-                await ws.close(code=1012, reason="rebooting")
-            except Exception:
-                self.logger.debug("Firmware-reboot WS close raised", exc_info=True)
+            return
+        self.logger.info(f"Pretending to upgrade to: {version}")
+        self.args.fw_version = version
 
     def gen_response(
         self, name: str, response_to: int = 0, payload: Optional[dict[str, Any]] = None
@@ -1976,18 +1997,14 @@ class UnifiCamBase(
         elif fn == "ChangeClarityZones":
             res = self.gen_response("ChangeClarityZones", response_to=m["messageId"])
         elif fn == "UpdateFirmwareRequest":
-            # ACK first so Protect logs the request as accepted, run the
-            # FW_DOWNLOADING / FW_UPDATING / close-1012 dance, then force
-            # the reconnect that completes the simulated reboot.
+            # ACK with deviceID (idempotency key), then ``process_upgrade``
+            # bumps ``self.args.fw_version`` to whatever Protect pushed.
+            # ``return True`` forces reconnect; the next hello reports the
+            # new version and Protect marks the upgrade complete.
             ack = self.gen_response("UpdateFirmwareRequest", response_to=m["messageId"])
             ack["payload"] = {
                 "statusCode": 0,
                 "status": "ok",
-                # Idempotency key Protect uses to recognize "this device
-                # already accepted this upgrade"; without it Protect
-                # re-issues UpdateFirmwareRequest on every reconnect. Format
-                # mirrors redalert11/unifi-cam-proxy `_device_id` — uppercase
-                # MAC with colons preserved.
                 "deviceID": str(self.args.mac).upper(),
             }
             await self.send(ack)

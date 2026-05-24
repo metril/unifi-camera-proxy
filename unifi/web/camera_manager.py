@@ -557,7 +557,7 @@ class CameraManager:
         return [self._instance_to_dict(inst) for inst in self.instances.values()]
 
     def _instance_to_dict(self, instance: CameraInstance) -> dict:
-        from unifi.model_db import get_firmware_version, get_semver
+        from unifi.model_db import extract_semver, get_firmware_version
 
         uptime = None
         if instance.started_at and instance.status == "running":
@@ -565,6 +565,19 @@ class CameraManager:
         pid = None
         if instance.process and instance.status == "running":
             pid = instance.process.pid
+        # What the subprocess will actually report to Protect at startup:
+        # a user override if set + non-legacy, otherwise the model-aware
+        # modern default. NOTE: at runtime ``process_upgrade`` may bump this
+        # to whatever Protect pushes; the API surfaces the baseline only.
+        configured_fw = instance.config.get("fw_version")
+        effective_fw = (
+            configured_fw
+            if (
+                configured_fw
+                and configured_fw != "UVC.S2L.v4.23.8.67.0eba6e3.200526.1046"
+            )
+            else get_firmware_version(instance.config.get("model") or "UVC G4 Bullet")
+        )
         return {
             "id": instance.id,
             "config": instance.config,
@@ -576,26 +589,11 @@ class CameraManager:
             "restart_attempt": instance.restart_attempt,
             "next_restart_at": instance.next_restart_at,
             "auto_restart_enabled": self._is_auto_restart_enabled(instance),
-            # What the subprocess will actually report to Protect on adopt:
-            # a user override if set + non-legacy, otherwise the model-aware
-            # modern default. Surfaced read-only on the camera card.
-            "effective_fw_version": (
-                instance.config.get("fw_version")
-                if (
-                    instance.config.get("fw_version")
-                    and instance.config.get("fw_version")
-                    != "UVC.S2L.v4.23.8.67.0eba6e3.200526.1046"
-                )
-                else get_firmware_version(
-                    instance.config.get("model") or "UVC G4 Bullet"
-                )
-            ),
-            # Semver field paired with fwVersion in the adoption hello;
-            # derived from the same template so Protect never sees a
-            # mismatched pair (the v1.7.3 fix for the upgrade-prompt loop).
-            "effective_semver": get_semver(
-                instance.config.get("model") or "UVC G4 Bullet"
-            ),
+            "effective_fw_version": effective_fw,
+            # Mirrors the adoption hello — semver derived from fwVersion so
+            # the two never drift (originally split semver from model, but
+            # ``process_upgrade`` mutates fwVersion so semver must follow).
+            "effective_semver": extract_semver(effective_fw),
         }
 
     async def start_all_enabled(self) -> None:
