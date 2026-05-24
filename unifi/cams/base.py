@@ -28,6 +28,10 @@ from unifi.model_db import get_semver
 
 AVClientRequest = AVClientResponse = dict[str, Any]
 
+# Total wait ~10s; matches redalert11's pacing so Protect's UI sees a
+# realistic firmware-upgrade cycle. Module-level so tests can collapse it.
+_FW_UPGRADE_STEP_DELAY_S = 5
+
 
 def _close_detail(exc: BaseException) -> str:
     """Render the close code+reason from a websockets ConnectionClosed* exc.
@@ -1817,16 +1821,37 @@ class UnifiCamBase(
         asyncio.create_task(self.get_snapshot())
 
     async def process_upgrade(self, msg: AVClientRequest) -> None:
-        # The proxy already advertises the platform's modern firmware build
-        # in the adoption hello (see ``get_firmware_version`` / ``get_semver``
-        # in unifi.model_db). Performing a real upgrade would either be a
-        # no-op or — historically — corrupt ``fw_version`` by parsing
-        # arbitrary bytes from the upgrade binary, which triggered the very
-        # adoption loop this stub eliminates. ACK without reconnecting.
-        self.logger.info(
-            "Ignoring UpdateFirmwareRequest — proxy advertises the platform's "
-            "modern firmware build and does not perform real upgrades."
+        # Protect issues ``UpdateFirmwareRequest`` on adoption even when
+        # ``semver`` and ``fwVersion`` agree — it pushes its bundled build
+        # to newly identified models. A bare ACK (v1.7.3) leaves Protect
+        # forever in "Preparing update". Ported from redalert11's flow: send
+        # FW_DOWNLOADING + FW_UPDATING events, then close the WS with code
+        # 1012 ("service restart") and let backoff reconnect. Protect treats
+        # the close-then-reconnect as a completed upgrade + reboot and
+        # clears the stuck status. We deliberately keep reporting the same
+        # ``fwVersion`` on reconnect — redalert11 does the same and Protect
+        # accepts the cycle as complete.
+        self.logger.info("Simulating firmware upgrade for Protect")
+        await self.send(
+            self.gen_response(
+                "EventUpdateFirmwareStatus",
+                payload={"status": "FW_DOWNLOADING"},
+            )
         )
+        await asyncio.sleep(_FW_UPGRADE_STEP_DELAY_S)
+        await self.send(
+            self.gen_response(
+                "EventUpdateFirmwareStatus",
+                payload={"status": "FW_UPDATING"},
+            )
+        )
+        await asyncio.sleep(_FW_UPGRADE_STEP_DELAY_S)
+        ws = self._session
+        if ws is not None:
+            try:
+                await ws.close(code=1012, reason="rebooting")
+            except Exception:
+                self.logger.debug("Firmware-reboot WS close raised", exc_info=True)
 
     def gen_response(
         self, name: str, response_to: int = 0, payload: Optional[dict[str, Any]] = None
@@ -1951,8 +1976,14 @@ class UnifiCamBase(
         elif fn == "ChangeClarityZones":
             res = self.gen_response("ChangeClarityZones", response_to=m["messageId"])
         elif fn == "UpdateFirmwareRequest":
+            # ACK first so Protect logs the request as accepted, run the
+            # FW_DOWNLOADING / FW_UPDATING / close-1012 dance, then force
+            # the reconnect that completes the simulated reboot.
+            ack = self.gen_response("UpdateFirmwareRequest", response_to=m["messageId"])
+            ack["payload"] = {"statusCode": 0, "status": "ok"}
+            await self.send(ack)
             await self.process_upgrade(m)
-            res = self.gen_response("UpdateFirmwareRequest", response_to=m["messageId"])
+            return True
         elif fn == "Reboot":
             return True
         elif fn == "ContinuousMove":

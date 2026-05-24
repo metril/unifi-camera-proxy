@@ -386,27 +386,40 @@ class TestHelloSemverConsistency:
 
 
 class TestUpdateFirmwareRequestHandler:
-    """v1.7.3: the old ``UpdateFirmwareRequest`` handler downloaded 54 bytes
-    of the upgrade binary, parsed them into ``self.args.fw_version``, then
-    forced a WS reconnect (``return True`` → ``RetryableError``). With
-    Protect re-sending UpdateFirmwareRequest on every reconnect, that path
-    was the adoption-loop trigger. The new handler ACKs and ignores; no
-    mutation, no forced reconnect."""
+    """v1.7.4: Protect issues ``UpdateFirmwareRequest`` on adoption even when
+    ``semver`` and ``fwVersion`` agree (it pushes its bundled build to newly
+    identified models). v1.7.3 ACKed but did nothing else — Protect's UI hung
+    on "Preparing update". v1.7.4 ports redalert11's flow: ACK, send
+    FW_DOWNLOADING + FW_UPDATING status events, close WS with code 1012, and
+    force reconnect. Protect treats the close-then-reconnect as a completed
+    upgrade + reboot and clears the stuck status."""
 
-    def test_process_upgrade_does_not_mutate_fw_version(self):
+    def test_process_upgrade_does_not_mutate_fw_version(self, monkeypatch):
+        """The dance must not touch ``args.fw_version``; the original v1.6.5
+        bug was that ``process_upgrade`` parsed garbage bytes into it."""
         import asyncio
         import logging
 
+        import unifi.cams.base as base_module
         from unifi.cams.base import UnifiCamBase
         from unifi.cams.rtsp import RTSPCam
 
+        monkeypatch.setattr(base_module, "_FW_UPGRADE_STEP_DELAY_S", 0)
+
         cam = object.__new__(RTSPCam)
         cam.logger = logging.getLogger("test")
+        cam._msg_id = 0
+        cam._session = None  # closing branch is skipped; sends still work
 
         class FakeArgs:
             fw_version = "UVC.S5L.v4.69.55.0.7f45c5b.241212.1510"
 
         cam.args = FakeArgs()
+
+        async def noop_send(msg):
+            return None
+
+        cam.send = noop_send  # type: ignore[method-assign]
 
         async def run():
             await UnifiCamBase.process_upgrade(
@@ -416,16 +429,18 @@ class TestUpdateFirmwareRequestHandler:
         asyncio.run(run())
         assert cam.args.fw_version == "UVC.S5L.v4.69.55.0.7f45c5b.241212.1510"
 
-    def test_dispatch_does_not_force_reconnect(self):
-        """``process(UpdateFirmwareRequest)`` must return False (no
-        RetryableError); a stub ``send`` captures the ACK so we also
-        confirm an answer was actually sent to Protect."""
+    def test_dispatch_sends_ack_then_simulates_upgrade(self, monkeypatch):
+        """The full dispatch path: ACK, FW_DOWNLOADING, FW_UPDATING,
+        close(code=1012, reason="rebooting"), return True."""
         import asyncio
         import json
         import logging
 
+        import unifi.cams.base as base_module
         from unifi.cams.base import UnifiCamBase
         from unifi.cams.rtsp import RTSPCam
+
+        monkeypatch.setattr(base_module, "_FW_UPGRADE_STEP_DELAY_S", 0)
 
         cam = object.__new__(RTSPCam)
         cam.logger = logging.getLogger("test")
@@ -442,6 +457,14 @@ class TestUpdateFirmwareRequestHandler:
 
         cam.send = fake_send  # type: ignore[method-assign]
 
+        close_calls: list[dict] = []
+
+        class FakeWS:
+            async def close(self, code=None, reason=None):
+                close_calls.append({"code": code, "reason": reason})
+
+        cam._session = FakeWS()
+
         request = {
             "functionName": "UpdateFirmwareRequest",
             "messageId": 42,
@@ -453,13 +476,28 @@ class TestUpdateFirmwareRequestHandler:
             return await UnifiCamBase.process(cam, json.dumps(request).encode())
 
         force_reconnect = asyncio.run(run())
-        assert force_reconnect is False, (
-            "v1.7.3: UpdateFirmwareRequest must not force a reconnect; that "
-            "was the adoption-loop trigger."
+
+        assert force_reconnect is True, (
+            "v1.7.4: UpdateFirmwareRequest MUST force reconnect to complete "
+            "the simulated reboot cycle Protect is waiting for."
         )
-        assert len(sent) == 1, "Handler must ACK the request"
-        assert sent[0]["functionName"] == "UpdateFirmwareRequest"
-        assert sent[0]["inResponseTo"] == 42
+        assert len(sent) == 3, f"expected ACK + 2 status events, got {sent!r}"
+
+        ack, downloading, updating = sent
+        assert ack["functionName"] == "UpdateFirmwareRequest"
+        assert ack["inResponseTo"] == 42
+        assert ack["payload"] == {"statusCode": 0, "status": "ok"}
+
+        assert downloading["functionName"] == "EventUpdateFirmwareStatus"
+        assert downloading["payload"] == {"status": "FW_DOWNLOADING"}
+
+        assert updating["functionName"] == "EventUpdateFirmwareStatus"
+        assert updating["payload"] == {"status": "FW_UPDATING"}
+
+        assert close_calls == [{"code": 1012, "reason": "rebooting"}], (
+            "WS must close with code 1012 / reason 'rebooting' so Protect "
+            "marks the upgrade complete after the reconnect."
+        )
 
 
 class TestLiveViewValidation:
