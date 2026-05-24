@@ -151,23 +151,34 @@ export default function CommandPalette({
         haystack: 'settings configuration',
         run: () => onSwitchView('settings'),
       },
-      {
+    );
+    // Start-all / Stop-all only when they'd actually do something —
+    // mirrors the header buttons' disabled rules.
+    const runningCount = cameras.filter((c) => c.status === 'running').length;
+    const canStartAll = runningCount < cameras.length;
+    const canStopAll = cameras.some(
+      (c) => c.status === 'running' || c.status === 'restarting',
+    );
+    if (canStartAll) {
+      list.push({
         id: 'sys-start-all',
         verb: 'system',
         label: 'Start all cameras',
         icon: Play,
         haystack: 'start all cameras',
         run: onStartAll,
-      },
-      {
+      });
+    }
+    if (canStopAll) {
+      list.push({
         id: 'sys-stop-all',
         verb: 'system',
         label: 'Stop all cameras',
         icon: Square,
         haystack: 'stop all cameras',
         run: onStopAll,
-      },
-    );
+      });
+    }
     for (const c of cameras) {
       const name = c.config.name || 'Unnamed';
       const baseHay = `${name} ${c.config.mac ?? ''} ${c.config.ip ?? ''} ${c.config.model ?? ''}`.toLowerCase();

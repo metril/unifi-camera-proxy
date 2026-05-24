@@ -645,9 +645,14 @@ class CameraManager:
         return results
 
     async def stop_all(self) -> dict[str, str]:
+        # Also acts on instances in ``restarting`` state (cancels the
+        # pending restart task via ``stop_camera``) so the UI's group
+        # "Stop all" matches per-camera Stop semantics — pressing it
+        # mid-backoff actually halts the auto-restart instead of
+        # leaving zombie restart timers running.
         results = {}
         for cam_id, instance in list(self.instances.items()):
-            if instance.status == "running":
+            if instance.status in ("running", "restarting"):
                 try:
                     await self.stop_camera(cam_id)
                     results[cam_id] = "stopped"

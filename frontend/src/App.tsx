@@ -314,6 +314,15 @@ function AppShellApp() {
     [cameras],
   );
   const cameraCount = cameras.length;
+  // "Start all" is useful only when at least one camera isn't already
+  // running. "Stop all" is useful when there's something to terminate
+  // OR a pending restart to cancel — mirrors the backend stop_all,
+  // which acts on both `running` and `restarting` (v1.8.2).
+  const canStartAll = runningCount < cameraCount;
+  const canStopAll = useMemo(
+    () => cameras.some((c) => c.status === 'running' || c.status === 'restarting'),
+    [cameras],
+  );
 
   // Memoize the cameras-view actions JSX so AppShell's actions prop ref is
   // stable across polls — without this, AppShell re-renders every push.
@@ -321,10 +330,24 @@ function AppShellApp() {
     <>
       {cameraCount > 0 && (
         <>
-          <Button variant="outline" size="sm" className="h-9 text-xs text-emerald-300 border-emerald-600/30 hover:bg-emerald-600/10" onClick={handleStartAll}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!canStartAll}
+            title={canStartAll ? 'Start every stopped/idle camera' : 'All cameras already running'}
+            className="h-9 text-xs text-emerald-300 border-emerald-600/30 hover:bg-emerald-600/10 disabled:opacity-40 disabled:hover:bg-transparent"
+            onClick={handleStartAll}
+          >
             Start all
           </Button>
-          <Button variant="outline" size="sm" className="h-9 text-xs text-red-300 border-red-600/30 hover:bg-red-600/10" onClick={handleStopAll}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!canStopAll}
+            title={canStopAll ? 'Stop every running camera (cancels pending restarts too)' : 'Nothing to stop'}
+            className="h-9 text-xs text-red-300 border-red-600/30 hover:bg-red-600/10 disabled:opacity-40 disabled:hover:bg-transparent"
+            onClick={handleStopAll}
+          >
             Stop all
           </Button>
         </>
@@ -333,7 +356,7 @@ function AppShellApp() {
         <Plus className="w-4 h-4 mr-1.5" /> Add camera
       </Button>
     </>
-  ), [cameraCount, handleStartAll, handleStopAll, handleAddCamera]);
+  ), [cameraCount, canStartAll, canStopAll, handleStartAll, handleStopAll, handleAddCamera]);
 
   if (needsLogin) return <LoginPage />;
 
