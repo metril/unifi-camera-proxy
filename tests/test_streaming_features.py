@@ -215,33 +215,45 @@ class TestWebSocketCloseLogging:
 
 
 class TestWebSocketHeaders:
-    """v1.6.3 tried adding ``camera-model: <sysid>`` to the WS handshake on
-    the hypothesis that Protect's strict adoption needed it — and that
-    broke previously-working tile cameras with the same ``code=4012`` close.
-    v1.6.4 reverted. These tests are now a regression guard: re-introducing
-    ``camera-model`` without explicit reasoning has to update them
-    deliberately."""
+    """v1.7.1: WS handshake sends PascalCase ``Camera-Mac`` (normalized) and
+    ``Camera-Model`` (sysid hex), matching the redalert11/unifi-cam-proxy
+    fork's working wire format. Without ``Camera-Model`` Protect's UI
+    labels every camera generically as "Camera"; the failed v1.6.3 attempt
+    sent lowercase ``camera-model`` and Protect's case-sensitive header
+    parser rejected the connection with ``code=4012``."""
 
-    def test_camera_model_header_not_sent_even_when_sysid_set(self):
+    def test_pascal_case_headers_and_normalized_mac(self):
         from unifi.core import Core
 
         core = object.__new__(Core)
-        core.mac = "AABBCC112233"
-        core.sysid = "0xa572"  # UVC G4 Bullet — still computed; just not sent
+        core.mac = "AA:BB:CC:11:22:33"
+        core.sysid = "0xa572"  # UVC G4 Bullet
         headers = Core._build_ws_headers(core)
-        assert headers == {"camera-mac": "AABBCC112233"}, (
-            "WS handshake must send camera-mac only — adding camera-model "
-            "in v1.6.3 broke tile-camera adoption with code=4012."
-        )
+        assert headers == {
+            "Camera-Mac": "aabbcc112233",
+            "Camera-Model": "0xa572",
+        }, "Headers must be PascalCase; MAC lowercased + colons stripped"
 
-    def test_camera_mac_present_when_sysid_missing(self):
+    def test_mac_already_normalized_passes_through(self):
         from unifi.core import Core
 
         core = object.__new__(Core)
         core.mac = "AABBCC112233"
+        core.sysid = "0xa572"
+        headers = Core._build_ws_headers(core)
+        assert headers["Camera-Mac"] == "aabbcc112233"
+
+    def test_camera_model_omitted_when_sysid_missing(self):
+        from unifi.core import Core
+
+        core = object.__new__(Core)
+        core.mac = "aabbcc112233"
         core.sysid = None
         headers = Core._build_ws_headers(core)
-        assert headers == {"camera-mac": "AABBCC112233"}
+        assert headers == {"Camera-Mac": "aabbcc112233"}, (
+            "No sysid (e.g. unit tests without main.py's lookup) → omit "
+            "Camera-Model entirely rather than send an empty string."
+        )
 
 
 class TestFirmwareVersionParse:

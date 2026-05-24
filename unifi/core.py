@@ -27,15 +27,27 @@ class Core(object):
     def _build_ws_headers(self) -> dict[str, str]:
         """Build the headers sent on the Protect adoption WebSocket.
 
-        v1.6.3 tried to add ``camera-model`` here using ``args.sysid``, on
-        the hypothesis that Protect needed it during adoption (the
-        model_db docstring claims so). That broke previously working tile
-        cameras with the same ``code=4012`` close that mosaic was hitting.
-        Until the exact wire format Protect actually accepts is confirmed,
-        only ``camera-mac`` goes on the wire — matching the pre-v1.6.3
-        behaviour that adopted tile cameras successfully.
+        Cribs the wire format from the redalert11/unifi-cam-proxy fork
+        (Unifi/wss_manager.py:1424-1425), the only known-working reference
+        for sending ``Camera-Model``. Three things matter:
+
+        * Header names are **PascalCase**. v1.6.3 sent ``camera-model`` in
+          lowercase and adoption broke for previously-working cameras with
+          ``code=4012``; the websockets library preserves case via
+          ``additional_headers``, so what hits Protect's parser is what's
+          here, and Protect's check on the proprietary headers is
+          case-sensitive.
+        * MAC is normalized: ``.lower().replace(":", "")``. Our config can
+          store MACs with or without colons, in either case.
+        * Model value is the hex-string sysid from ``model_db.get_sysid_hex``
+          (e.g. ``"0xa572"`` for UVC G4 Bullet). Same format the working
+          fork uses. Without this, Protect's UI shows the model as
+          generic "Camera".
         """
-        return {"camera-mac": self.mac}
+        headers = {"Camera-Mac": str(self.mac).lower().replace(":", "")}
+        if self.sysid:
+            headers["Camera-Model"] = self.sysid
+        return headers
 
     async def run(self) -> None:
         uri = "wss://{}:7442/camera/1.0/ws?token={}".format(self.host, self.token)
