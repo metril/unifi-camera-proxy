@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import copy
 import logging
-import re
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -14,7 +13,6 @@ from unifi.cams import (
     DahuaCam,
     FrigateCam,
     HikvisionCam,
-    MosaicCam,
     Reolink,
     ReolinkNVRCam,
     RTSPCam,
@@ -29,7 +27,6 @@ CAMS = {
     "frigate": FrigateCam,
     "hikvision": HikvisionCam,
     "lorex": DahuaCam,
-    "mosaic": MosaicCam,
     "reolink": Reolink,
     "reolink_nvr": ReolinkNVRCam,
     "rtsp": RTSPCam,
@@ -122,12 +119,17 @@ MODEL_CHOICES = [
 def load_config(path: str) -> dict:
     p = Path(path)
     if not p.exists():
-        return {"global": copy.deepcopy(DEFAULT_GLOBAL), "cameras": []}
+        return {
+            "global": copy.deepcopy(DEFAULT_GLOBAL),
+            "cameras": [],
+            "live_views": [],
+        }
     with open(p) as f:
         data = yaml.safe_load(f) or {}
     config = {
         "global": {**copy.deepcopy(DEFAULT_GLOBAL), **(data.get("global") or {})},
         "cameras": data.get("cameras") or [],
+        "live_views": data.get("live_views") or [],
     }
     # Deduplicate cameras (remove entries with same name+type added multiple times)
     needs_save = False
@@ -148,44 +150,11 @@ def load_config(path: str) -> dict:
         if not cam.get("id"):
             cam["id"] = str(uuid.uuid4())[:8]
             needs_save = True
-    # Self-heal: drop corrupted fw_version values so the camera process
-    # falls back to main.py's default. process_upgrade had a long-standing
-    # parse bug that fed binary noise into fw_version, which (once persisted
-    # via a UI form save) made Protect reject the next adoption with
-    # close code 4012. See unifi/cams/base.py:_parse_firmware_version.
-    for cam in config["cameras"]:
-        if _drop_corrupted_fw_version(cam):
-            needs_save = True
     # Persist fixes so they're stable across restarts
     if needs_save:
         save_config(path, config)
         logger.info(f"Fixed camera config in {path}")
     return config
-
-
-# Acceptable shape: starts with ``UVC.``, contains only printable ASCII,
-# no whitespace. Matches the default ``UVC.S2L.v4.23.8.67.0eba6e3.200526.1046``
-# and platform variants from model_db's FW_VERSION_TEMPLATE.
-_FW_VERSION_RE = re.compile(r"^UVC\.[A-Za-z0-9_\.\-]+$")
-
-
-def _drop_corrupted_fw_version(camera_config: dict) -> bool:
-    """Remove fw_version from a camera dict if it's not a valid UVC fw string.
-
-    Returns True if a value was dropped (caller should persist the change).
-    """
-    fw = camera_config.get("fw_version")
-    if not fw or not isinstance(fw, str):
-        return False
-    if _FW_VERSION_RE.match(fw):
-        return False
-    logger.warning(
-        f"Resetting corrupted fw_version for camera "
-        f"{camera_config.get('id', '?')} (was: {fw!r}); subprocess will "
-        f"fall back to the default UVC firmware string."
-    )
-    del camera_config["fw_version"]
-    return True
 
 
 def save_config(path: str, config: dict) -> None:
@@ -208,7 +177,6 @@ def get_camera_type_schemas() -> dict[str, list[dict]]:
         "dahua": DahuaCam,
         "hikvision": HikvisionCam,
         "lorex": DahuaCam,
-        "mosaic": MosaicCam,
         "reolink": Reolink,
         "reolink_nvr": ReolinkNVRCam,
         "tapo": TapoCam,
@@ -220,8 +188,7 @@ def get_camera_type_schemas() -> dict[str, list[dict]]:
         for action in parser._actions:
             if isinstance(action, argparse._HelpAction):
                 continue
-            # Skip hidden/legacy options (help=SUPPRESS), e.g. the deprecated
-            # mosaic uniform-grid args kept only for back-compat.
+            # Skip hidden/legacy options (help=SUPPRESS).
             if action.help is argparse.SUPPRESS:
                 continue
             # Get the long option name (prefer -- over -)
@@ -325,12 +292,6 @@ def config_to_args(
     if diagnostics_port:
         args.extend(["--diagnostics-port", str(diagnostics_port)])
 
-    # GridFusion (mosaic) sources from go2rtc under its camera id; the actual
-    # compositing is an exec: stream owned by go2rtc (see unifi/web/go2rtc.py),
-    # so the camera process only needs to know its stream name.
-    if cam_type == "mosaic" and camera_config.get("id"):
-        args.extend(["--stream-name", str(camera_config["id"])])
-
     # Type-specific args: get schema for this type and map config values
     schemas = get_camera_type_schemas()
     type_fields = schemas.get(cam_type, [])
@@ -343,8 +304,6 @@ def config_to_args(
         "loglevel",
         "format",
         "diagnostics-port",
-        "stream-name",
-        "tiles",
         "video1-bitrate",
         "video1-fps",
         "video2-bitrate",
@@ -458,9 +417,6 @@ def config_to_args(
         rtsp_pass = global_config.get("rtsp_password")
     if rtsp_user and rtsp_pass:
         video_flags = {"--video1", "--video2", "--video3", "--source", "-s"}
-        # nargs="+" flags whose every following value (until the next --flag) is
-        # an RTSP URL needing credentials.
-        multi_url_flags = {"--input-urls"}
         i = 0
         while i < len(args):
             arg = args[i]
@@ -471,13 +427,6 @@ def config_to_args(
                     logger.info(f"Injected RTSP credentials into {arg} URL")
                 i += 2
                 continue
-            if arg in multi_url_flags:
-                j = i + 1
-                while j < len(args) and not args[j].startswith("--"):
-                    args[j] = inject_rtsp_credentials(args[j], rtsp_user, rtsp_pass)
-                    j += 1
-                logger.info(f"Injected RTSP credentials into {arg} URLs")
-                i = j
                 continue
             i += 1
     else:

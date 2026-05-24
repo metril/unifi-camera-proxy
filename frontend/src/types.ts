@@ -10,27 +10,32 @@ export interface CameraConfig {
   [key: string]: unknown;
 }
 
-/** A GridFusion tile: an existing camera (source) or a raw RTSP url, placed in
- *  output-resolution pixel space. */
-export interface GridFusionTile {
-  source?: string; // existing camera id
-  url?: string;    // raw RTSP url
+/** One tile in a saved Live View layout: references an existing camera and
+ *  positions it on the editor canvas. The player auto-fits the canvas into
+ *  the viewport (letterboxing as needed) so a layout authored at
+ *  ``canvas.w × canvas.h`` renders sensibly on any display. */
+export interface LiveViewTile {
+  camera_id: string;
   x: number;
   y: number;
   w: number;
   h: number;
 }
 
-/**
- * Shape of one entry in go2rtc's /api/streams response.
- *
- * go2rtc returns the union of fields it knows about — most are optional
- * because they only appear when a stream has a live producer/consumer. We
- * only model the fields we use; ignore the rest.
- */
-export interface Go2rtcStream {
-  producers?: Array<{ url?: string; format?: string }>;
-  consumers?: Array<{ url?: string; format?: string }>;
+export interface LiveView {
+  id: string;
+  name: string;
+  canvas: { w: number; h: number };
+  tiles: LiveViewTile[];
+  /** When set, ``/live/<id>?token=<kiosk_token>`` is accessible without
+   *  OIDC. Mint/rotate via POST /api/live-views/<id>/kiosk-token; revoke
+   *  via DELETE. */
+  kiosk_token?: string | null;
+}
+
+export interface KioskTokenResponse {
+  token: string;
+  url: string;
 }
 
 export interface CameraStatus {
@@ -44,8 +49,6 @@ export interface CameraStatus {
   restart_attempt: number;
   next_restart_at: number | null;
   auto_restart_enabled: boolean;
-  adoption_state?: 'unknown' | 'adopting' | 'adopted';
-  adoption_retry_count?: number;
 }
 
 export interface GlobalConfig {
@@ -104,4 +107,5 @@ export interface LogEntry {
 export interface AppConfig {
   global: GlobalConfig;
   cameras: CameraConfig[];
+  live_views?: LiveView[];
 }

@@ -14,7 +14,7 @@ Things that work:
 * Motion detection with certain cameras
 * Smart Detections using [Frigate](https://github.com/blakeblackshear/frigate)
 * Live preview in the web UI (real-time video for every camera type)
-* Mosaic cameras — tile several feeds into one UniFi camera
+* Live Views — saved multi-camera dashboards displayable on any browser/TV/kiosk
 * Two-way audio / talkback
 
 ## Quick Start
@@ -95,23 +95,27 @@ candidate:
 Leave the candidate empty to skip WebRTC entirely; the close-up then uses MSE
 through the proxy (slightly higher latency, no extra port).
 
-## GridFusion — Multi-Camera Matrix Composer
+## Live Views — Multi-Camera Dashboards on Any Display
 
-GridFusion tiles several camera feeds into a single composited stream that
-registers as **one** UniFi camera (saving Protect camera slots). Open the
-**GridFusion** section and click **New composition** to launch the visual
-editor:
+Live Views are saved multi-camera layouts you can pull up on any browser, TV,
+or kiosk display. Open the **Live Views** section and click **New Live View**
+to launch the visual editor:
 
 * Drag camera tiles anywhere on a canvas and resize them with handles —
   arbitrary arrangements, not just uniform grids (tiles may overlap).
 * Each tile shows a **live snapshot** so you compose against the real view.
-* Tiles can be existing cameras (pulled once from the shared go2rtc server) or
-  raw RTSP URLs.
-* Pick an output resolution (1080p/1440p/4K or custom) and quick-layout presets.
+* Pick a canvas resolution (1080p/1440p/4K); the player aspect-fits the
+  canvas into whatever display it's shown on.
 
-go2rtc composites the layout **once** via an ffmpeg `exec:` stream (a `color`
-base canvas + per-tile `scale`/`overlay`) and serves it; UniFi Protect and the
-Live Wall both pull that single composed stream.
+Each saved view gets a stable URL at `/live/<id>`. To put one on an unattended
+display without an OIDC login, click **Enable kiosk URL** to mint a long-lived
+per-view token; the URL becomes `/live/<id>?token=<kiosk-token>`. Revoke the
+token at any time to cut access without affecting the other views.
+
+Unlike the older "GridFusion" approach (removed in v1.7.0), Live Views are a
+pure frontend composition: each tile pulls live video through the existing
+HLS pipeline — no ffmpeg compositing, no virtual UVC camera, no extra Protect
+adoption slots.
 
 ## Two-Way Audio (Talkback)
 

@@ -1,4 +1,4 @@
-import type { AppConfig, CameraConfig, CameraStatus, CameraTypeSchemas, Go2rtcStream, GlobalConfig, LogEntry } from './types';
+import type { AppConfig, CameraConfig, CameraStatus, CameraTypeSchemas, GlobalConfig, KioskTokenResponse, LiveView, LogEntry } from './types';
 
 const BASE = '/api';
 
@@ -42,9 +42,19 @@ export const api = {
 
   listCameras: () => request<CameraStatus[]>('/cameras'),
 
-  // go2rtc's /api/streams (per-stream producer/consumer state). Surfaced as a
-  // mosaic compose-state chip on the card.
-  go2rtcStreams: () => request<Record<string, Go2rtcStream>>('/go2rtc/streams'),
+  // Live Views — saved multi-camera layouts displayable on any browser/TV/kiosk.
+  listLiveViews: () => request<LiveView[]>('/live-views'),
+  getLiveView: (id: string) => request<LiveView>(`/live-views/${id}`),
+  addLiveView: (view: Omit<LiveView, 'id'>) =>
+    request<LiveView>('/live-views', { method: 'POST', body: JSON.stringify(view) }),
+  updateLiveView: (id: string, view: Omit<LiveView, 'id'>) =>
+    request<LiveView>(`/live-views/${id}`, { method: 'PUT', body: JSON.stringify(view) }),
+  deleteLiveView: (id: string) =>
+    request<{ status: string }>(`/live-views/${id}`, { method: 'DELETE' }),
+  mintKioskToken: (id: string) =>
+    request<KioskTokenResponse>(`/live-views/${id}/kiosk-token`, { method: 'POST' }),
+  revokeKioskToken: (id: string) =>
+    request<{ status: string }>(`/live-views/${id}/kiosk-token`, { method: 'DELETE' }),
 
   addCamera: (config: CameraConfig) =>
     request<CameraConfig>('/cameras', {
@@ -110,23 +120,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ url, transport: transport || 'tcp', username, password }),
     }),
-
-  previewFrame: async (url: string, transport?: string, username?: string, password?: string): Promise<Blob> => {
-    const token = getToken();
-    const res = await fetch(`${BASE}/preview-frame`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({ url, transport: transport || 'tcp', username, password }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || res.statusText);
-    }
-    return res.blob();
-  },
 
   detectFrigateCamera: (url: string, cameraName: string, username?: string | null, password?: string | null, verifySsl?: boolean) =>
     request<{

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Grid2x2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { api } from './api';
 import type { CameraConfig, CameraStatus, CameraTypeSchemas, GlobalConfig } from './types';
 import AppShell, { type View } from './components/AppShell';
@@ -7,7 +7,9 @@ import CameraGrid from './components/CameraGrid';
 import CameraForm from './components/CameraForm';
 import SettingsPage from './components/SettingsPage';
 import LiveWall from './components/LiveWall';
-import GridFusionEditor from './components/gridfusion/GridFusionEditor';
+import LiveViewsPage from './components/LiveViewsPage';
+import LiveViewEditor from './components/LiveViewEditor';
+import LiveViewPlayer from './components/LiveViewPlayer';
 import Toast, { type ToastMessage } from './components/Toast';
 import LoginPage from './components/LoginPage';
 import { Button } from '@/components/ui/button';
@@ -38,9 +40,27 @@ const DEFAULT_GLOBAL: GlobalConfig = {
   auto_restart_max_delay: 300,
 };
 
+// Public kiosk-display route: /live/<id>?token=<kiosk-token>. We mount the
+// player directly without the AppShell so a TV/display gets a clean
+// fullscreen render. Detected at the top of App so the rest of the
+// component tree never instantiates for this path.
+function detectLiveViewRoute(): { id: string; token: string | null } | null {
+  const m = window.location.pathname.match(/^\/live\/([^/]+)\/?$/);
+  if (!m) return null;
+  const params = new URLSearchParams(window.location.search);
+  return { id: m[1], token: params.get('token') };
+}
+
 function App() {
+  const liveRoute = detectLiveViewRoute();
+  if (liveRoute) {
+    return <LiveViewPlayer viewId={liveRoute.id} kioskToken={liveRoute.token} />;
+  }
+  return <AppShellApp />;
+}
+
+function AppShellApp() {
   const [cameras, setCameras] = useState<CameraStatus[]>([]);
-  const [go2rtcStreams, setGo2rtcStreams] = useState<Record<string, import('./types').Go2rtcStream>>({});
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig>(DEFAULT_GLOBAL);
   const [schemas, setSchemas] = useState<CameraTypeSchemas | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -49,8 +69,9 @@ function App() {
   const [needsLogin, setNeedsLogin] = useState(false);
   const [loadingCameras, setLoadingCameras] = useState(true);
   const [view, setView] = useState<View>('cameras');
-  const [showGridFusion, setShowGridFusion] = useState(false);
-  const [editGridFusion, setEditGridFusion] = useState<CameraConfig | null>(null);
+  // Live View editor state: null = index, string = editing existing id,
+  // '' = creating a new one.
+  const [editingLiveViewId, setEditingLiveViewId] = useState<string | null>(null);
 
   const addToast = useCallback((text: string, type: ToastMessage['type'] = 'error') => {
     setToasts((prev) => [...prev, { id: Date.now(), text, type }]);
@@ -98,26 +119,6 @@ function App() {
     const interval = setInterval(fetchCameras, 3000);
     return () => clearInterval(interval);
   }, [fetchCameras]);
-
-  // Poll go2rtc stream state so mosaic cards can show a live compose chip.
-  // Slower than the camera poll (the producer state only changes on minute
-  // scales for a working stream) and tolerant of failures.
-  useEffect(() => {
-    let cancelled = false;
-    const tick = () =>
-      api
-        .go2rtcStreams()
-        .then((s) => {
-          if (!cancelled) setGo2rtcStreams(s || {});
-        })
-        .catch(() => {});
-    tick();
-    const interval = setInterval(tick, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, []);
 
   const handleStart = async (id: string) => {
     try {
@@ -190,35 +191,8 @@ function App() {
   const handleEdit = (id: string) => {
     const cam = cameras.find((c) => c.id === id);
     if (!cam) return;
-    if (cam.config.type === 'mosaic') {
-      setEditGridFusion(cam.config);
-      setShowGridFusion(true);
-      setView('gridfusion');
-    } else {
-      setEditCamera(cam.config);
-      setShowForm(true);
-    }
-  };
-
-  const handleNewGridFusion = () => {
-    setEditGridFusion(null);
-    setShowGridFusion(true);
-    setView('gridfusion');
-  };
-
-  const handleSaveGridFusion = async (config: CameraConfig) => {
-    try {
-      if (config.id) {
-        await api.updateCamera(config.id, config);
-      } else {
-        await api.addCamera(config);
-      }
-      setShowGridFusion(false);
-      setEditGridFusion(null);
-      fetchCameras();
-    } catch (err) {
-      addToast(`Failed to save composition: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    }
+    setEditCamera(cam.config);
+    setShowForm(true);
   };
 
   const handleSaveCamera = async (config: CameraConfig) => {
@@ -281,9 +255,6 @@ function App() {
 
   if (needsLogin) return <LoginPage />;
 
-  const regularCameras = cameras.filter((c) => c.config.type !== 'mosaic');
-  const gridFusionCameras = cameras.filter((c) => c.config.type === 'mosaic');
-
   const HEADERS: Record<View, { eyebrow: string; title: string; actions?: React.ReactNode }> = {
     cameras: {
       eyebrow: 'devices',
@@ -306,20 +277,10 @@ function App() {
         </>
       ),
     },
-    gridfusion: showGridFusion
-      ? {
-          eyebrow: 'composing',
-          title: editGridFusion?.name || 'New composition',
-        }
-      : {
-          eyebrow: 'matrix composer',
-          title: 'GridFusion',
-          actions: (
-            <Button size="sm" className="h-9" onClick={handleNewGridFusion}>
-              <Grid2x2 className="w-4 h-4 mr-1.5" /> New composition
-            </Button>
-          ),
-        },
+    'live-views':
+      editingLiveViewId !== null
+        ? { eyebrow: 'composing', title: editingLiveViewId ? 'Edit Live View' : 'New Live View' }
+        : { eyebrow: 'displays', title: 'Live Views' },
     wall: { eyebrow: 'monitoring', title: 'Live Wall' },
     settings: { eyebrow: 'configuration', title: 'Settings' },
   };
@@ -354,47 +315,34 @@ function App() {
             </div>
           ) : (
             <CameraGrid
-              cameras={regularCameras}
+              cameras={cameras}
               onStart={handleStart}
               onStop={handleStop}
               onRestart={handleRestart}
               onEdit={handleEdit}
               onDelete={handleDelete}
               onToggleEnabled={handleToggleEnabled}
-              go2rtcStreams={go2rtcStreams}
               onAdd={handleAddCamera}
             />
           ))}
 
-        {view === 'gridfusion' &&
-          (showGridFusion ? (
+        {view === 'live-views' &&
+          (editingLiveViewId !== null ? (
             <div className="relative -mx-8 -my-7 h-[calc(100vh-4rem)] overflow-hidden">
-              <GridFusionEditor
-                isOpen={showGridFusion}
-                onClose={() => {
-                  setShowGridFusion(false);
-                  setEditGridFusion(null);
-                }}
-                onSave={handleSaveGridFusion}
+              <LiveViewEditor
                 cameras={cameras}
-                editCamera={editGridFusion}
+                editingId={editingLiveViewId || null}
+                onClose={() => setEditingLiveViewId(null)}
+                onSaved={() => setEditingLiveViewId(null)}
+                onError={(msg) => addToast(msg)}
               />
             </div>
           ) : (
-            <CameraGrid
-              cameras={gridFusionCameras}
-              onStart={handleStart}
-              onStop={handleStop}
-              onRestart={handleRestart}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onToggleEnabled={handleToggleEnabled}
-              go2rtcStreams={go2rtcStreams}
-              onAdd={handleNewGridFusion}
-              addLabel="New composition"
-              emptyTitle="No compositions yet"
-              emptyHint="Combine multiple cameras into one matrix stream"
-              emptyIcon={<Grid2x2 className="w-14 h-14" />}
+            <LiveViewsPage
+              cameras={cameras}
+              onEdit={(id) => setEditingLiveViewId(id)}
+              onNew={() => setEditingLiveViewId('')}
+              onToast={addToast}
             />
           ))}
 

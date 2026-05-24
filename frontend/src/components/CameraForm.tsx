@@ -63,7 +63,6 @@ const TYPE_LABELS: Record<string, string> = {
   dahua: 'Dahua',
   hikvision: 'Hikvision',
   lorex: 'Lorex',
-  mosaic: 'Mosaic (combine multiple cameras)',
   reolink: 'Reolink',
   reolink_nvr: 'Reolink NVR',
   tapo: 'TP-Link Tapo',
@@ -185,7 +184,7 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Drop empty entries left behind in array fields (e.g. mosaic input URLs).
+    // Drop empty entries left behind in array fields.
     const cleaned = { ...form };
     for (const key of Object.keys(cleaned)) {
       const val = cleaned[key];
@@ -514,11 +513,9 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
                   onChange={(e) => handleChange('type', e.target.value)}
                   className={SELECT_CLASS}
                 >
-                  {Object.keys(schemas.types)
-                    .filter((t) => t !== 'mosaic')
-                    .map((t) => (
-                      <option key={t} value={t}>{TYPE_LABELS[t] ?? t}</option>
-                    ))}
+                  {Object.keys(schemas.types).map((t) => (
+                    <option key={t} value={t}>{TYPE_LABELS[t] ?? t}</option>
+                  ))}
                 </select>
               </div>
             </div>

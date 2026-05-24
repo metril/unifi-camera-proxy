@@ -68,76 +68,6 @@ class CameraInstance:
     _stability_task: Optional[asyncio.Task] = None
     _name_sync_task: Optional[asyncio.Task] = None
     manually_stopped: bool = False
-    # Adoption-state tracking. The proxy itself doesn't expose this over a
-    # control channel (it talks the UniFi protocol), so we read it back out of
-    # the camera process's log stream in ``_read_logs``. "unknown" pre-start,
-    # "adopting" after we see ``Adopting with mac`` from init_adoption, and
-    # bumped retry count on every ``was closed`` line. The stuck-detector task
-    # turns "adopting + retries >= 3 after >45s" into a visible error_message.
-    adoption_state: str = "unknown"
-    adoption_retry_count: int = 0
-    adoption_started_at: Optional[float] = None
-    _adoption_stuck_task: Optional[asyncio.Task] = None
-
-
-class _MosaicSidecarHandler(logging.Handler):
-    """Mirror CameraManager + Go2rtc log lines into mosaic log buffers.
-
-    The CameraManager (warm-up timeouts, stuck-detector warnings) and the
-    Go2rtc subprocess wrapper (lifecycle + ffmpeg stderr) emit important
-    diagnostics about a mosaic's health — but those records land in the
-    main process's stderr, not in the per-camera log buffer the LogViewer
-    reads from. This handler watches both loggers, checks whether the
-    record's message mentions a known mosaic camera id, and if so appends
-    the record to that instance's ``log_buffer`` + broadcasts it to any
-    open LogViewer WebSocket. Records that match no mosaic are left
-    alone — the main stderr still gets them.
-
-    Async ``broadcast_log`` is scheduled via ``asyncio.create_task`` from
-    inside ``emit``; the loggers fire on the main event loop, so the
-    task lands on the right loop.
-    """
-
-    def __init__(self, manager: "CameraManager") -> None:
-        super().__init__(level=logging.INFO)
-        self.manager = manager
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            mosaic_ids = {
-                inst.id
-                for inst in self.manager.instances.values()
-                if inst.config.get("type") == "mosaic"
-            }
-            if not mosaic_ids:
-                return
-            message = record.getMessage()
-            matched = [mid for mid in mosaic_ids if mid in message]
-            if not matched:
-                return
-            timestamp = time.strftime(
-                "%Y-%m-%d %H:%M:%S", time.localtime(record.created)
-            )
-            entry = {
-                "timestamp": timestamp,
-                "logger": record.name,
-                "level": record.levelname,
-                "message": message,
-                "raw": f"{timestamp} {record.name} {record.levelname} {message}",
-            }
-            for cam_id in matched:
-                instance = self.manager.instances.get(cam_id)
-                if instance is None:
-                    continue
-                instance.log_buffer.append(entry)
-                try:
-                    asyncio.get_running_loop()
-                except RuntimeError:
-                    continue
-                asyncio.create_task(self.manager.broadcast_log(cam_id, entry))
-        except Exception:
-            # Logging must never break the host process.
-            pass
 
 
 class CameraManager:
@@ -162,15 +92,8 @@ class CameraManager:
             cam_id = cam_config["id"]
             self.instances[cam_id] = CameraInstance(id=cam_id, config=cam_config)
 
-        # Mirror CameraManager + Go2rtc log records that reference a mosaic
-        # camera id into that camera's log_buffer, so the per-camera Log Viewer
-        # shows warm-up + go2rtc ffmpeg lines alongside camera-process lines.
-        self._sidecar_handler = _MosaicSidecarHandler(self)
-        logging.getLogger("CameraManager").addHandler(self._sidecar_handler)
-        logging.getLogger("Go2rtc").addHandler(self._sidecar_handler)
-
     async def start_streaming_server(self) -> None:
-        """Start go2rtc with all camera + mosaic streams baked into its config."""
+        """Start go2rtc with all configured streams baked into its config."""
         await self.go2rtc.start(self.config)
 
     async def stop_streaming_server(self) -> None:
@@ -183,160 +106,6 @@ class CameraManager:
         except RuntimeError:
             return
         asyncio.create_task(self.go2rtc.apply_config(self.config))
-
-    async def start_mosaic_with_dependencies(self, camera_id: str) -> None:
-        """Bring up a mosaic + its tile-source dependencies, in the right order.
-
-        Invoked by the /api/cameras/{id}/start endpoint when the camera is a
-        mosaic. The mosaic process pulls ``rtsp://127.0.0.1:8554/<id>``, so
-        go2rtc must already hold that stream before we start the process —
-        otherwise it races and the composition stays blank. We also start any
-        tile-source cameras the mosaic depends on.
-        """
-        instance = self.instances.get(camera_id)
-        if not instance or instance.config.get("type") != "mosaic":
-            return
-        # Manual Start: the user explicitly asked for this — don't gate on
-        # `enabled` (that flag is only for boot-time `start_all_enabled`).
-        # Bring up any source cameras the mosaic tiles point at, so go2rtc's
-        # exec ffmpeg has live RTSP inputs by the time it starts.
-        for tile in instance.config.get("tiles") or []:
-            src_id = tile.get("source")
-            if not src_id:
-                continue
-            src = self.instances.get(src_id)
-            if src and src.config.get("enabled", True) and src.status != "running":
-                try:
-                    await self.start_camera(src_id)
-                except Exception as e:
-                    logger.warning(
-                        f"Mosaic {camera_id}: failed to auto-start tile source "
-                        f"{src_id}: {e}"
-                    )
-        # Now write the mosaic's exec into go2rtc.yaml + restart go2rtc.
-        await self.go2rtc.apply_config(self.config)
-        # Wake the mosaic's exec stream and surface tile errors before the
-        # camera process spawns. go2rtc lazy-starts its compositing ffmpeg on
-        # first consumer, so we ffprobe the path briefly to kick it off and to
-        # observe whether the tiles actually open. Failures are best-effort
-        # diagnostics — auto-start still proceeds; the camera process is
-        # resilient enough now (probe override + ConnectionClosedError handling)
-        # to wait for the source to come up.
-        await self._warm_up_mosaic_stream(camera_id, instance)
-        # Finally, start the mosaic camera process (the one pushing to Protect).
-        if instance.status != "running":
-            await self.start_camera(camera_id)
-
-    _WARM_UP_TIMEOUT = 15.0
-    _WARM_UP_RETRY_DELAY = 2.0
-
-    async def _warm_up_mosaic_stream(self, camera_id: str, instance) -> None:
-        """ffprobe the mosaic's go2rtc RTSP; log + surface errors.
-
-        go2rtc lazy-starts the mosaic's exec ffmpeg on first consumer. With
-        remote tile sources (e.g. cross-WAN frigate), the exec can take well
-        over 3 s to open all inputs and begin producing. We ffprobe with a
-        generous timeout, retry once on transient ``Invalid data`` (which is
-        what ffprobe emits when go2rtc closes the consumer before any media
-        arrives), and on a final failure dump go2rtc's per-stream state JSON
-        so the operator can see whether the stream even registered.
-        """
-        source = f"rtsp://127.0.0.1:8554/{camera_id}"
-        try:
-            stderr_text, returncode = await self._ffprobe_mosaic_once(source)
-            transient_invalid_data = (
-                returncode is not None
-                and returncode != 0
-                and "invalid data" in stderr_text.lower()
-            )
-            if returncode is None or transient_invalid_data:
-                # Retry once. Lazy-start race with go2rtc's exec ffmpeg is a
-                # frequent transient failure mode.
-                await asyncio.sleep(self._WARM_UP_RETRY_DELAY)
-                stderr_text, returncode = await self._ffprobe_mosaic_once(source)
-            if returncode is None:
-                logger.warning(
-                    f"Mosaic {camera_id}: go2rtc stream warm-up timed out "
-                    f"after {self._WARM_UP_TIMEOUT}s — check tile sources"
-                )
-                state = await self._fetch_go2rtc_stream_state(camera_id)
-                if state:
-                    logger.warning(
-                        f"Mosaic {camera_id}: go2rtc /api/streams state: {state}"
-                    )
-                instance.error_message = (
-                    "Composition source not producing yet — check that all "
-                    "tile cameras are reachable."
-                )
-                return
-            if returncode != 0:
-                detail = stderr_text.strip() or "(no detail)"
-                logger.warning(
-                    f"Mosaic {camera_id}: go2rtc stream warm-up failed: {detail}"
-                )
-                state = await self._fetch_go2rtc_stream_state(camera_id)
-                if state:
-                    logger.warning(
-                        f"Mosaic {camera_id}: go2rtc /api/streams state: {state}"
-                    )
-                instance.error_message = f"Composition source error: {detail}"
-            else:
-                # Clear any prior warm-up error so a successful re-save resets state.
-                if (
-                    instance.error_message
-                    and "composition source" in instance.error_message.lower()
-                ):
-                    instance.error_message = None
-        except FileNotFoundError:
-            logger.debug("ffprobe not available; skipping mosaic warm-up")
-        except Exception as e:
-            logger.warning(f"Mosaic {camera_id}: warm-up probe error: {e}")
-
-    async def _ffprobe_mosaic_once(self, source: str) -> tuple[str, Optional[int]]:
-        """Run one ffprobe; return (stderr_text, returncode or None on timeout)."""
-        proc = await asyncio.create_subprocess_exec(
-            "ffprobe",
-            "-v",
-            "error",
-            "-rtsp_transport",
-            "tcp",
-            "-i",
-            source,
-            "-show_entries",
-            "stream=width,height",
-            "-of",
-            "json",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            _stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=self._WARM_UP_TIMEOUT
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            try:
-                await proc.wait()
-            except Exception:
-                pass
-            return ("", None)
-        return (stderr.decode("utf-8", errors="replace"), proc.returncode)
-
-    async def _fetch_go2rtc_stream_state(self, camera_id: str) -> str:
-        """Pull go2rtc's per-stream JSON for diagnostics; '' on any failure."""
-        try:
-            import aiohttp
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    f"http://127.0.0.1:1984/api/streams?src={camera_id}",
-                    timeout=aiohttp.ClientTimeout(total=2),
-                ) as resp:
-                    if resp.status != 200:
-                        return f"(go2rtc /api/streams returned {resp.status})"
-                    return (await resp.text()).strip()
-        except Exception as e:
-            return f"(go2rtc query failed: {e})"
 
     def reload_config(self):
         self.config = load_config(self.config_path)
@@ -370,15 +139,6 @@ class CameraManager:
         # Cancel a previous auto name-sync task if still pending
         if instance._name_sync_task and not instance._name_sync_task.done():
             instance._name_sync_task.cancel()
-
-        # Cancel a previous adoption-stuck detector if still pending
-        if instance._adoption_stuck_task and not instance._adoption_stuck_task.done():
-            instance._adoption_stuck_task.cancel()
-
-        # Reset adoption tracking — this is a fresh process attempt.
-        instance.adoption_state = "unknown"
-        instance.adoption_retry_count = 0
-        instance.adoption_started_at = None
 
         global_config = self.config.get("global", {})
         diag_port = CameraManager._next_diag_port
@@ -434,13 +194,6 @@ class CameraManager:
             instance._name_sync_task = asyncio.create_task(
                 self._delayed_name_sync(instance)
             )
-
-            # Detect a stuck adoption loop and surface it to the UI so the
-            # card doesn't lie about being healthy while the process retries
-            # forever (see v1.5.2 ConnectionClosedError catch).
-            instance._adoption_stuck_task = asyncio.create_task(
-                self._detect_adoption_stuck(instance)
-            )
         except Exception as e:
             instance.status = "error"
             instance.error_message = str(e)
@@ -460,7 +213,6 @@ class CameraManager:
                     if decoded:
                         entry = parse_log_line(decoded)
                         instance.log_buffer.append(entry)
-                        self._observe_adoption_signal(instance, entry["message"])
                         # Echo to web server logs so output appears in docker logs
                         logger.debug(f"[{instance.id}] {decoded}")
                         # Broadcast to WebSocket clients
@@ -508,59 +260,6 @@ class CameraManager:
                         f"Last output: {error_detail}"
                     )
                     await self._maybe_schedule_restart(instance)
-
-    # Log substrings the camera process emits during the UniFi adoption
-    # handshake. We watch them via _read_logs because the camera process
-    # doesn't have a control-channel for adoption state.
-    _ADOPTING_LOG = "Adopting with mac"
-    _ADOPTION_CLOSED_LOG = "was closed"
-    _ADOPTION_STUCK_DELAY = 45.0
-    _ADOPTION_STUCK_RETRIES = 3
-    _ADOPTION_STUCK_MESSAGE = (
-        "Stuck reconnecting to Protect — adoption isn't completing. "
-        "Check logs for the close code."
-    )
-
-    def _observe_adoption_signal(self, instance: CameraInstance, message: str) -> None:
-        """Update adoption state from the camera process's log lines."""
-        if not message:
-            return
-        if self._ADOPTING_LOG in message:
-            # New adoption attempt — reset retries every time we see this so
-            # a recovery (e.g. after the user fixes Protect-side state)
-            # naturally clears any stale stuck-state.
-            if instance.adoption_state != "adopting":
-                instance.adoption_started_at = time.time()
-                instance.adoption_retry_count = 0
-            instance.adoption_state = "adopting"
-        elif self._ADOPTION_CLOSED_LOG in message and "Connection" in message:
-            instance.adoption_retry_count += 1
-
-    async def _detect_adoption_stuck(self, instance: CameraInstance) -> None:
-        """Surface a stuck adoption loop to the UI via error_message.
-
-        v1.5.2 made the proxy resilient to Protect dropping the WS during
-        adoption (it retries forever), but that turned the failure silent.
-        After ``_ADOPTION_STUCK_DELAY`` and ``_ADOPTION_STUCK_RETRIES`` close
-        events, we set error_message so the card shows the user that the
-        process is alive but adoption isn't going through.
-        """
-        try:
-            await asyncio.sleep(self._ADOPTION_STUCK_DELAY)
-            while instance.status == "running":
-                if (
-                    instance.adoption_state == "adopting"
-                    and instance.adoption_retry_count >= self._ADOPTION_STUCK_RETRIES
-                ):
-                    if instance.error_message != self._ADOPTION_STUCK_MESSAGE:
-                        instance.error_message = self._ADOPTION_STUCK_MESSAGE
-                        logger.warning(
-                            f"Camera {instance.id} appears stuck in adoption "
-                            f"loop (retries={instance.adoption_retry_count})"
-                        )
-                await asyncio.sleep(15)
-        except asyncio.CancelledError:
-            pass
 
     async def _reset_backoff_after_stable_run(self, instance: CameraInstance) -> None:
         """Reset restart_attempt to 0 after camera runs stably for 5 minutes."""
@@ -816,11 +515,6 @@ class CameraManager:
             instance._name_sync_task.cancel()
             instance._name_sync_task = None
 
-        # Cancel the adoption-stuck detector
-        if instance._adoption_stuck_task and not instance._adoption_stuck_task.done():
-            instance._adoption_stuck_task.cancel()
-            instance._adoption_stuck_task = None
-
         if instance.status not in ("running", "restarting") or not instance.process:
             instance.status = "stopped"
             return
@@ -880,8 +574,6 @@ class CameraManager:
             "restart_attempt": instance.restart_attempt,
             "next_restart_at": instance.next_restart_at,
             "auto_restart_enabled": self._is_auto_restart_enabled(instance),
-            "adoption_state": instance.adoption_state,
-            "adoption_retry_count": instance.adoption_retry_count,
         }
 
     async def start_all_enabled(self) -> None:
@@ -979,6 +671,51 @@ class CameraManager:
         save_config(self.config_path, self.config)
         self.instances.pop(camera_id, None)
         self._schedule_go2rtc_sync()
+
+    # --- Live Views ---
+
+    def list_live_views(self) -> list[dict]:
+        return list(self.config.get("live_views") or [])
+
+    def get_live_view(self, view_id: str) -> dict | None:
+        for v in self.config.get("live_views") or []:
+            if v.get("id") == view_id:
+                return v
+        return None
+
+    def add_live_view(self, view: dict) -> dict:
+        self.config.setdefault("live_views", []).append(view)
+        save_config(self.config_path, self.config)
+        return view
+
+    def update_live_view(self, view_id: str, view: dict) -> dict:
+        views = self.config.setdefault("live_views", [])
+        for i, v in enumerate(views):
+            if v.get("id") == view_id:
+                # Preserve any existing kiosk_token unless the caller is
+                # explicitly clearing it via the dedicated endpoint.
+                if view.get("kiosk_token") is None:
+                    view["kiosk_token"] = v.get("kiosk_token")
+                views[i] = view
+                save_config(self.config_path, self.config)
+                return view
+        raise ValueError(f"Live View {view_id} not found")
+
+    def delete_live_view(self, view_id: str) -> None:
+        views = self.config.get("live_views") or []
+        new = [v for v in views if v.get("id") != view_id]
+        if len(new) == len(views):
+            raise ValueError(f"Live View {view_id} not found")
+        self.config["live_views"] = new
+        save_config(self.config_path, self.config)
+
+    def set_kiosk_token(self, view_id: str, token: str | None) -> dict:
+        view = self.get_live_view(view_id)
+        if view is None:
+            raise ValueError(f"Live View {view_id} not found")
+        view["kiosk_token"] = token
+        save_config(self.config_path, self.config)
+        return view
 
     @property
     def oidc_provider(self) -> OIDCProvider | None:

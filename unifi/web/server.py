@@ -5,6 +5,7 @@ import asyncio
 import copy
 import logging
 import os
+import re
 import secrets
 import shutil
 import tempfile
@@ -72,21 +73,23 @@ VALID_CAMERA_TYPES = {
     "dahua",
     "hikvision",
     "lorex",
-    "mosaic",
     "reolink",
     "reolink_nvr",
     "tapo",
 }
 
+# Valid UVC firmware string shape. Anything else is rejected at form save —
+# the previous load-time self-heal (v1.6.5) was a one-shot for cameras whose
+# fw_version was corrupted by the pre-fix process_upgrade parse bug. With
+# that bug fixed and existing configs cleaned, validation belongs at the
+# write boundary.
+_FW_VERSION_RE = re.compile(r"^UVC\.[A-Za-z0-9_\.\-]+$")
+
 
 def _validate_camera_config(
     data: dict, manager: CameraManager | None = None, editing_id: str | None = None
 ) -> list[str]:
-    """Validate camera config and return list of error messages.
-
-    For mosaics, also check the tile list — empty tiles or invalid w/h/source
-    used to fail silently downstream in go2rtc, leaving a blank composition.
-    """
+    """Validate camera config and return list of error messages."""
     errors = []
     if not data.get("name"):
         errors.append("'name' is required")
@@ -97,37 +100,13 @@ def _validate_camera_config(
     if not data.get("mac"):
         errors.append("'mac' is required")
 
-    if data.get("type") == "mosaic":
-        tiles = data.get("tiles") or []
-        if not isinstance(tiles, list) or len(tiles) == 0:
-            errors.append("Composition needs at least one tile")
-        else:
-            known_ids: set[str] = set()
-            if manager is not None:
-                known_ids = {
-                    c.get("id")
-                    for c in manager.config.get("cameras", [])
-                    if c.get("id") and c.get("id") != editing_id
-                }
-            for i, tile in enumerate(tiles):
-                if not isinstance(tile, dict):
-                    errors.append(f"Tile {i + 1}: invalid tile")
-                    continue
-                try:
-                    w = int(tile.get("w", 0))
-                    h = int(tile.get("h", 0))
-                except (TypeError, ValueError):
-                    w = h = 0
-                if w <= 0 or h <= 0:
-                    errors.append(f"Tile {i + 1}: width and height must be > 0")
-                source = tile.get("source")
-                url = tile.get("url")
-                if not source and not url:
-                    errors.append(f"Tile {i + 1}: needs a source camera or RTSP url")
-                elif source and known_ids and source not in known_ids:
-                    errors.append(
-                        f"Tile {i + 1}: source camera '{source}' does not exist"
-                    )
+    fw = data.get("fw_version")
+    if fw is not None and fw != "":
+        if not isinstance(fw, str) or not _FW_VERSION_RE.match(fw):
+            errors.append(
+                "'fw_version' must be a UVC firmware string like "
+                "'UVC.S2L.v4.23.8.67.0eba6e3.200526.1046'"
+            )
     return errors
 
 
@@ -139,8 +118,7 @@ async def add_camera(request: web.Request) -> web.Response:
         if errors:
             return web.json_response({"errors": errors}, status=400)
         result = manager.add_camera(data)
-        # Save = save; the user clicks Start when they're ready. For mosaics
-        # this is the same behavior as for every other camera type.
+        # Save = save; the user clicks Start when they're ready.
         return web.json_response(result, status=201)
     except Exception as e:
         logger.exception(f"Failed to add camera: {e}")
@@ -188,15 +166,7 @@ async def start_camera(request: web.Request) -> web.Response:
     manager = get_manager(request)
     camera_id = request.match_info["id"]
     try:
-        instance = manager.instances.get(camera_id)
-        if instance and instance.config.get("type") == "mosaic":
-            # Mosaics need tile-source cameras up + go2rtc rewritten before the
-            # mosaic process pulls from rtsp://127.0.0.1:8554/<id>.
-            await asyncio.wait_for(
-                manager.start_mosaic_with_dependencies(camera_id), timeout=20
-            )
-        else:
-            await manager.start_camera(camera_id)
+        await manager.start_camera(camera_id)
         return web.json_response({"status": "started"})
     except ValueError as e:
         return web.json_response({"error": str(e)}, status=404)
@@ -285,8 +255,8 @@ async def camera_snapshot(request: web.Request) -> web.Response:
     cam_config = instance.config
     global_config = manager.config.get("global", {})
 
-    # Non-Frigate cameras: grab a still frame from go2rtc (works for every type
-    # registered for live preview, including mosaics).
+    # Non-Frigate cameras: grab a still frame from go2rtc (works for every
+    # type registered for live preview).
     if cam_config.get("type") != "frigate":
         from unifi.web.go2rtc import API_BASE
 
@@ -715,60 +685,6 @@ async def test_rtsp(request: web.Request) -> web.Response:
         return web.json_response({"error": str(e)}, status=500)
 
 
-async def preview_frame(request: web.Request) -> web.Response:
-    """Grab a single JPEG frame from an RTSP URL for GridFusion tile thumbnails.
-
-    Used by the editor for raw-URL tiles; existing cameras use their snapshot
-    endpoint instead. Mirrors test_rtsp's credential handling.
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "Invalid request body"}, status=400)
-
-    url = body.get("url")
-    transport = body.get("transport", "tcp")
-    if not url:
-        return web.json_response({"error": "RTSP URL is required"}, status=400)
-    url = inject_rtsp_credentials(url, body.get("username"), body.get("password"))
-
-    out_path = Path(tempfile.gettempdir()) / f"gf-preview-{secrets.token_hex(8)}.jpg"
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "ffmpeg",
-            "-nostdin",
-            "-loglevel",
-            "error",
-            "-rtsp_transport",
-            transport,
-            "-i",
-            url,
-            "-frames:v",
-            "1",
-            "-y",
-            str(out_path),
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
-        if proc.returncode != 0 or not out_path.exists():
-            msg = stderr.decode().strip() or "Could not capture a frame"
-            return web.json_response({"error": msg}, status=502)
-        data = out_path.read_bytes()
-        return web.Response(
-            body=data,
-            content_type="image/jpeg",
-            headers={"Cache-Control": "no-cache, no-store"},
-        )
-    except asyncio.TimeoutError:
-        return web.json_response({"error": "Connection timed out"}, status=504)
-    except Exception as e:
-        logger.debug(f"preview-frame failed: {e}")
-        return web.json_response({"error": str(e)}, status=502)
-    finally:
-        out_path.unlink(missing_ok=True)
-
-
 async def generate_cert(request: web.Request) -> web.Response:
     """Generate a UniFi-compatible SSL certificate."""
     manager = get_manager(request)
@@ -932,20 +848,94 @@ async def rate_limit_middleware(request: web.Request, handler):
 # --- OIDC Auth ---
 
 
+_KIOSK_PATH_RE = re.compile(r"^/(live/|api/live-views/)([^/?]+)")
+
+
+def _kiosk_token_matches(manager: CameraManager, request: web.Request) -> bool:
+    """Allow a Live View kiosk display through auth on a per-view token.
+
+    Two paths are exempt when ``?token=<kiosk_token>`` matches the view's
+    stored kiosk_token:
+
+      - ``/live/<id>``                 — SPA shell that renders LiveViewPlayer
+      - ``/api/live-views/<id>``       — manifest GET for the player to fetch
+
+    Other endpoints stay OIDC-only (no kiosk URL can mint another token or
+    list the operator's other cameras).
+    """
+    m = _KIOSK_PATH_RE.match(request.path)
+    if not m:
+        return False
+    view_id = m.group(2)
+    token = request.rel_url.query.get("token")
+    if not token:
+        return False
+    view = manager.get_live_view(view_id)
+    if not view:
+        return False
+    stored = view.get("kiosk_token")
+    return bool(stored) and secrets.compare_digest(str(stored), token)
+
+
+def _any_kiosk_token_matches(manager: CameraManager, token: str) -> bool:
+    """True if ``token`` matches any Live View's kiosk_token.
+
+    Lets the kiosk player's HLS requests (under /go2rtc/*) pass through
+    auth with the same Bearer token the player itself was loaded with.
+    The grant is intentionally broad — a kiosk display needs to fetch
+    HLS playlists + segments for the cameras in its layout, and we don't
+    gate per-camera since the layout already implies which cameras are
+    visible. Revoking the kiosk token cuts off all access for that view.
+    """
+    if not token:
+        return False
+    for v in manager.config.get("live_views") or []:
+        kt = v.get("kiosk_token")
+        if kt and secrets.compare_digest(str(kt), token):
+            return True
+    return False
+
+
 @web.middleware
 async def auth_middleware(request: web.Request, handler):
     protected = request.path.startswith("/api/") or request.path.startswith("/go2rtc/")
     if request.path.startswith("/api/auth/") or not protected:
+        # /live/<id> is not under /api/ so it goes through the SPA catch-all
+        # — auth still applies at the API layer when the player fetches the
+        # manifest. Both paths share the same kiosk-token check below.
+        manager: CameraManager | None = request.app.get("manager")
+        if (
+            manager
+            and manager.oidc_provider
+            and request.path.startswith("/live/")
+            and not _kiosk_token_matches(manager, request)
+        ):
+            # No kiosk token → fall through; if the operator has an OIDC
+            # session cookie/header this still works, otherwise the player
+            # itself will surface the 401 from /api/live-views/<id>.
+            pass
         return await handler(request)
 
-    manager: CameraManager | None = request.app.get("manager")
+    manager = request.app.get("manager")
     if not manager or not manager.oidc_provider:
+        return await handler(request)
+
+    # Kiosk-token bypass for the single Live View manifest endpoint.
+    if _kiosk_token_matches(manager, request):
         return await handler(request)
 
     auth_header = request.headers.get("Authorization", "")
     token = auth_header[7:] if auth_header.startswith("Bearer ") else None
     if not token:
         token = request.rel_url.query.get("token")  # WebSocket fallback
+    # Kiosk-token bypass for /go2rtc/* so HLS streams the player fetches
+    # work without an OIDC session. Live View URLs only — the API stays gated.
+    if (
+        token
+        and request.path.startswith("/go2rtc/")
+        and _any_kiosk_token_matches(manager, token)
+    ):
+        return await handler(request)
     if token and token in manager.valid_tokens:
         if manager.valid_tokens[token] > time.time():
             return await handler(request)
@@ -1057,32 +1047,93 @@ async def serve_index(request: web.Request) -> web.Response:
     )
 
 
-async def go2rtc_streams(request: web.Request) -> web.Response:
-    """Return go2rtc's /api/streams JSON, OIDC-protected.
+# --- Live Views (saved multi-camera layouts) ---
 
-    Reuses the shared go2rtc ClientSession. Used by the frontend to show a
-    live compose-state chip on mosaic cards, and by anyone who needs to
-    diagnose a stuck mosaic without reading docker logs.
-    """
-    from unifi.web.go2rtc import API_BASE
 
-    session: aiohttp_client.ClientSession = request.app["go2rtc_session"]
-    target = f"{API_BASE}/api/streams"
-    if request.query_string:
-        target = f"{target}?{request.query_string}"
+async def list_live_views(request: web.Request) -> web.Response:
+    manager = get_manager(request)
+    return web.json_response(manager.list_live_views())
+
+
+async def get_live_view(request: web.Request) -> web.Response:
+    manager = get_manager(request)
+    view_id = request.match_info["id"]
+    view = manager.get_live_view(view_id)
+    if view is None:
+        return web.json_response({"error": "Live View not found"}, status=404)
+    return web.json_response(view)
+
+
+async def add_live_view(request: web.Request) -> web.Response:
+    from unifi.web.live_views import normalize_live_view, validate_live_view
+
+    manager = get_manager(request)
     try:
-        async with session.get(
-            target, timeout=aiohttp_client.ClientTimeout(total=3)
-        ) as upstream:
-            body = await upstream.read()
-            return web.Response(
-                status=upstream.status,
-                body=body,
-                content_type=upstream.headers.get("content-type", "application/json"),
-            )
-    except Exception as e:
-        logger.debug(f"go2rtc streams fetch failed: {e}")
-        return web.json_response({"error": "go2rtc unavailable"}, status=502)
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    errors = validate_live_view(data, manager.config.get("cameras", []))
+    if errors:
+        return web.json_response({"errors": errors}, status=400)
+    view = normalize_live_view(data, existing_id=None)
+    manager.add_live_view(view)
+    return web.json_response(view, status=201)
+
+
+async def update_live_view(request: web.Request) -> web.Response:
+    from unifi.web.live_views import normalize_live_view, validate_live_view
+
+    manager = get_manager(request)
+    view_id = request.match_info["id"]
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    errors = validate_live_view(data, manager.config.get("cameras", []))
+    if errors:
+        return web.json_response({"errors": errors}, status=400)
+    view = normalize_live_view(data, existing_id=view_id)
+    try:
+        return web.json_response(manager.update_live_view(view_id, view))
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=404)
+
+
+async def delete_live_view(request: web.Request) -> web.Response:
+    manager = get_manager(request)
+    view_id = request.match_info["id"]
+    try:
+        manager.delete_live_view(view_id)
+        return web.json_response({"status": "deleted"})
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=404)
+
+
+async def mint_kiosk_token(request: web.Request) -> web.Response:
+    from unifi.web.live_views import mint_kiosk_token as _mint
+
+    manager = get_manager(request)
+    view_id = request.match_info["id"]
+    token = _mint()
+    try:
+        manager.set_kiosk_token(view_id, token)
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=404)
+    # Build the public URL the operator pastes into a kiosk browser.
+    scheme = "https" if request.scheme == "https" else "http"
+    host = request.headers.get("Host", request.host)
+    url = f"{scheme}://{host}/live/{view_id}?token={token}"
+    return web.json_response({"token": token, "url": url})
+
+
+async def revoke_kiosk_token(request: web.Request) -> web.Response:
+    manager = get_manager(request)
+    view_id = request.match_info["id"]
+    try:
+        manager.set_kiosk_token(view_id, None)
+        return web.json_response({"status": "revoked"})
+    except ValueError as e:
+        return web.json_response({"error": str(e)}, status=404)
 
 
 # --- go2rtc reverse proxy ---
@@ -1253,14 +1304,19 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_post("/api/fetch-token", fetch_token)
     app.router.add_post("/api/test-mqtt", test_mqtt)
     app.router.add_post("/api/test-rtsp", test_rtsp)
-    app.router.add_post("/api/preview-frame", preview_frame)
     app.router.add_post("/api/test-frigate", test_frigate)
     app.router.add_post("/api/detect-frigate-camera", detect_frigate_camera)
 
-    # go2rtc diagnostic JSON (per-stream producer/consumer state)
-    app.router.add_get("/api/go2rtc/streams", go2rtc_streams)
+    # Live Views (saved layouts displayable on any browser/TV/kiosk)
+    app.router.add_get("/api/live-views", list_live_views)
+    app.router.add_post("/api/live-views", add_live_view)
+    app.router.add_get("/api/live-views/{id}", get_live_view)
+    app.router.add_put("/api/live-views/{id}", update_live_view)
+    app.router.add_delete("/api/live-views/{id}", delete_live_view)
+    app.router.add_post("/api/live-views/{id}/kiosk-token", mint_kiosk_token)
+    app.router.add_delete("/api/live-views/{id}/kiosk-token", revoke_kiosk_token)
 
-    # go2rtc reverse proxy (live preview + mosaic playback)
+    # go2rtc reverse proxy (live preview)
     app.router.add_route("*", "/go2rtc/{path:.*}", go2rtc_proxy)
 
     # Static files (built frontend)

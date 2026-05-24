@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Cctv, Grid2x2, MonitorPlay, Settings, LogOut, Radio, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export type View = 'cameras' | 'gridfusion' | 'wall' | 'settings';
+export type View = 'cameras' | 'live-views' | 'wall' | 'settings';
 
 interface NavDef {
   id: View;
@@ -13,7 +13,7 @@ interface NavDef {
 
 const NAV: NavDef[] = [
   { id: 'cameras', label: 'Cameras', icon: Cctv, hint: 'devices' },
-  { id: 'gridfusion', label: 'GridFusion', icon: Grid2x2, hint: 'matrix composer' },
+  { id: 'live-views', label: 'Live Views', icon: Grid2x2, hint: 'displays' },
   { id: 'wall', label: 'Live Wall', icon: MonitorPlay, hint: 'monitoring' },
   { id: 'settings', label: 'Settings', icon: Settings, hint: 'configuration' },
 ];

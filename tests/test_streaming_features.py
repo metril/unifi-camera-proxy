@@ -1,13 +1,7 @@
-"""Tests for the go2rtc live-preview, mosaic composer, and talkback features."""
+"""Tests for go2rtc live-preview, Live Views, firmware parsing, talkback."""
 
 from unifi.web.config import config_to_args, get_camera_type_schemas
-from unifi.web.go2rtc import (
-    RTSP_BASE,
-    Go2rtcManager,
-    build_mosaic_exec,
-    resolve_mosaic_tiles,
-    resolve_stream_source,
-)
+from unifi.web.go2rtc import Go2rtcManager, resolve_stream_source
 
 
 class TestResolveStreamSource:
@@ -30,10 +24,6 @@ class TestResolveStreamSource:
         src = resolve_stream_source({}, {"type": "tapo", "rtsp": "rtsp://h:554"})
         assert src == "rtsp://h:554/stream2"
 
-    def test_mosaic_points_at_own_go2rtc_path(self):
-        src = resolve_stream_source({}, {"type": "mosaic", "id": "abc123"})
-        assert src == f"{RTSP_BASE}/abc123"
-
     def test_reolink_builds_vendor_url(self):
         src = resolve_stream_source(
             {},
@@ -52,80 +42,8 @@ class TestResolveStreamSource:
         assert resolve_stream_source({}, {"type": "rtsp"}) is None
 
 
-class TestResolveMosaicTiles:
-    def test_source_pulls_go2rtc_and_url_gets_creds(self):
-        tiles = resolve_mosaic_tiles(
-            {"rtsp_username": "u", "rtsp_password": "p"},
-            {
-                "type": "mosaic",
-                "tiles": [
-                    {"source": "cam002", "x": 0, "y": 0, "w": 960, "h": 1080},
-                    {"url": "rtsp://cam3/s", "x": 960, "y": 0, "w": 960, "h": 1080},
-                ],
-            },
-        )
-        assert tiles[0]["url"] == f"{RTSP_BASE}/cam002"
-        assert tiles[0]["x"] == 0 and tiles[0]["w"] == 960
-        assert tiles[1]["url"] == "rtsp://u:p@cam3/s"
-        assert tiles[1]["x"] == 960
-
-    def test_zero_size_tiles_dropped(self):
-        tiles = resolve_mosaic_tiles(
-            {},
-            {
-                "type": "mosaic",
-                "tiles": [
-                    {"source": "a", "x": 0, "y": 0, "w": 0, "h": 100},
-                    {"source": "b", "x": 0, "y": 0, "w": 100, "h": 100},
-                ],
-            },
-        )
-        assert len(tiles) == 1
-        assert tiles[0]["url"] == f"{RTSP_BASE}/b"
-
-    def test_legacy_input_urls_uniform_grid(self):
-        tiles = resolve_mosaic_tiles(
-            {},
-            {
-                "type": "mosaic",
-                "input_urls": ["rtsp://a/s", "rtsp://b/s", "rtsp://c/s"],
-                "grid_cols": 2,
-                "output_width": 1920,
-                "output_height": 1080,
-            },
-        )
-        assert len(tiles) == 3
-        assert tiles[0] == {"url": "rtsp://a/s", "x": 0, "y": 0, "w": 960, "h": 540}
-        assert tiles[2] == {"url": "rtsp://c/s", "x": 0, "y": 540, "w": 960, "h": 540}
-
-
-class TestBuildMosaicExec:
-    def test_exec_overlay_chain(self):
-        tiles = [
-            {"url": "rtsp://a/s", "x": 0, "y": 0, "w": 960, "h": 1080},
-            {"url": "rtsp://b/s", "x": 960, "y": 0, "w": 960, "h": 540},
-        ]
-        src = build_mosaic_exec(tiles, 1920, 1080, 10)
-        assert src.startswith("exec:ffmpeg ")
-        assert "color=c=black:s=1920x1080:r=10[bg]" in src
-        assert "[0:v]scale=960:1080,setsar=1[v0]" in src
-        assert "[bg][v0]overlay=0:0[t0]" in src
-        assert "[t0][v1]overlay=960:0[t1]" in src
-        assert '-map "[t1]"' in src
-        # go2rtc substitutes {output}; we publish RTSP to it. No uniform xstack.
-        assert "-f rtsp {output}" in src
-        assert "xstack" not in src
-        assert src.count("-i ") == 2
-
-    def test_gop_matches_fps_for_fast_hls_start(self):
-        # 1s GOP (-g == fps) so HLS emits its first segment within go2rtc's
-        # ~5s session keepalive instead of waiting on a 2s keyframe interval.
-        tiles = [{"url": "rtsp://a/s", "x": 0, "y": 0, "w": 1920, "h": 1080}]
-        assert "-g 10 " in build_mosaic_exec(tiles, 1920, 1080, 10)
-
-
 class TestBuildStreams:
-    def test_regular_pull_and_mosaic_exec(self):
+    def test_one_pull_source_per_camera(self):
         mgr = object.__new__(Go2rtcManager)
         config = {
             "global": {},
@@ -136,22 +54,11 @@ class TestBuildStreams:
                     "video1": "rtsp://h/hi",
                     "video2": "rtsp://h/lo",
                 },
-                {
-                    "id": "wall1",
-                    "type": "mosaic",
-                    "output_width": 1920,
-                    "output_height": 1080,
-                    "tiles": [{"source": "cam001", "x": 0, "y": 0, "w": 960, "h": 540}],
-                },
             ],
         }
         streams = mgr._build_streams(config)
-        # Regular camera = pull source (medium tier).
+        # Medium tier preferred to save bandwidth on the live preview.
         assert streams["cam001"] == "rtsp://h/lo"
-        # Mosaic = exec compositing source (go2rtc only accepts exec from config).
-        assert streams["wall1"].startswith("exec:ffmpeg ")
-        assert f"{RTSP_BASE}/cam001" in streams["wall1"]
-        assert "-f rtsp {output}" in streams["wall1"]
 
 
 class TestWriteConfig:
@@ -180,9 +87,9 @@ class TestWriteConfig:
         assert "candidates" not in doc["webrtc"]
 
 
-class TestMosaicValidation:
-    """Validation must catch the silent-fail mosaic configs that used to
-    produce blank compositions downstream in go2rtc / the mosaic process."""
+class TestCameraConfigValidation:
+    """Validation at the form-save boundary catches bad camera payloads
+    before they reach config.yaml or the subprocess."""
 
     @staticmethod
     def _validate(data, manager=None, editing_id=None):
@@ -190,162 +97,46 @@ class TestMosaicValidation:
 
         return _validate_camera_config(data, manager, editing_id)
 
-    def _base(self, **overrides):
-        cfg = {"name": "Wall", "type": "mosaic", "mac": "AA:BB:CC:DD:EE:FF"}
-        cfg.update(overrides)
-        return cfg
-
-    def test_rejects_missing_tiles(self):
-        errors = self._validate(self._base())
-        assert any("at least one tile" in e for e in errors)
-
-    def test_rejects_empty_tiles(self):
-        errors = self._validate(self._base(tiles=[]))
-        assert any("at least one tile" in e for e in errors)
-
-    def test_rejects_zero_size_tile(self):
-        errors = self._validate(
-            self._base(tiles=[{"url": "rtsp://x", "x": 0, "y": 0, "w": 0, "h": 480}])
-        )
-        assert any("Tile 1" in e and "width and height" in e for e in errors)
-
-    def test_rejects_tile_without_source_or_url(self):
-        errors = self._validate(
-            self._base(tiles=[{"x": 0, "y": 0, "w": 100, "h": 100}])
-        )
-        assert any("Tile 1" in e and "source camera or RTSP url" in e for e in errors)
-
-    def test_rejects_tile_with_unknown_source(self):
-        class FakeMgr:
-            config = {"cameras": [{"id": "abc123"}]}
-
-        errors = self._validate(
-            self._base(tiles=[{"source": "ghost", "x": 0, "y": 0, "w": 100, "h": 100}]),
-            manager=FakeMgr(),
-        )
-        assert any(
-            "Tile 1" in e and "ghost" in e and "does not exist" in e for e in errors
-        )
-
-    def test_accepts_valid_mosaic(self):
-        class FakeMgr:
-            config = {"cameras": [{"id": "abc123"}]}
-
-        errors = self._validate(
-            self._base(
-                tiles=[
-                    {"source": "abc123", "x": 0, "y": 0, "w": 960, "h": 540},
-                    {"url": "rtsp://h/s", "x": 960, "y": 0, "w": 960, "h": 540},
-                ]
-            ),
-            manager=FakeMgr(),
-        )
-        assert errors == []
-
-    def test_non_mosaic_unaffected(self):
+    def test_accepts_minimal_valid(self):
         errors = self._validate(
             {"name": "C", "type": "rtsp", "mac": "AA:BB:CC:DD:EE:FF"}
         )
-        # No tile fields required for non-mosaic cameras.
         assert errors == []
 
+    def test_rejects_missing_name(self):
+        errors = self._validate({"type": "rtsp", "mac": "AA:BB:CC:DD:EE:FF"})
+        assert any("'name'" in e for e in errors)
 
-class TestStartMosaicWithDependencies:
-    """When the user clicks Start on a mosaic, the manager must auto-start
-    its tile-source dependencies, await the go2rtc restart, warm the exec
-    stream, then start the mosaic process — in that order."""
-
-    def test_orchestrates_dependency_start_then_apply_then_mosaic(self):
-        import asyncio
-
-        from unifi.web.camera_manager import CameraInstance, CameraManager
-
-        calls: list[str] = []
-
-        async def fake_apply_config(_cfg):
-            calls.append("apply_config")
-
-        async def fake_start_camera(cam_id):
-            calls.append(f"start:{cam_id}")
-            mgr.instances[cam_id].status = "running"
-
-        mgr = object.__new__(CameraManager)
-        mgr.config = {
-            "global": {},
-            "cameras": [
-                {"id": "src1", "type": "rtsp", "enabled": True},
-                {
-                    "id": "wall1",
-                    "type": "mosaic",
-                    "enabled": True,
-                    "tiles": [{"source": "src1", "x": 0, "y": 0, "w": 960, "h": 540}],
-                },
-            ],
-        }
-        mgr.instances = {
-            "src1": CameraInstance(id="src1", config=mgr.config["cameras"][0]),
-            "wall1": CameraInstance(id="wall1", config=mgr.config["cameras"][1]),
-        }
-
-        class FakeGo2rtc:
-            apply_config = staticmethod(fake_apply_config)
-
-        mgr.go2rtc = FakeGo2rtc()
-        mgr.start_camera = fake_start_camera  # type: ignore[assignment]
-
-        async def fake_warm_up(cam_id, _instance):
-            calls.append(f"warm:{cam_id}")
-
-        mgr._warm_up_mosaic_stream = fake_warm_up  # type: ignore[assignment]
-
-        asyncio.run(mgr.start_mosaic_with_dependencies("wall1"))
-
-        # Tile source must come up FIRST, then go2rtc applies (so its exec has
-        # an RTSP input ready), THEN the mosaic stream is warmed up (kicks the
-        # exec ffmpeg + surfaces tile errors), THEN the mosaic process spawns.
-        assert calls == ["start:src1", "apply_config", "warm:wall1", "start:wall1"]
-
-    def test_noop_for_non_mosaic(self):
-        import asyncio
-
-        from unifi.web.camera_manager import CameraInstance, CameraManager
-
-        mgr = object.__new__(CameraManager)
-        mgr.config = {"cameras": [{"id": "c1", "type": "rtsp"}]}
-        mgr.instances = {"c1": CameraInstance(id="c1", config=mgr.config["cameras"][0])}
-
-        # Should return without touching go2rtc or start_camera.
-        asyncio.run(mgr.start_mosaic_with_dependencies("c1"))
-
-
-class TestMosaicProbe:
-    """The 15s ffprobe of the go2rtc exec source was holding init_adoption open
-    long enough for UniFi Protect to drop the WebSocket. The mosaic knows its
-    output dimensions from its config, so it must short-circuit the probe."""
-
-    def test_returns_configured_output_dims_without_ffprobe(self):
-        import argparse
-
-        from unifi.cams.mosaic import MosaicCam
-
-        cam = object.__new__(MosaicCam)
-        cam.args = argparse.Namespace(output_width=1920, output_height=1080)
-        # Source URL is irrelevant — the override never calls ffprobe.
-        assert cam.probe_video_resolution("video1", "rtsp://does-not-exist/x") == (
-            1920,
-            1080,
+    def test_rejects_unknown_type(self):
+        errors = self._validate(
+            {"name": "C", "type": "mosaic", "mac": "AA:BB:CC:DD:EE:FF"}
         )
+        # GridFusion went away in v1.7.0; mosaic is no longer a valid type.
+        assert any("'type' must be one of" in e for e in errors)
 
-
-class TestMosaicConfigToArgs:
-    def test_stream_name_is_camera_id(self):
-        args = config_to_args(
-            {"host": "h"},
-            {"id": "abc123", "type": "mosaic", "name": "Wall", "mac": "AA:BB"},
+    def test_accepts_valid_fw_version(self):
+        errors = self._validate(
+            {
+                "name": "C",
+                "type": "rtsp",
+                "mac": "AA:BB:CC:DD:EE:FF",
+                "fw_version": "UVC.S2L.v4.23.8.67.0eba6e3.200526.1046",
+            }
         )
-        assert args[args.index("--stream-name") + 1] == "abc123"
-        # Compositing is owned by go2rtc now; no --tiles passed to the process.
-        assert "--tiles" not in args
+        assert errors == []
+
+    def test_rejects_garbage_fw_version(self):
+        errors = self._validate(
+            {
+                "name": "C",
+                "type": "rtsp",
+                "mac": "AA:BB:CC:DD:EE:FF",
+                "fw_version": "646b7432306f4ae2617ff17c769c94f3260ce87ac5bd05b2ba",
+            }
+        )
+        # v1.7.0 moves the v1.6.5 load-time self-heal to a form-save check;
+        # the regex blocks anything that doesn't look like a UVC fw string.
+        assert any("UVC firmware string" in e for e in errors)
 
 
 class TestWebSocketCloseLogging:
@@ -388,7 +179,7 @@ class TestWebSocketCloseLogging:
         import websockets.exceptions
 
         from unifi.cams.base import UnifiCamBase
-        from unifi.cams.mosaic import MosaicCam  # concrete subclass
+        from unifi.cams.rtsp import RTSPCam  # concrete subclass
         from unifi.core import RetryableError
 
         for exc_cls in (
@@ -400,7 +191,7 @@ class TestWebSocketCloseLogging:
                 async def send(self, _payload):
                     raise exc_cls(None, None)
 
-            cam = object.__new__(MosaicCam)
+            cam = object.__new__(RTSPCam)
             cam.logger = logging.getLogger("test")
             cam._session = FakeWS()
 
@@ -421,183 +212,6 @@ class TestWebSocketCloseLogging:
                     f"send() must raise RetryableError for {exc_cls.__name__}"
                 )
             assert cam._session is None
-
-
-class TestAdoptionStuckDetection:
-    """v1.5.2 hid Protect's WS rejection behind a silent retry loop. The
-    manager now tracks adoption state from the camera process's log lines and
-    surfaces 'stuck' via error_message so the UI doesn't lie about health."""
-
-    def test_observe_adoption_signal_marks_adopting(self):
-        from unifi.web.camera_manager import CameraInstance, CameraManager
-
-        mgr = object.__new__(CameraManager)
-        inst = CameraInstance(id="c1", config={})
-        mgr._observe_adoption_signal(inst, "Adopting with mac [AABBCC112233]")
-        assert inst.adoption_state == "adopting"
-        assert inst.adoption_retry_count == 0
-        assert inst.adoption_started_at is not None
-
-    def test_observe_adoption_signal_counts_close_events(self):
-        from unifi.web.camera_manager import CameraInstance, CameraManager
-
-        mgr = object.__new__(CameraManager)
-        inst = CameraInstance(id="c1", config={})
-        mgr._observe_adoption_signal(inst, "Adopting with mac [X]")
-        mgr._observe_adoption_signal(
-            inst, "Connection to unifi-protect was closed while sending."
-        )
-        mgr._observe_adoption_signal(
-            inst,
-            "Connection to unifi-protect was closed while sending (code=1011).",
-        )
-        assert inst.adoption_retry_count == 2
-
-    def test_observe_adoption_signal_resets_on_new_adoption(self):
-        from unifi.web.camera_manager import CameraInstance, CameraManager
-
-        mgr = object.__new__(CameraManager)
-        inst = CameraInstance(id="c1", config={})
-        mgr._observe_adoption_signal(inst, "Adopting with mac [X]")
-        mgr._observe_adoption_signal(inst, "Connection to x was closed.")
-        # Simulate a state where this attempt finished; the next adoption
-        # starts fresh.
-        inst.adoption_state = "unknown"
-        mgr._observe_adoption_signal(inst, "Adopting with mac [X]")
-        assert inst.adoption_retry_count == 0
-
-    def test_detect_adoption_stuck_sets_error_message(self):
-        import asyncio
-
-        from unifi.web.camera_manager import CameraInstance, CameraManager
-
-        mgr = object.__new__(CameraManager)
-        inst = CameraInstance(id="c1", config={})
-        inst.status = "running"
-        inst.adoption_state = "adopting"
-        inst.adoption_retry_count = 5
-
-        # Drive the detector with a near-zero delay + a one-shot loop guard.
-        original_delay = CameraManager._ADOPTION_STUCK_DELAY
-        CameraManager._ADOPTION_STUCK_DELAY = 0.01
-
-        async def run_once():
-            task = asyncio.create_task(mgr._detect_adoption_stuck(inst))
-            # Let the detector run its first iteration, then cancel.
-            await asyncio.sleep(0.05)
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-        try:
-            asyncio.run(run_once())
-            assert inst.error_message == CameraManager._ADOPTION_STUCK_MESSAGE
-        finally:
-            CameraManager._ADOPTION_STUCK_DELAY = original_delay
-
-    def test_detect_adoption_stuck_quiet_when_healthy(self):
-        import asyncio
-
-        from unifi.web.camera_manager import CameraInstance, CameraManager
-
-        mgr = object.__new__(CameraManager)
-        inst = CameraInstance(id="c1", config={})
-        inst.status = "running"
-        inst.adoption_state = "adopted"  # success path
-        inst.adoption_retry_count = 0
-
-        original_delay = CameraManager._ADOPTION_STUCK_DELAY
-        CameraManager._ADOPTION_STUCK_DELAY = 0.01
-
-        async def run_once():
-            task = asyncio.create_task(mgr._detect_adoption_stuck(inst))
-            await asyncio.sleep(0.05)
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-        try:
-            asyncio.run(run_once())
-            assert inst.error_message is None
-        finally:
-            CameraManager._ADOPTION_STUCK_DELAY = original_delay
-
-
-class TestMosaicWarmupRetry:
-    """v1.6.2: the warm-up ffprobe retries once on transient ``Invalid data``
-    and dumps go2rtc's /api/streams JSON on final failure. Mock the ffprobe
-    helper directly — spawning real ffprobe is out of scope."""
-
-    def test_retries_on_invalid_data_then_succeeds(self):
-        import asyncio
-
-        from unifi.web.camera_manager import CameraInstance, CameraManager
-
-        mgr = object.__new__(CameraManager)
-        inst = CameraInstance(id="m1", config={"type": "mosaic"})
-        inst.error_message = "Composition source not producing yet — stale"
-
-        calls = []
-
-        async def fake_ffprobe(source):
-            calls.append(source)
-            if len(calls) == 1:
-                return ("Invalid data found when processing input", 1)
-            return ("", 0)
-
-        mgr._ffprobe_mosaic_once = fake_ffprobe  # type: ignore[assignment]
-
-        async def fake_fetch_state(_id):
-            return ""
-
-        mgr._fetch_go2rtc_stream_state = fake_fetch_state  # type: ignore[assignment]
-
-        # Skip the 2s real-sleep between attempts.
-        original_delay = CameraManager._WARM_UP_RETRY_DELAY
-        CameraManager._WARM_UP_RETRY_DELAY = 0.01
-        try:
-            asyncio.run(mgr._warm_up_mosaic_stream("m1", inst))
-        finally:
-            CameraManager._WARM_UP_RETRY_DELAY = original_delay
-
-        assert len(calls) == 2, "ffprobe should be retried once on Invalid data"
-        # Prior composition-source error must be cleared on a successful retry.
-        assert inst.error_message is None
-
-    def test_retries_on_timeout_then_persists_failure(self):
-        import asyncio
-
-        from unifi.web.camera_manager import CameraInstance, CameraManager
-
-        mgr = object.__new__(CameraManager)
-        inst = CameraInstance(id="m1", config={"type": "mosaic"})
-        calls = []
-
-        async def fake_ffprobe(source):
-            calls.append(source)
-            # Timeout = (text, None)
-            return ("", None)
-
-        async def fake_fetch_state(camera_id):
-            return f'{{"{camera_id}":{{"producers":[]}}}}'
-
-        mgr._ffprobe_mosaic_once = fake_ffprobe  # type: ignore[assignment]
-        mgr._fetch_go2rtc_stream_state = fake_fetch_state  # type: ignore[assignment]
-
-        original_delay = CameraManager._WARM_UP_RETRY_DELAY
-        CameraManager._WARM_UP_RETRY_DELAY = 0.01
-        try:
-            asyncio.run(mgr._warm_up_mosaic_stream("m1", inst))
-        finally:
-            CameraManager._WARM_UP_RETRY_DELAY = original_delay
-
-        assert len(calls) == 2, "timeout path should still retry once"
-        assert inst.error_message is not None
-        assert "Composition source not producing" in inst.error_message
 
 
 class TestWebSocketHeaders:
@@ -628,70 +242,6 @@ class TestWebSocketHeaders:
         core.sysid = None
         headers = Core._build_ws_headers(core)
         assert headers == {"camera-mac": "AABBCC112233"}
-
-
-class TestMosaicSidecarHandler:
-    """v1.6.3: CameraManager + Go2rtc log records that reference a mosaic
-    camera id get mirrored into that camera's log_buffer so the per-camera
-    LogViewer shows warm-up + go2rtc lines alongside camera-process lines."""
-
-    def test_mirrors_log_for_matching_mosaic_id(self):
-        import logging
-
-        from unifi.web.camera_manager import (
-            CameraInstance,
-            CameraManager,
-            _MosaicSidecarHandler,
-        )
-
-        mgr = object.__new__(CameraManager)
-        mgr.instances = {
-            "wall1": CameraInstance(id="wall1", config={"type": "mosaic"}),
-            "rtsp1": CameraInstance(id="rtsp1", config={"type": "rtsp"}),
-        }
-        handler = _MosaicSidecarHandler(mgr)
-        record = logging.LogRecord(
-            name="Go2rtc",
-            level=logging.INFO,
-            pathname=__file__,
-            lineno=1,
-            msg="[go2rtc] stream wall1: exec ffmpeg failed",
-            args=(),
-            exc_info=None,
-        )
-        handler.emit(record)
-        assert len(mgr.instances["wall1"].log_buffer) == 1
-        entry = list(mgr.instances["wall1"].log_buffer)[0]
-        assert entry["logger"] == "Go2rtc"
-        assert "wall1" in entry["message"]
-        # Non-mosaic instances are never mirrored.
-        assert len(mgr.instances["rtsp1"].log_buffer) == 0
-
-    def test_skips_records_with_no_matching_mosaic(self):
-        import logging
-
-        from unifi.web.camera_manager import (
-            CameraInstance,
-            CameraManager,
-            _MosaicSidecarHandler,
-        )
-
-        mgr = object.__new__(CameraManager)
-        mgr.instances = {
-            "wall1": CameraInstance(id="wall1", config={"type": "mosaic"}),
-        }
-        handler = _MosaicSidecarHandler(mgr)
-        record = logging.LogRecord(
-            name="CameraManager",
-            level=logging.INFO,
-            pathname=__file__,
-            lineno=1,
-            msg="some unrelated message",
-            args=(),
-            exc_info=None,
-        )
-        handler.emit(record)
-        assert len(mgr.instances["wall1"].log_buffer) == 0
 
 
 class TestFirmwareVersionParse:
@@ -734,67 +284,141 @@ class TestFirmwareVersionParse:
         assert _parse_firmware_version(b"\x00\x00\x00") == ""
 
 
-class TestFirmwareVersionSanitization:
-    """v1.6.5: ``load_config`` drops corrupted ``fw_version`` values from
-    each camera so the subprocess falls back to the default UVC string
-    rather than poisoning the next adoption hello with garbage."""
+class TestLiveViewValidation:
+    """v1.7.0: Live Views are saved layouts of existing cameras. Validation
+    runs at the form-save boundary; bad payloads never reach config.yaml."""
 
-    def test_drops_garbage_value(self, tmp_path):
-        import yaml
+    @staticmethod
+    def _validate(data, cameras=None):
+        from unifi.web.live_views import validate_live_view
 
-        from unifi.web.config import load_config
+        return validate_live_view(data, cameras or [])
 
-        config_file = tmp_path / "config.yaml"
-        with open(config_file, "w") as f:
-            yaml.dump(
-                {
-                    "global": {},
-                    "cameras": [
-                        {
-                            "id": "abc123",
-                            "name": "Garage",
-                            "mac": "AABBCC112233",
-                            "type": "rtsp",
-                            "fw_version": (
-                                "646b7432306f4ae2617ff17c769c94f3260ce87ac5bd05b2ba"
-                            ),
-                        }
-                    ],
-                },
-                f,
-            )
-        loaded = load_config(str(config_file))
-        cam = loaded["cameras"][0]
-        assert "fw_version" not in cam, (
-            "Garbage fw_version must be dropped so the subprocess uses "
-            "main.py's default (Protect close 4012 fix)."
+    def _good(self, **overrides):
+        cfg = {
+            "name": "Wall",
+            "canvas": {"w": 1920, "h": 1080},
+            "tiles": [{"camera_id": "c1", "x": 0, "y": 0, "w": 960, "h": 540}],
+        }
+        cfg.update(overrides)
+        return cfg
+
+    def test_accepts_minimal_valid(self):
+        errors = self._validate(self._good(), cameras=[{"id": "c1"}])
+        assert errors == []
+
+    def test_rejects_missing_name(self):
+        errors = self._validate({**self._good(), "name": ""}, cameras=[{"id": "c1"}])
+        assert any("'name'" in e for e in errors)
+
+    def test_rejects_unknown_camera(self):
+        errors = self._validate(self._good(), cameras=[{"id": "other"}])
+        assert any("camera_id" in e and "c1" in e for e in errors)
+
+    def test_rejects_zero_size_tile(self):
+        errors = self._validate(
+            self._good(tiles=[{"camera_id": "c1", "x": 0, "y": 0, "w": 0, "h": 540}]),
+            cameras=[{"id": "c1"}],
         )
+        assert any("w and h must be positive" in e for e in errors)
 
-    def test_keeps_valid_uvc_value(self, tmp_path):
-        import yaml
+    def test_rejects_tile_outside_canvas(self):
+        errors = self._validate(
+            self._good(
+                tiles=[{"camera_id": "c1", "x": 0, "y": 0, "w": 9999, "h": 540}]
+            ),
+            cameras=[{"id": "c1"}],
+        )
+        assert any("outside" in e for e in errors)
 
-        from unifi.web.config import load_config
+    def test_rejects_zero_canvas(self):
+        errors = self._validate(
+            {**self._good(), "canvas": {"w": 0, "h": 0}}, cameras=[{"id": "c1"}]
+        )
+        assert any("canvas.w" in e for e in errors)
 
-        config_file = tmp_path / "config.yaml"
-        good = "UVC.S2L.v4.23.8.67.0eba6e3.200526.1046"
-        with open(config_file, "w") as f:
-            yaml.dump(
-                {
-                    "global": {},
-                    "cameras": [
+
+class TestKioskTokenAuth:
+    """The auth middleware lets ``/live/<id>`` and ``/api/live-views/<id>``
+    through when ``?token=`` matches the view's stored kiosk_token, and
+    extends the bypass to ``/go2rtc/*`` for HLS-playing kiosks.
+    """
+
+    def _request(self, path, query=""):
+        # Minimal fake request that exposes the bits auth_middleware reads.
+        from urllib.parse import urlsplit
+
+        from yarl import URL
+
+        rel = URL.build(path=path, query_string=query)
+
+        class FakeReq:
+            def __init__(self):
+                self.path = path
+                self.rel_url = rel
+                self.headers = {}
+
+            @property
+            def scheme(self):
+                return "https"
+
+            @property
+            def host(self):
+                return "example.com"
+
+        # urlsplit just to silence unused-import noise.
+        urlsplit("https://example.com" + path)
+        return FakeReq()
+
+    def _manager(self, kiosk_token=None):
+        class FakeMgr:
+            def __init__(self):
+                self.config = {
+                    "live_views": [
                         {
-                            "id": "abc123",
-                            "name": "Garage",
-                            "mac": "AABBCC112233",
-                            "type": "rtsp",
-                            "fw_version": good,
+                            "id": "abc",
+                            "kiosk_token": kiosk_token,
+                            "tiles": [],
                         }
-                    ],
-                },
-                f,
-            )
-        loaded = load_config(str(config_file))
-        assert loaded["cameras"][0]["fw_version"] == good
+                    ]
+                }
+
+            def get_live_view(self, view_id):
+                for v in self.config["live_views"]:
+                    if v["id"] == view_id:
+                        return v
+                return None
+
+        return FakeMgr()
+
+    def test_matches_when_token_correct(self):
+        from unifi.web.server import _kiosk_token_matches
+
+        mgr = self._manager(kiosk_token="t0p_s3cret")
+        req = self._request("/api/live-views/abc", "token=t0p_s3cret")
+        assert _kiosk_token_matches(mgr, req)
+
+    def test_rejects_wrong_token(self):
+        from unifi.web.server import _kiosk_token_matches
+
+        mgr = self._manager(kiosk_token="t0p_s3cret")
+        req = self._request("/api/live-views/abc", "token=wrong")
+        assert not _kiosk_token_matches(mgr, req)
+
+    def test_rejects_when_view_has_no_kiosk_token(self):
+        from unifi.web.server import _kiosk_token_matches
+
+        mgr = self._manager(kiosk_token=None)
+        req = self._request("/api/live-views/abc", "token=anything")
+        assert not _kiosk_token_matches(mgr, req)
+
+    def test_any_kiosk_token_for_go2rtc(self):
+        from unifi.web.server import _any_kiosk_token_matches
+
+        mgr = self._manager(kiosk_token="grant_me")
+        assert _any_kiosk_token_matches(mgr, "grant_me")
+        assert not _any_kiosk_token_matches(mgr, "different")
+        assert not _any_kiosk_token_matches(mgr, "")
 
 
 class TestTalkbackSchema:

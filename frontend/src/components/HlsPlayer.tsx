@@ -7,6 +7,10 @@ interface HlsPlayerProps {
   className?: string;
   /** Reports the decoded video resolution once known (for HUD overlays). */
   onMeta?: (meta: { width: number; height: number }) => void;
+  /** Override the auth bearer token. Defaults to the OIDC session token
+   *  in localStorage; the kiosk Live View player passes the kiosk token
+   *  instead so an unattended display works without a logged-in session. */
+  authToken?: string | null;
 }
 
 /**
@@ -27,7 +31,7 @@ interface HlsPlayerProps {
  *    auth (when OIDC is on) must ride the Authorization header on every request,
  *    which only hls.js (via xhrSetup) can do — hence we never use native HLS.
  */
-export default function HlsPlayer({ cameraId, className, onMeta }: HlsPlayerProps) {
+export default function HlsPlayer({ cameraId, className, onMeta, authToken }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   // Hold onMeta in a ref so the main effect doesn't need to depend on it. A
   // bare `onMeta` dep means an inline arrow from the parent (e.g. `(m) =>
@@ -50,7 +54,7 @@ export default function HlsPlayer({ cameraId, className, onMeta }: HlsPlayerProp
     };
     video.addEventListener('loadedmetadata', onLoaded);
 
-    const token = localStorage.getItem('ui_token');
+    const token = authToken !== undefined ? authToken : localStorage.getItem('ui_token');
     // fMP4 (&mp4) so H265 cameras work too; bare stream.m3u8 is H264-only TS.
     const src = `/go2rtc/api/stream.m3u8?src=${encodeURIComponent(cameraId)}&mp4`;
 
