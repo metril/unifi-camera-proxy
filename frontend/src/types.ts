@@ -5,7 +5,10 @@ export interface CameraConfig {
   mac: string;
   ip: string;
   model: string;
-  fw_version: string;
+  /** Optional override; derived from ``model`` on the backend when absent.
+   *  Removed from the camera form in v1.7.2 — only present here for
+   *  backward compat with old saved configs the API still echoes. */
+  fw_version?: string;
   type: string;
   [key: string]: unknown;
 }
@@ -49,6 +52,10 @@ export interface CameraStatus {
   restart_attempt: number;
   next_restart_at: number | null;
   auto_restart_enabled: boolean;
+  /** Model-derived UVC firmware string (or the user's override) that the
+   *  subprocess actually reports to Protect on adopt. Shown read-only on
+   *  the camera card. */
+  effective_fw_version?: string;
 }
 
 export interface GlobalConfig {

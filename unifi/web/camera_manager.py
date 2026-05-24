@@ -557,6 +557,8 @@ class CameraManager:
         return [self._instance_to_dict(inst) for inst in self.instances.values()]
 
     def _instance_to_dict(self, instance: CameraInstance) -> dict:
+        from unifi.model_db import get_firmware_version
+
         uptime = None
         if instance.started_at and instance.status == "running":
             uptime = int(time.time() - instance.started_at)
@@ -574,6 +576,20 @@ class CameraManager:
             "restart_attempt": instance.restart_attempt,
             "next_restart_at": instance.next_restart_at,
             "auto_restart_enabled": self._is_auto_restart_enabled(instance),
+            # What the subprocess will actually report to Protect on adopt:
+            # a user override if set + non-legacy, otherwise the model-aware
+            # modern default. Surfaced read-only on the camera card.
+            "effective_fw_version": (
+                instance.config.get("fw_version")
+                if (
+                    instance.config.get("fw_version")
+                    and instance.config.get("fw_version")
+                    != "UVC.S2L.v4.23.8.67.0eba6e3.200526.1046"
+                )
+                else get_firmware_version(
+                    instance.config.get("model") or "UVC G4 Bullet"
+                )
+            ),
         }
 
     async def start_all_enabled(self) -> None:

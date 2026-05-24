@@ -337,6 +337,19 @@ export default function CameraCard({
                 <span className="text-foreground/80 truncate">{config.model}</span>
               </span>
             )}
+            {camera.effective_fw_version && (
+              <span
+                className="inline-flex items-center gap-1 truncate max-w-[10rem]"
+                title={`Reported to Protect on adopt: ${camera.effective_fw_version}`}
+              >
+                <span className="text-muted-foreground/60 label-hud">fw</span>
+                <span className="text-foreground/80 truncate font-data">
+                  {/* Just the v-prefix version chunk; the full string is in the
+                      title attribute for hover. */}
+                  {camera.effective_fw_version.split('.').slice(2, 6).join('.')}
+                </span>
+              </span>
+            )}
           </div>
 
           {camera.error_message && (

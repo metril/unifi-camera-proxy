@@ -281,8 +281,14 @@ def config_to_args(
     args.extend(["--name", str(cam_name)])
     cam_model = camera_config.get("model") or "UVC G4 Bullet"
     args.extend(["--model", str(cam_model)])
-    if camera_config.get("fw_version"):
-        args.extend(["--fw-version", str(camera_config["fw_version"])])
+    # The legacy literal was the hard-coded form default before v1.7.2 and
+    # is now treated as "absent" so users with old configs don't have to
+    # manually edit every camera to escape Protect's upgrade prompt — the
+    # subprocess will derive a modern, model-aware version instead. Any
+    # *real* user override still flows through unchanged.
+    fw = camera_config.get("fw_version")
+    if fw and fw != "UVC.S2L.v4.23.8.67.0eba6e3.200526.1046":
+        args.extend(["--fw-version", str(fw)])
 
     # Camera type subcommand
     cam_type = camera_config.get("type", "rtsp")

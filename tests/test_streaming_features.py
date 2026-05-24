@@ -139,6 +139,80 @@ class TestCameraConfigValidation:
         assert any("UVC firmware string" in e for e in errors)
 
 
+class TestGetFirmwareVersion:
+    """v1.7.2: subprocess defaults its firmware string via model_db so Protect
+    doesn't immediately want to upgrade a freshly adopted camera. The platform
+    code (s5l, sav539gp, …) is interpolated into FW_VERSION_TEMPLATE."""
+
+    def test_g4_bullet_uses_s5l_platform(self):
+        from unifi.model_db import get_firmware_version
+
+        fw = get_firmware_version("UVC G4 Bullet")
+        assert fw.startswith("UVC.S5L.v4.69.")
+
+    def test_g6_ptz_uses_sav539gp_platform(self):
+        from unifi.model_db import get_firmware_version
+
+        fw = get_firmware_version("UVC G6 PTZ")
+        assert fw.startswith("UVC.SAV539GP.v4.69.")
+
+    def test_g3_uses_s2l_platform(self):
+        from unifi.model_db import get_firmware_version
+
+        fw = get_firmware_version("UVC G3")
+        assert fw.startswith("UVC.S2L.v4.69.")
+
+    def test_unknown_model_falls_back_to_default_platform(self):
+        from unifi.model_db import DEFAULT_PLATFORM, get_firmware_version
+
+        fw = get_firmware_version("Definitely Not A UVC")
+        assert fw.startswith(f"UVC.{DEFAULT_PLATFORM.upper()}.v4.69.")
+
+
+class TestConfigToArgsFirmware:
+    """v1.7.2 stops sending --fw-version when the stored value is the legacy
+    pre-v1.7.2 default — that way users with old configs don't have to manually
+    edit every camera to escape Protect's upgrade prompt. User overrides still
+    pass through."""
+
+    LEGACY = "UVC.S2L.v4.23.8.67.0eba6e3.200526.1046"
+
+    def test_legacy_default_dropped(self):
+        args = config_to_args(
+            {"host": "h"},
+            {
+                "id": "c1",
+                "type": "rtsp",
+                "name": "C",
+                "mac": "AA:BB:CC:11:22:33",
+                "fw_version": self.LEGACY,
+            },
+        )
+        assert "--fw-version" not in args
+
+    def test_user_override_passes_through(self):
+        custom = "UVC.S5L.v4.99.99.0.deadbeef.260101.0000"
+        args = config_to_args(
+            {"host": "h"},
+            {
+                "id": "c1",
+                "type": "rtsp",
+                "name": "C",
+                "mac": "AA:BB:CC:11:22:33",
+                "fw_version": custom,
+            },
+        )
+        idx = args.index("--fw-version")
+        assert args[idx + 1] == custom
+
+    def test_missing_fw_lets_subprocess_default_take_over(self):
+        args = config_to_args(
+            {"host": "h"},
+            {"id": "c1", "type": "rtsp", "name": "C", "mac": "AA:BB:CC:11:22:33"},
+        )
+        assert "--fw-version" not in args
+
+
 class TestWebSocketCloseLogging:
     """When Protect closes the adoption WS, our send/recv catches must log
     the close code + reason so the next failure is self-describing.

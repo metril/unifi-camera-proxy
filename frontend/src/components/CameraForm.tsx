@@ -32,7 +32,6 @@ const DEFAULT_CAMERA: CameraConfig = {
   mac: '',
   ip: '',
   model: 'UVC G4 Bullet',
-  fw_version: 'UVC.S2L.v4.23.8.67.0eba6e3.200526.1046',
   type: 'rtsp',
 };
 
@@ -42,7 +41,10 @@ const COMMON_HANDLED = new Set([
   'timestamp-modifier', 'loglevel', 'format',
 ]);
 
-// Fields preserved across camera type changes
+// Fields preserved across camera type changes. fw_version is no longer a
+// user-facing field (the backend derives it per-model via model_db) — kept
+// here so an old saved config doesn't get mid-form-edit changes clobbered,
+// but handleSubmit strips it before saving so it doesn't propagate forward.
 const COMMON_KEYS = new Set([
   'id', 'enabled', 'name', 'mac', 'ip', 'model', 'fw_version', 'type',
   'ffmpeg_args', 'ffmpeg_base_args', 'rtsp_transport',
@@ -192,6 +194,10 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
         cleaned[key] = (val as unknown[]).filter((v) => String(v).trim() !== '');
       }
     }
+    // fw_version is no longer a user-facing field — derived per-model on the
+    // backend via model_db. Strip it on save so legacy values stored in
+    // config.yaml fall off the next time the user touches a camera.
+    delete cleaned.fw_version;
     onSave(cleaned);
   };
 
@@ -604,52 +610,34 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="cam-model">Model</Label>
-                <select
-                  id="cam-model"
-                  value={form.model}
-                  onChange={(e) => handleChange('model', e.target.value)}
-                  className={SELECT_CLASS}
-                >
-                  {(() => {
-                    const camWidth = Number(form.camera_width) || 0;
-                    const tier = camWidth ? getResolutionTier(camWidth) : '';
-                    const sorted = [...schemas.models].sort((a, b) => {
-                      if (!tier) return 0;
-                      const aMatch = MODEL_TIERS[a] === tier ? 0 : 1;
-                      const bMatch = MODEL_TIERS[b] === tier ? 0 : 1;
-                      return aMatch - bMatch;
-                    });
-                    return sorted.map((m) => (
-                      <option key={m} value={m}>
-                        {m}{tier && MODEL_TIERS[m] === tier ? ' ✓' : ''}
-                      </option>
-                    ));
-                  })()}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="cam-fw">Firmware Version</Label>
-                <div className="flex gap-1.5">
-                  <Input
-                    id="cam-fw"
-                    value={form.fw_version}
-                    onChange={(e) => handleChange('fw_version', e.target.value)}
-                    className="font-data"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleChange('fw_version', DEFAULT_CAMERA.fw_version)}
-                    title="Reset to default — useful if a previous in-memory fake firmware upgrade corrupted this value (a fix shipped in v1.6.5)."
-                  >
-                    Reset
-                  </Button>
-                </div>
-              </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="cam-model">Model</Label>
+              <select
+                id="cam-model"
+                value={form.model}
+                onChange={(e) => handleChange('model', e.target.value)}
+                className={SELECT_CLASS}
+              >
+                {(() => {
+                  const camWidth = Number(form.camera_width) || 0;
+                  const tier = camWidth ? getResolutionTier(camWidth) : '';
+                  const sorted = [...schemas.models].sort((a, b) => {
+                    if (!tier) return 0;
+                    const aMatch = MODEL_TIERS[a] === tier ? 0 : 1;
+                    const bMatch = MODEL_TIERS[b] === tier ? 0 : 1;
+                    return aMatch - bMatch;
+                  });
+                  return sorted.map((m) => (
+                    <option key={m} value={m}>
+                      {m}{tier && MODEL_TIERS[m] === tier ? ' ✓' : ''}
+                    </option>
+                  ));
+                })()}
+              </select>
+              <p className="text-[0.6875rem] text-muted-foreground/80">
+                Firmware version is auto-derived from the model (a modern
+                UVC build per platform); shown on the camera card.
+              </p>
             </div>
 
             <div className="flex items-center gap-2">

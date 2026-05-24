@@ -115,8 +115,13 @@ def parse_args():
     parser.add_argument(
         "--fw-version",
         "-f",
-        default="UVC.S2L.v4.23.8.67.0eba6e3.200526.1046",
-        help="Firmware version to initiate connection with",
+        default=None,
+        help=(
+            "Firmware version to initiate connection with. Defaults to a "
+            "model-aware modern UVC build via model_db.get_firmware_version "
+            "(e.g. UVC.S5L.v4.69... for a G4 Bullet), which keeps Protect "
+            "from immediately pushing an upgrade after adoption."
+        ),
     )
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="increase output verbosity"
@@ -184,9 +189,15 @@ async def run():
         logger.error("A valid token is required")
         sys.exit(1)
 
-    # Look up sysid from model database for Protect device identification
-    from unifi.model_db import get_sysid_hex
+    # Resolve model-aware defaults from model_db. fw_version is derived from
+    # the camera's platform code (e.g. UVC.S5L.v4.69... for a G4 Bullet) so
+    # Protect's firmware-version check doesn't immediately demand an upgrade.
+    # sysid is sent on the Camera-Model WS handshake header for Protect's
+    # device identification.
+    from unifi.model_db import get_firmware_version, get_sysid_hex
 
+    if not args.fw_version:
+        args.fw_version = get_firmware_version(args.model)
     args.sysid = get_sysid_hex(args.model)
 
     cam = klass(args, logger)
