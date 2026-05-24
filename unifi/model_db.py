@@ -5,6 +5,8 @@ The sysid is sent as the Camera-Model WebSocket header during adoption.
 Data sourced from redalert11/unifi-camera-proxy CameraModelDatabase.
 """
 
+import re
+
 # (platform_code, sysid_hex)
 MODEL_DB: dict[str, tuple[str, int]] = {
     # Legacy
@@ -79,3 +81,19 @@ def get_sysid_hex(model: str) -> str:
     """Return the sysid as a hex string (e.g., '0xa572')."""
     _, sysid = get_model_info(model)
     return hex(sysid)
+
+
+_SEMVER_RE = re.compile(r"v\d+\.\d+\.\d+")
+_FALLBACK_SEMVER = "v4.69.55"
+
+
+def get_semver(model: str) -> str:
+    """Return the vX.Y.Z slice of the model's firmware string.
+
+    Protect uses ``semver`` as the authoritative version field in the
+    adoption hello; keeping it derived from the same template as
+    ``get_firmware_version`` prevents the two from drifting and
+    triggering spurious UpdateFirmwareRequest prompts.
+    """
+    match = _SEMVER_RE.search(get_firmware_version(model))
+    return match.group(0) if match else _FALLBACK_SEMVER

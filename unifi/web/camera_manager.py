@@ -557,7 +557,7 @@ class CameraManager:
         return [self._instance_to_dict(inst) for inst in self.instances.values()]
 
     def _instance_to_dict(self, instance: CameraInstance) -> dict:
-        from unifi.model_db import get_firmware_version
+        from unifi.model_db import get_firmware_version, get_semver
 
         uptime = None
         if instance.started_at and instance.status == "running":
@@ -589,6 +589,12 @@ class CameraManager:
                 else get_firmware_version(
                     instance.config.get("model") or "UVC G4 Bullet"
                 )
+            ),
+            # Semver field paired with fwVersion in the adoption hello;
+            # derived from the same template so Protect never sees a
+            # mismatched pair (the v1.7.3 fix for the upgrade-prompt loop).
+            "effective_semver": get_semver(
+                instance.config.get("model") or "UVC G4 Bullet"
             ),
         }
 

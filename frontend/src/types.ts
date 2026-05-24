@@ -56,6 +56,10 @@ export interface CameraStatus {
    *  subprocess actually reports to Protect on adopt. Shown read-only on
    *  the camera card. */
   effective_fw_version?: string;
+  /** Semver field paired with ``effective_fw_version`` in the adoption
+   *  hello; surfaced for debugging. Aligned with fwVersion as of v1.7.3
+   *  so Protect stops asking the camera to update. */
+  effective_semver?: string;
 }
 
 export interface GlobalConfig {

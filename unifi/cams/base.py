@@ -24,38 +24,9 @@ from unifi.cams.handlers import (
 )
 from unifi.cams.handlers.video_stream_handlers import StreamState
 from unifi.core import RetryableError
+from unifi.model_db import get_semver
 
 AVClientRequest = AVClientResponse = dict[str, Any]
-
-
-def _parse_firmware_version(blob: bytes) -> str:
-    """Parse a UVC firmware version string out of the upgrade-binary header.
-
-    Real UVC firmware binaries embed an ASCII version string (e.g.
-    ``UVC.S2L.v4.23.8.67.0eba6e3.200526.1046``) starting at byte 4,
-    NUL-terminated, fitting in 50 bytes. The previous implementation
-    iterated the slice and compared each byte against the *bytes object*
-    ``b"\\x00"`` instead of the integer ``0`` — in Python 3,
-    ``content[i]`` is an int, so the comparison was always ``True`` and
-    every byte (including binary noise) got concatenated. That produced
-    garbage like ``646b7432306f4ae2617ff17c769c94f3260ce87ac5bd05b2ba``
-    which, once persisted into config.yaml, made Protect reject the
-    camera's adoption hello with WS close code 4012.
-
-    Stops at the first NUL byte. Drops non-printable ASCII (anything <
-    0x20 or > 0x7e) — a sane fw string is printable ASCII only. Returns
-    the parsed string (may be empty if the blob carried nothing usable —
-    callers should NOT mutate ``fw_version`` in that case).
-    """
-    if len(blob) < 5:
-        return ""
-    chars: list[str] = []
-    for b in blob[4:54]:
-        if b == 0:
-            break
-        if 0x20 <= b <= 0x7E:
-            chars.append(chr(b))
-    return "".join(chars)
 
 
 def _close_detail(exc: BaseException) -> str:
@@ -1833,7 +1804,7 @@ class UnifiCamBase(
                     "name": self.args.name,
                     "protocolVersion": 67,
                     "rebootTimeoutSec": 30,
-                    "semver": "v4.4.8",
+                    "semver": get_semver(self.args.model),
                     "totalLoad": 0.5474,
                     "upgradeTimeoutSec": 150,
                     "uptime": int(self.get_uptime()),
@@ -1846,23 +1817,16 @@ class UnifiCamBase(
         asyncio.create_task(self.get_snapshot())
 
     async def process_upgrade(self, msg: AVClientRequest) -> None:
-        url = msg["payload"]["uri"]
-        headers = {"Range": "bytes=0-100"}
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=headers, ssl=False) as r:
-                content = await r.content.readexactly(54)
-                version = _parse_firmware_version(content)
-                if not version:
-                    # Bad/short/garbage payload — don't poison fw_version,
-                    # which would feed an invalid value into the next
-                    # adoption hello and trigger a Protect close (code 4012).
-                    self.logger.warning(
-                        "process_upgrade: could not parse a firmware version "
-                        "from the binary; keeping current fw_version."
-                    )
-                    return
-                self.logger.debug(f"Pretending to upgrade to: {version}")
-                self.args.fw_version = version
+        # The proxy already advertises the platform's modern firmware build
+        # in the adoption hello (see ``get_firmware_version`` / ``get_semver``
+        # in unifi.model_db). Performing a real upgrade would either be a
+        # no-op or — historically — corrupt ``fw_version`` by parsing
+        # arbitrary bytes from the upgrade binary, which triggered the very
+        # adoption loop this stub eliminates. ACK without reconnecting.
+        self.logger.info(
+            "Ignoring UpdateFirmwareRequest — proxy advertises the platform's "
+            "modern firmware build and does not perform real upgrades."
+        )
 
     def gen_response(
         self, name: str, response_to: int = 0, payload: Optional[dict[str, Any]] = None
@@ -1988,7 +1952,7 @@ class UnifiCamBase(
             res = self.gen_response("ChangeClarityZones", response_to=m["messageId"])
         elif fn == "UpdateFirmwareRequest":
             await self.process_upgrade(m)
-            return True
+            res = self.gen_response("UpdateFirmwareRequest", response_to=m["messageId"])
         elif fn == "Reboot":
             return True
         elif fn == "ContinuousMove":

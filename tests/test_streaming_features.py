@@ -330,44 +330,136 @@ class TestWebSocketHeaders:
         )
 
 
-class TestFirmwareVersionParse:
-    """v1.6.5: process_upgrade used to compare each byte of the firmware
-    blob against the ``bytes`` literal ``b"\\x00"`` instead of the int 0,
-    so the null-terminator check never tripped and every byte (including
-    binary noise) got concatenated into ``self.args.fw_version``. Once that
-    garbage was persisted via a UI save into config.yaml, every subsequent
-    adoption hello carried an invalid firmware string and Protect closed
-    the WS with code 4012."""
+class TestGetSemver:
+    """v1.7.3: the adoption hello pairs ``fwVersion`` with ``semver``. Before
+    v1.7.3 ``semver`` was hardcoded to ``v4.4.8`` while ``fwVersion`` reported
+    the modern ``UVC.{platform}.v4.69.55.0…`` build — Protect saw the mismatch
+    and shoved an UpdateFirmwareRequest at us, which the old upgrade handler
+    answered by reconnecting (with the same mismatch), looping forever.
+    ``get_semver`` derives the semver from the firmware template so they
+    never drift."""
 
-    def test_stops_at_null_byte_and_returns_ascii(self):
-        from unifi.cams.base import _parse_firmware_version
+    def test_g4_bullet_matches_template_semver(self):
+        from unifi.model_db import get_semver
 
-        # 4-byte preamble + "UVC.S2L.v4" + NUL + garbage.
-        blob = b"\x00\x00\x00\x00" + b"UVC.S2L.v4" + b"\x00" + b"\x80\xff\x00"
-        # Pad to required 54-byte length.
-        blob = blob + b"\x00" * (54 - len(blob))
-        assert _parse_firmware_version(blob) == "UVC.S2L.v4"
+        assert get_semver("UVC G4 Bullet") == "v4.69.55"
 
-    def test_drops_non_printable_bytes(self):
-        from unifi.cams.base import _parse_firmware_version
+    def test_g6_ptz_matches_template_semver(self):
+        from unifi.model_db import get_semver
 
-        # 4-byte preamble + non-printable bytes mixed with ASCII, no NUL.
-        blob = b"\x00\x00\x00\x00" + b"U\xffV\x01C\x80.\x80S\x002\x00" + b"\x00" * 50
-        # \xff, \x01, \x80 are non-printable and stripped. NUL terminates.
-        result = _parse_firmware_version(blob[:54])
-        assert result == "UVC.S"  # the second NUL after S ends parsing
+        assert get_semver("UVC G6 PTZ") == "v4.69.55"
 
-    def test_returns_empty_when_first_byte_is_null(self):
-        from unifi.cams.base import _parse_firmware_version
+    def test_g3_matches_template_semver(self):
+        from unifi.model_db import get_semver
 
-        blob = b"\x00\x00\x00\x00" + b"\x00" * 50
-        assert _parse_firmware_version(blob) == ""
+        assert get_semver("UVC G3") == "v4.69.55"
 
-    def test_handles_short_blob(self):
-        from unifi.cams.base import _parse_firmware_version
+    def test_g5_dome_matches_template_semver(self):
+        from unifi.model_db import get_semver
 
-        assert _parse_firmware_version(b"") == ""
-        assert _parse_firmware_version(b"\x00\x00\x00") == ""
+        assert get_semver("UVC G5 Dome") == "v4.69.55"
+
+    def test_ai_pro_matches_template_semver(self):
+        from unifi.model_db import get_semver
+
+        assert get_semver("UVC AI Pro") == "v4.69.55"
+
+    def test_unknown_model_falls_back_to_template_semver(self):
+        from unifi.model_db import get_semver
+
+        assert get_semver("Definitely Not A UVC") == "v4.69.55"
+
+
+class TestHelloSemverConsistency:
+    """Guard against future template drift: for every model in MODEL_DB, the
+    semver string we put in the hello must be a substring of the fwVersion
+    string we put in the hello. If someone bumps FW_VERSION_TEMPLATE without
+    syncing this test the mismatch fires here before it reaches Protect."""
+
+    def test_semver_is_substring_of_fw_version_for_every_model(self):
+        from unifi.model_db import MODEL_DB, get_firmware_version, get_semver
+
+        for model in MODEL_DB:
+            fw = get_firmware_version(model)
+            sv = get_semver(model)
+            assert sv in fw, f"{model}: semver {sv!r} not in fwVersion {fw!r}"
+
+
+class TestUpdateFirmwareRequestHandler:
+    """v1.7.3: the old ``UpdateFirmwareRequest`` handler downloaded 54 bytes
+    of the upgrade binary, parsed them into ``self.args.fw_version``, then
+    forced a WS reconnect (``return True`` → ``RetryableError``). With
+    Protect re-sending UpdateFirmwareRequest on every reconnect, that path
+    was the adoption-loop trigger. The new handler ACKs and ignores; no
+    mutation, no forced reconnect."""
+
+    def test_process_upgrade_does_not_mutate_fw_version(self):
+        import asyncio
+        import logging
+
+        from unifi.cams.base import UnifiCamBase
+        from unifi.cams.rtsp import RTSPCam
+
+        cam = object.__new__(RTSPCam)
+        cam.logger = logging.getLogger("test")
+
+        class FakeArgs:
+            fw_version = "UVC.S5L.v4.69.55.0.7f45c5b.241212.1510"
+
+        cam.args = FakeArgs()
+
+        async def run():
+            await UnifiCamBase.process_upgrade(
+                cam, {"payload": {"uri": "http://example/firmware.bin"}}
+            )
+
+        asyncio.run(run())
+        assert cam.args.fw_version == "UVC.S5L.v4.69.55.0.7f45c5b.241212.1510"
+
+    def test_dispatch_does_not_force_reconnect(self):
+        """``process(UpdateFirmwareRequest)`` must return False (no
+        RetryableError); a stub ``send`` captures the ACK so we also
+        confirm an answer was actually sent to Protect."""
+        import asyncio
+        import json
+        import logging
+
+        from unifi.cams.base import UnifiCamBase
+        from unifi.cams.rtsp import RTSPCam
+
+        cam = object.__new__(RTSPCam)
+        cam.logger = logging.getLogger("test")
+        cam._msg_id = 0
+
+        class FakeArgs:
+            fw_version = "UVC.S5L.v4.69.55.0.7f45c5b.241212.1510"
+
+        cam.args = FakeArgs()
+        sent: list[dict] = []
+
+        async def fake_send(msg):
+            sent.append(msg)
+
+        cam.send = fake_send  # type: ignore[method-assign]
+
+        request = {
+            "functionName": "UpdateFirmwareRequest",
+            "messageId": 42,
+            "responseExpected": True,
+            "payload": {"uri": "http://example/firmware.bin"},
+        }
+
+        async def run():
+            return await UnifiCamBase.process(cam, json.dumps(request).encode())
+
+        force_reconnect = asyncio.run(run())
+        assert force_reconnect is False, (
+            "v1.7.3: UpdateFirmwareRequest must not force a reconnect; that "
+            "was the adoption-loop trigger."
+        )
+        assert len(sent) == 1, "Handler must ACK the request"
+        assert sent[0]["functionName"] == "UpdateFirmwareRequest"
+        assert sent[0]["inResponseTo"] == 42
 
 
 class TestLiveViewValidation:
