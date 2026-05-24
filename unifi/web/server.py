@@ -413,6 +413,38 @@ async def camera_ws(request: web.Request) -> web.WebSocketResponse:
     return ws
 
 
+async def status_ws(request: web.Request) -> web.WebSocketResponse:
+    """Server-pushed feed of CameraStatus[] snapshots.
+
+    Replaces the dashboard's 3s poll of /api/cameras. On connect we send
+    one snapshot immediately; the manager then pushes another whenever a
+    camera's state changes (start/stop/error/restart) and every 5s as a
+    keep-fresh tick so derived fields (uptime/restart countdown) don't
+    go stale. The client interpolates per-second uptime locally from
+    ``started_at``.
+    """
+    manager = get_manager(request)
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    import json
+
+    try:
+        await ws.send_str(
+            json.dumps({"type": "snapshot", "data": manager.get_all_statuses()})
+        )
+        await manager.register_status_ws(ws)
+        logger.debug("Status WS client connected")
+        async for msg in ws:
+            if msg.type == web.WSMsgType.ERROR:
+                break
+    finally:
+        await manager.unregister_status_ws(ws)
+        logger.debug("Status WS client disconnected")
+
+    return ws
+
+
 async def get_camera_types(request: web.Request) -> web.Response:
     schemas = get_camera_type_schemas()
     return web.json_response({"types": schemas, "models": MODEL_CHOICES})
@@ -1288,6 +1320,9 @@ def create_app(config_path: str) -> web.Application:
     app.router.add_post("/api/cameras", add_camera)
     app.router.add_get("/api/cameras/start-all", start_all)
     app.router.add_get("/api/cameras/stop-all", stop_all)
+    # NOTE: must be registered BEFORE the /api/cameras/{id} dynamic route,
+    # otherwise aiohttp matches "ws" as the {id} placeholder.
+    app.router.add_get("/api/cameras/ws", status_ws)
     app.router.add_get("/api/cameras/{id}", get_camera)
     app.router.add_put("/api/cameras/{id}", update_camera)
     app.router.add_delete("/api/cameras/{id}", delete_camera)

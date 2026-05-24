@@ -14,6 +14,22 @@ export function snapshotUrl(cameraId: string, bust?: number): string {
   return `${BASE}/cameras/${cameraId}/snapshot${qs ? `?${qs}` : ''}`;
 }
 
+/** Server-pushed CameraStatus[] feed. Replaces the 3s poll of /api/cameras. */
+export function cameraStatusWsUrl(): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const token = getToken();
+  const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+  return `${protocol}//${window.location.host}${BASE}/cameras/ws${tokenParam}`;
+}
+
+/** Per-camera log + diagnostics WebSocket. */
+export function cameraLogWsUrl(cameraId: string): string {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const token = getToken();
+  const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
+  return `${protocol}//${window.location.host}${BASE}/cameras/${cameraId}/ws${tokenParam}`;
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken();
   const res = await fetch(`${BASE}${path}`, {

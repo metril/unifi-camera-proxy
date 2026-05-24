@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
-import { api } from './api';
+import { api, cameraStatusWsUrl } from './api';
 import type { CameraConfig, CameraStatus, CameraTypeSchemas, GlobalConfig } from './types';
 import AppShell, { type View } from './components/AppShell';
 import CameraGrid from './components/CameraGrid';
@@ -13,6 +13,8 @@ import LiveViewPlayer from './components/LiveViewPlayer';
 import Toast, { type ToastMessage } from './components/Toast';
 import LoginPage from './components/LoginPage';
 import { Button } from '@/components/ui/button';
+import { useDocumentVisible } from '@/lib/useDocumentVisible';
+import { useReconnectingWs } from '@/lib/useReconnectingWs';
 
 const DEFAULT_GLOBAL: GlobalConfig = {
   host: '',
@@ -105,52 +107,79 @@ function AppShellApp() {
     api.getCameraTypes().then(setSchemas).catch(() => {});
   }, []);
 
-  // Poll camera status
-  const fetchCameras = useCallback(() => {
-    api
-      .listCameras()
-      .then(setCameras)
-      .catch(() => {})
-      .finally(() => setLoadingCameras(false));
-  }, []);
+  // ---- Server-pushed camera status feed (replaces 3s poll) ----
+  // We still do one initial fetch so the dashboard isn't blank if the WS
+  // handshake races the first render; once the WS connects it sends a
+  // fresh snapshot that overwrites the fetch result. Visibility gates
+  // both: while the tab is hidden the WS is closed and we don't poll
+  // either, so a backgrounded dashboard does ~zero network work.
+  const visible = useDocumentVisible();
+  const wsUrl = useMemo(() => (visible ? cameraStatusWsUrl() : null), [visible]);
+  const camerasRef = useRef<CameraStatus[]>([]);
+  useEffect(() => { camerasRef.current = cameras; }, [cameras]);
 
   useEffect(() => {
-    fetchCameras();
-    const interval = setInterval(fetchCameras, 3000);
-    return () => clearInterval(interval);
-  }, [fetchCameras]);
+    if (!visible) return;
+    let cancelled = false;
+    api
+      .listCameras()
+      .then((data) => { if (!cancelled) setCameras(data); })
+      .catch((err) => {
+        if (err instanceof Error && err.message === 'Unauthorized') {
+          setNeedsLogin(true);
+        }
+      })
+      .finally(() => { if (!cancelled) setLoadingCameras(false); });
+    return () => { cancelled = true; };
+  }, [visible]);
 
-  const handleStart = async (id: string) => {
+  const onStatusMessage = useCallback((event: MessageEvent) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'snapshot' && Array.isArray(msg.data)) {
+        setCameras(msg.data as CameraStatus[]);
+        setLoadingCameras(false);
+      }
+    } catch {}
+  }, []);
+
+  useReconnectingWs({ url: wsUrl, onMessage: onStatusMessage });
+
+  // Mark the document while the tab is hidden so CSS rules can hard-pause
+  // animations. Browsers throttle but don't reliably stop them.
+  useEffect(() => {
+    if (visible) document.documentElement.removeAttribute('data-tab-hidden');
+    else document.documentElement.setAttribute('data-tab-hidden', '');
+  }, [visible]);
+
+  const handleStart = useCallback(async (id: string) => {
     try {
       await api.startCamera(id);
-      fetchCameras();
     } catch (err) {
       addToast(`Failed to start camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  };
+  }, [addToast]);
 
-  const handleStop = async (id: string) => {
+  const handleStop = useCallback(async (id: string) => {
     try {
       await api.stopCamera(id);
-      fetchCameras();
     } catch (err) {
       addToast(`Failed to stop camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  };
+  }, [addToast]);
 
-  const handleRestart = async (id: string) => {
+  const handleRestart = useCallback(async (id: string) => {
     try {
       await api.restartCamera(id);
-      setTimeout(fetchCameras, 1500);
     } catch (err) {
       addToast(`Failed to restart camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  };
+  }, [addToast]);
 
-  const handleSyncName = async (id: string) => {
+  const handleSyncName = useCallback(async (id: string) => {
     try {
       const res = await api.syncCameraName(id);
-      const cam = cameras.find((c) => c.id === id);
+      const cam = camerasRef.current.find((c) => c.id === id);
       const label = cam?.config.name || 'camera';
       if (res.status === 'updated') {
         addToast(`Synced name to Protect: ${res.detail ?? label}`, 'success');
@@ -162,15 +191,14 @@ function AppShellApp() {
     } catch (err) {
       addToast(`Sync name failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  };
+  }, [addToast]);
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = useCallback(async (id: string) => {
     await api.deleteCamera(id);
-    fetchCameras();
-  };
+  }, []);
 
-  const handleToggleEnabled = async (id: string, enabled: boolean) => {
-    const cam = cameras.find((c) => c.id === id);
+  const handleToggleEnabled = useCallback(async (id: string, enabled: boolean) => {
+    const cam = camerasRef.current.find((c) => c.id === id);
     if (!cam) return;
     try {
       await api.updateCamera(id, { ...cam.config, enabled });
@@ -180,22 +208,21 @@ function AppShellApp() {
           : `"${cam.config.name || 'Camera'}" will be skipped on boot`,
         'success',
       );
-      fetchCameras();
     } catch (err) {
       addToast(
         `Failed to update camera: ${err instanceof Error ? err.message : 'Unknown error'}`,
       );
     }
-  };
+  }, [addToast]);
 
-  const handleEdit = (id: string) => {
-    const cam = cameras.find((c) => c.id === id);
+  const handleEdit = useCallback((id: string) => {
+    const cam = camerasRef.current.find((c) => c.id === id);
     if (!cam) return;
     setEditCamera(cam.config);
     setShowForm(true);
-  };
+  }, []);
 
-  const handleSaveCamera = async (config: CameraConfig) => {
+  const handleSaveCamera = useCallback(async (config: CameraConfig) => {
     try {
       if (editCamera && editCamera.id) {
         await api.updateCamera(editCamera.id, config);
@@ -204,13 +231,12 @@ function AppShellApp() {
       }
       setShowForm(false);
       setEditCamera(null);
-      fetchCameras();
     } catch (err) {
       addToast(`Failed to save camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  };
+  }, [addToast, editCamera]);
 
-  const handleSaveGlobal = async (config: GlobalConfig) => {
+  const handleSaveGlobal = useCallback(async (config: GlobalConfig) => {
     try {
       await api.updateGlobal(config);
       setGlobalConfig(config);
@@ -218,65 +244,67 @@ function AppShellApp() {
     } catch (err) {
       addToast(`Failed to save settings: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  };
+  }, [addToast]);
 
-  const handleStartAll = async () => {
+  const handleStartAll = useCallback(async () => {
     try {
       await api.startAll();
-      setTimeout(fetchCameras, 1000);
       addToast('Starting all cameras…', 'success');
     } catch (err) {
       addToast(`Failed to start all: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  };
+  }, [addToast]);
 
-  const handleStopAll = async () => {
+  const handleStopAll = useCallback(async () => {
     try {
       await api.stopAll();
-      fetchCameras();
     } catch (err) {
       addToast(`Failed to stop all: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
-  };
+  }, [addToast]);
 
-  const handleAddCamera = () => {
+  const handleAddCamera = useCallback(() => {
     setEditCamera(null);
     setShowForm(true);
-  };
+  }, []);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     const token = localStorage.getItem('ui_token');
     localStorage.removeItem('ui_token');
     const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
     window.location.href = `/api/auth/end-session${tokenParam}`;
-  };
+  }, []);
 
-  const runningCount = cameras.filter((c) => c.status === 'running').length;
+  const runningCount = useMemo(
+    () => cameras.filter((c) => c.status === 'running').length,
+    [cameras],
+  );
+  const cameraCount = cameras.length;
+
+  // Memoize the cameras-view actions JSX so AppShell's actions prop ref is
+  // stable across polls — without this, AppShell re-renders every push.
+  const camerasActions = useMemo(() => (
+    <>
+      {cameraCount > 0 && (
+        <>
+          <Button variant="outline" size="sm" className="h-9 text-xs text-emerald-300 border-emerald-600/30 hover:bg-emerald-600/10" onClick={handleStartAll}>
+            Start all
+          </Button>
+          <Button variant="outline" size="sm" className="h-9 text-xs text-red-300 border-red-600/30 hover:bg-red-600/10" onClick={handleStopAll}>
+            Stop all
+          </Button>
+        </>
+      )}
+      <Button size="sm" className="h-9" onClick={handleAddCamera}>
+        <Plus className="w-4 h-4 mr-1.5" /> Add camera
+      </Button>
+    </>
+  ), [cameraCount, handleStartAll, handleStopAll, handleAddCamera]);
 
   if (needsLogin) return <LoginPage />;
 
   const HEADERS: Record<View, { eyebrow: string; title: string; actions?: React.ReactNode }> = {
-    cameras: {
-      eyebrow: 'devices',
-      title: 'Cameras',
-      actions: (
-        <>
-          {cameras.length > 0 && (
-            <>
-              <Button variant="outline" size="sm" className="h-9 text-xs text-emerald-300 border-emerald-600/30 hover:bg-emerald-600/10" onClick={handleStartAll}>
-                Start all
-              </Button>
-              <Button variant="outline" size="sm" className="h-9 text-xs text-red-300 border-red-600/30 hover:bg-red-600/10" onClick={handleStopAll}>
-                Stop all
-              </Button>
-            </>
-          )}
-          <Button size="sm" className="h-9" onClick={handleAddCamera}>
-            <Plus className="w-4 h-4 mr-1.5" /> Add camera
-          </Button>
-        </>
-      ),
-    },
+    cameras: { eyebrow: 'devices', title: 'Cameras', actions: camerasActions },
     'live-views':
       editingLiveViewId !== null
         ? { eyebrow: 'composing', title: editingLiveViewId ? 'Edit Live View' : 'New Live View' }

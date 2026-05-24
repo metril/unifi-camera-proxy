@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import {
   MoreHorizontal,
   Cctv,
@@ -23,6 +23,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import LogViewer from './LogViewer';
 import { cn } from '@/lib/utils';
+import { useDocumentVisible } from '@/lib/useDocumentVisible';
+import { useTicker } from '@/lib/useTicker';
 
 interface CameraCardProps {
   camera: CameraStatus;
@@ -43,6 +45,20 @@ function formatUptime(seconds: number | null): string {
   if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
   return `${s}s`;
 }
+
+/** 1-Hz uptime label derived from started_at. Owns its own ticker so the
+ *  parent card stays memo'd — only this span re-renders each second. */
+const LiveUptime = memo(function LiveUptime({
+  startedAt,
+  className,
+}: {
+  startedAt: number;
+  className?: string;
+}) {
+  const tick = useTicker(1000);
+  const secs = Math.max(0, Math.floor(tick / 1000 - startedAt));
+  return <span className={className}>{formatUptime(secs)}</span>;
+});
 
 const TYPE_LABEL: Record<string, string> = {};
 
@@ -76,12 +92,15 @@ function Thumb({
   const [bust, setBust] = useState(() => Date.now());
   const [ok, setOk] = useState(true);
   const restarting = camera.status === 'restarting';
+  const visible = useDocumentVisible();
 
   useEffect(() => {
-    if (!isRunning) return;
+    // Skip the thumbnail-bust loop when the tab is hidden — otherwise 11
+    // cameras keep hammering /snapshot in the background for nothing.
+    if (!isRunning || !visible) return;
     const t = setInterval(() => setBust(Date.now()), 6000);
     return () => clearInterval(t);
-  }, [isRunning]);
+  }, [isRunning, visible]);
 
   const restartCountdown =
     restarting && camera.next_restart_at != null
@@ -196,20 +215,21 @@ function Thumb({
       </div>
 
       {/* Uptime ticker bottom-right when running */}
-      {isRunning && camera.uptime != null && (
+      {isRunning && camera.started_at != null && (
         <div className="absolute bottom-1.5 left-2 flex items-center gap-1 opacity-0 group-hover/thumb:opacity-0 pointer-events-none">
           {/* hidden when hover toolbar is up — uptime moves to footer line below */}
           <Activity className="w-3 h-3 text-primary" />
-          <span className="font-data text-[0.6875rem] text-white/80 tabular-nums">
-            {formatUptime(camera.uptime)}
-          </span>
+          <LiveUptime
+            startedAt={camera.started_at}
+            className="font-data text-[0.6875rem] text-white/80 tabular-nums"
+          />
         </div>
       )}
     </div>
   );
 }
 
-export default function CameraCard({
+function CameraCardImpl({
   camera,
   onStart,
   onStop,
@@ -273,9 +293,9 @@ export default function CameraCard({
               </div>
               <div className="label-hud text-muted-foreground mt-0.5">
                 {TYPE_LABEL[config.type] ?? config.type}
-                {isRunning && camera.uptime != null && (
+                {isRunning && camera.started_at != null && (
                   <span className="ml-2 text-foreground/70 font-data tabular-nums">
-                    · {formatUptime(camera.uptime)}
+                    · <LiveUptime startedAt={camera.started_at} />
                   </span>
                 )}
               </div>
@@ -374,3 +394,47 @@ export default function CameraCard({
     </>
   );
 }
+
+/** Skip a re-render when neither the camera fields the card renders nor any
+ *  callback prop has changed. With useCallback in App.tsx and one WS push
+ *  per real state change, an idle 11-camera dashboard ends up doing ~0
+ *  card renders between state transitions. ``uptime`` is intentionally
+ *  NOT compared — the LiveUptime subcomponent owns the per-second tick
+ *  via its own ticker so the card body doesn't redraw every second. */
+function cameraCardEqual(prev: CameraCardProps, next: CameraCardProps): boolean {
+  const a = prev.camera;
+  const b = next.camera;
+  if (
+    a.id !== b.id ||
+    a.status !== b.status ||
+    a.started_at !== b.started_at ||
+    a.next_restart_at !== b.next_restart_at ||
+    a.error_message !== b.error_message ||
+    a.effective_fw_version !== b.effective_fw_version
+  ) {
+    return false;
+  }
+  const ac = a.config;
+  const bc = b.config;
+  if (
+    ac.name !== bc.name ||
+    ac.enabled !== bc.enabled ||
+    ac.type !== bc.type ||
+    ac.mac !== bc.mac ||
+    ac.ip !== bc.ip ||
+    ac.model !== bc.model
+  ) {
+    return false;
+  }
+  return (
+    prev.onStart === next.onStart &&
+    prev.onStop === next.onStop &&
+    prev.onRestart === next.onRestart &&
+    prev.onEdit === next.onEdit &&
+    prev.onDelete === next.onDelete &&
+    prev.onToggleEnabled === next.onToggleEnabled
+  );
+}
+
+const CameraCard = memo(CameraCardImpl, cameraCardEqual);
+export default CameraCard;

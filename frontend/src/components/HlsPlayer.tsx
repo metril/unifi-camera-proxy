@@ -114,8 +114,17 @@ export default function HlsPlayer({ cameraId, className, onMeta, authToken }: Hl
     hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(() => {}));
 
     // Only decode tiles that are actually on screen / in a visible tab.
-    const stop = () => hls.stopLoad();
-    const start = () => hls.startLoad();
+    // ``hls.stopLoad()`` halts segment fetches and ``video.pause()`` halts
+    // the decoder — together they ensure a backgrounded tab pins ~0% CPU
+    // per tile instead of the per-second drain browsers leave on otherwise.
+    const stop = () => {
+      hls.stopLoad();
+      video.pause();
+    };
+    const start = () => {
+      hls.startLoad();
+      void video.play().catch(() => {});
+    };
     const onVisibility = () => (document.hidden ? stop() : start());
     document.addEventListener('visibilitychange', onVisibility);
 

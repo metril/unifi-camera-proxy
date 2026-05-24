@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LogEntry } from '../types';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { cameraLogWsUrl } from '../api';
+import { useReconnectingWs } from '@/lib/useReconnectingWs';
 
 interface LogViewerProps {
   cameraId: string;
@@ -74,89 +77,58 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
   const [autoScroll, setAutoScroll] = useState(true);
   const [tab, setTab] = useState<Tab>('logs');
   const [enlargedSnapshot, setEnlargedSnapshot] = useState<string | null>(null);
-  const [wsConnected, setWsConnected] = useState(false);
   const [snapshotKey, setSnapshotKey] = useState(0);
   const [snapshotError, setSnapshotError] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const wsRef = useRef<WebSocket | null>(null);
+  const seqRef = useRef(0);
 
+  // Reset state on close so reopening on another camera starts fresh.
   useEffect(() => {
-    if (!isOpen || !cameraId) return;
-
-    let reconnectDelay = 1000;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let intentionalClose = false;
-
-    function connect() {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const token = localStorage.getItem('ui_token');
-      const tokenParam = token ? `?token=${encodeURIComponent(token)}` : '';
-      const ws = new WebSocket(`${protocol}//${window.location.host}/api/cameras/${cameraId}/ws${tokenParam}`);
-      wsRef.current = ws;
-
-      ws.onopen = () => {
-        setWsConnected(true);
-        reconnectDelay = 1000; // Reset backoff on successful connection
-      };
-
-      ws.onclose = () => {
-        setWsConnected(false);
-        if (!intentionalClose) {
-          reconnectTimer = setTimeout(() => {
-            reconnectDelay = Math.min(reconnectDelay * 2, 30000); // Max 30s backoff
-            connect();
-          }, reconnectDelay);
-        }
-      };
-
-      ws.onerror = () => setWsConnected(false);
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'logs_batch') {
-            setLogs(msg.data);
-          } else if (msg.type === 'log') {
-            setLogs((prev) => {
-              const next = [...prev, msg.data];
-              return next.length > 500 ? next.slice(-500) : next;
-            });
-          } else if (msg.type === 'diagnostics') {
-            setDiagnostics(msg.data);
-            setSnapshotKey((k) => k + 1);
-            setSnapshotError(false);
-          }
-        } catch {}
-      };
+    if (!isOpen) {
+      setLogs([]);
+      setDiagnostics({});
+      seqRef.current = 0;
     }
+  }, [isOpen]);
 
-    connect();
+  const wsUrl = isOpen && cameraId ? cameraLogWsUrl(cameraId) : null;
+  const onWsMessage = useCallback((event: MessageEvent) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'logs_batch' && Array.isArray(msg.data)) {
+        // Seed with stable per-row keys so memo'd LogRow can short-circuit
+        // re-renders even after the buffer trim shifts indices.
+        const entries: LogEntry[] = msg.data.map((d: LogEntry) => ({
+          ...d,
+          _key: seqRef.current++,
+        }));
+        setLogs(entries);
+      } else if (msg.type === 'log') {
+        const entry: LogEntry = { ...msg.data, _key: seqRef.current++ };
+        setLogs((prev) => {
+          const next = [...prev, entry];
+          return next.length > 500 ? next.slice(-500) : next;
+        });
+      } else if (msg.type === 'diagnostics') {
+        setDiagnostics(msg.data);
+        setSnapshotKey((k) => k + 1);
+        setSnapshotError(false);
+      }
+    } catch {}
+  }, []);
+  const { connected: wsConnected } = useReconnectingWs({
+    url: wsUrl,
+    enabled: isOpen,
+    onMessage: onWsMessage,
+  });
 
-    return () => {
-      intentionalClose = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      wsRef.current?.close();
-      wsRef.current = null;
-      setWsConnected(false);
-    };
-  }, [cameraId, isOpen]);
-
-  useEffect(() => {
-    if (autoScroll) {
-      // Instant scroll (no `behavior: 'smooth'`): a smooth animation in
-      // flight when the user toggles auto-scroll off keeps animating
-      // and feels like the toggle didn't work.
-      bottomRef.current?.scrollIntoView({ block: 'end' });
-    }
-  }, [logs, autoScroll]);
+  // Log list virtualization — caps DOM rows to the visible window even when
+  // the buffer holds 500 entries.
+  const parentRef = useRef<HTMLDivElement>(null);
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     // Standard chat/terminal pattern: scrolling away from the bottom
     // pauses auto-scroll; scrolling back resumes it. Threshold absorbs
-    // sub-pixel rounding errors. Note the autoScroll effect above ALSO
-    // fires scrollIntoView, which dispatches a scroll event — that's
-    // the no-op branch (we're already at the bottom so nearBottom is
-    // true and the state doesn't change).
+    // sub-pixel rounding errors.
     const el = e.currentTarget;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 30;
     setAutoScroll((current) => (current === nearBottom ? current : nearBottom));
@@ -192,6 +164,20 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
     const text = filteredLogs.map((l) => l.raw).join('\n');
     navigator.clipboard.writeText(text);
   }, [filteredLogs]);
+
+  const virtualizer = useVirtualizer({
+    count: filteredLogs.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 22,
+    overscan: 12,
+    getItemKey: (i) => filteredLogs[i]._key ?? i,
+  });
+
+  // Keep the view pinned to the latest line while auto-scroll is on.
+  useEffect(() => {
+    if (!isOpen || !autoScroll || filteredLogs.length === 0) return;
+    virtualizer.scrollToIndex(filteredLogs.length - 1, { align: 'end' });
+  }, [isOpen, autoScroll, filteredLogs.length, virtualizer]);
 
   return (
     <DialogPrimitive.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -304,9 +290,11 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
               </span>
             </div>
 
-            {/* Log content */}
+            {/* Log content — virtualized so DOM rows stay bounded even when
+                the buffer holds the full 500 entries. */}
             <div
-              className="flex-1 overflow-auto p-2 font-mono text-xs bg-black/30"
+              ref={parentRef}
+              className="flex-1 overflow-auto font-mono text-xs bg-black/30"
               onScroll={handleScroll}
             >
               {filteredLogs.length === 0 ? (
@@ -314,18 +302,26 @@ export default function LogViewer({ cameraId, cameraName, isOpen, onClose }: Log
                   {logs.length === 0 ? 'No logs available' : 'No logs match current filters'}
                 </p>
               ) : (
-                filteredLogs.map((log, i) => (
-                  <div key={i} className={`${LEVEL_BG[log.level] || ''} px-2 py-0.5 hover:bg-muted/20 whitespace-pre-wrap break-all leading-relaxed`}>
-                    {log.timestamp && <span className="text-muted-foreground mr-2">{log.timestamp}</span>}
-                    {log.logger && <span className="text-purple-400 mr-2">{log.logger}</span>}
-                    <span className={`${LEVEL_COLORS[log.level] || 'text-foreground'} font-bold mr-2`}>{log.level.padEnd(7)}</span>
-                    <span className="text-foreground">
-                      {search ? highlightSearch(log.message, search) : log.message}
-                    </span>
-                  </div>
-                ))
+                <div
+                  className="relative w-full"
+                  style={{ height: `${virtualizer.getTotalSize()}px` }}
+                >
+                  {virtualizer.getVirtualItems().map((vRow) => {
+                    const log = filteredLogs[vRow.index];
+                    return (
+                      <div
+                        key={vRow.key}
+                        data-index={vRow.index}
+                        ref={virtualizer.measureElement}
+                        className="absolute left-0 right-0 px-2"
+                        style={{ transform: `translateY(${vRow.start}px)` }}
+                      >
+                        <LogRow log={log} search={search} />
+                      </div>
+                    );
+                  })}
+                </div>
               )}
-              <div ref={bottomRef} />
             </div>
           </>
         )}
@@ -589,3 +585,20 @@ function highlightSearch(text: string, search: string): React.ReactNode {
       : part
   );
 }
+
+const LogRow = memo(function LogRow({ log, search }: { log: LogEntry; search: string }) {
+  return (
+    <div
+      className={`${LEVEL_BG[log.level] || ''} py-0.5 hover:bg-muted/20 whitespace-pre-wrap break-all leading-relaxed`}
+    >
+      {log.timestamp && <span className="text-muted-foreground mr-2">{log.timestamp}</span>}
+      {log.logger && <span className="text-purple-400 mr-2">{log.logger}</span>}
+      <span className={`${LEVEL_COLORS[log.level] || 'text-foreground'} font-bold mr-2`}>
+        {log.level.padEnd(7)}
+      </span>
+      <span className="text-foreground">
+        {search ? highlightSearch(log.message, search) : log.message}
+      </span>
+    </div>
+  );
+});

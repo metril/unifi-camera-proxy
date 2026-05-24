@@ -184,6 +184,21 @@
   }
 }
 
+/* When the browser tab is hidden, hard-pause every animation. Browsers
+   throttle but don't reliably stop them; this is the zero-CPU guarantee.
+   Scoped to specific classes (rather than ``*``) so we don't pay the
+   universal-selector matching cost on every animation frame. */
+html[data-tab-hidden] .animate-signal,
+html[data-tab-hidden] .animate-tick,
+html[data-tab-hidden] .animate-hud-sweep,
+html[data-tab-hidden] .animate-hud-sweep::after,
+html[data-tab-hidden] .animate-rise,
+html[data-tab-hidden] .animate-rise-stagger > *,
+html[data-tab-hidden] .animate-pulse,
+html[data-tab-hidden] .animate-spin {
+  animation-play-state: paused !important;
+}
+
 /* ---------- surfaces ---------- */
 
 /* Glass panel — used on tile HUDs, modal headers, footers. */

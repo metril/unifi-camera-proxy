@@ -87,6 +87,15 @@ class CameraManager:
             str, str, OIDCProvider
         ] | None = None  # (issuer, client_id, provider)
 
+        # Status WS — pushes CameraStatus[] snapshots to subscribed UIs so the
+        # dashboard doesn't have to poll /api/cameras every 3s. The ticker
+        # task is started lazily on the first subscriber and torn down when
+        # the last one leaves; it refreshes derived fields (uptime,
+        # restart countdowns) every 5s without per-second push noise.
+        self._status_ws_clients: set = set()
+        self._status_ws_lock = asyncio.Lock()
+        self._status_ticker_task: Optional[asyncio.Task] = None
+
         # Initialize instances from config
         for cam_config in self.config.get("cameras", []):
             cam_id = cam_config["id"]
@@ -194,10 +203,12 @@ class CameraManager:
             instance._name_sync_task = asyncio.create_task(
                 self._delayed_name_sync(instance)
             )
+            self._schedule_status_broadcast()
         except Exception as e:
             instance.status = "error"
             instance.error_message = str(e)
             logger.error(f"Failed to start camera {camera_id}: {e}")
+            self._schedule_status_broadcast()
 
     async def _read_logs(self, instance: CameraInstance) -> None:
         """Read stdout and stderr from the subprocess into the log buffer."""
@@ -241,6 +252,7 @@ class CameraManager:
                 # SIGTERM (-15) and SIGKILL (-9) are normal stop signals
                 if returncode in (-15, -9) or returncode == 0:
                     instance.status = "stopped"
+                    self._schedule_status_broadcast()
                 else:
                     instance.status = "error"
                     last_entries = list(instance.log_buffer)[-5:]
@@ -259,6 +271,7 @@ class CameraManager:
                         f"Camera {instance.id} exited with code {returncode}. "
                         f"Last output: {error_detail}"
                     )
+                    self._schedule_status_broadcast()
                     await self._maybe_schedule_restart(instance)
 
     async def _reset_backoff_after_stable_run(self, instance: CameraInstance) -> None:
@@ -354,6 +367,7 @@ class CameraManager:
         instance._restart_task = asyncio.create_task(
             self._auto_restart(instance, delay)
         )
+        self._schedule_status_broadcast()
 
     async def _auto_restart(self, instance: CameraInstance, delay: float) -> None:
         """Wait for delay then restart the camera."""
@@ -369,6 +383,7 @@ class CameraManager:
             logger.error(f"Auto-restart failed for {instance.id}: {e}")
             instance.status = "error"
             instance.error_message = f"Auto-restart failed: {e}"
+            self._schedule_status_broadcast()
 
     async def _update_protect_device(
         self, instance: CameraInstance, force: bool = True
@@ -542,6 +557,8 @@ class CameraManager:
             except asyncio.CancelledError:
                 pass
 
+        self._schedule_status_broadcast()
+
     async def restart_camera(self, camera_id: str) -> None:
         await self.stop_camera(camera_id)
         await asyncio.sleep(1)
@@ -585,6 +602,10 @@ class CameraManager:
             "exit_code": instance.exit_code,
             "error_message": instance.error_message,
             "uptime": uptime,
+            # Epoch seconds — client interpolates the live uptime display
+            # locally from this, so the server only has to push on state
+            # changes plus a 5s keep-fresh tick.
+            "started_at": instance.started_at,
             "pid": pid,
             "restart_attempt": instance.restart_attempt,
             "next_restart_at": instance.next_restart_at,
@@ -829,3 +850,55 @@ class CameraManager:
                 except Exception:
                     dead.add(ws)
             instance.ws_clients -= dead
+
+    # ---- Status WS (push instead of poll) ----
+
+    async def register_status_ws(self, ws) -> None:
+        async with self._status_ws_lock:
+            self._status_ws_clients.add(ws)
+            if self._status_ticker_task is None or self._status_ticker_task.done():
+                self._status_ticker_task = asyncio.create_task(self._status_ticker())
+
+    async def unregister_status_ws(self, ws) -> None:
+        async with self._status_ws_lock:
+            self._status_ws_clients.discard(ws)
+            if not self._status_ws_clients and self._status_ticker_task:
+                self._status_ticker_task.cancel()
+                self._status_ticker_task = None
+
+    async def broadcast_status(self) -> None:
+        """Push the current snapshot to every subscribed status WS client."""
+        if not self._status_ws_clients:
+            return
+        import json
+
+        msg = json.dumps({"type": "snapshot", "data": self.get_all_statuses()})
+        async with self._status_ws_lock:
+            dead = set()
+            for ws in self._status_ws_clients:
+                try:
+                    await ws.send_str(msg)
+                except Exception:
+                    dead.add(ws)
+            self._status_ws_clients -= dead
+
+    def _schedule_status_broadcast(self) -> None:
+        """Fire-and-forget broadcast; safe to call from sync mutation sites."""
+        if not self._status_ws_clients:
+            return
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        asyncio.create_task(self.broadcast_status())
+
+    async def _status_ticker(self) -> None:
+        """Periodic refresh so derived fields (uptime, restart countdown)
+        stay fresh without per-event push noise. Clients also interpolate
+        uptime locally from ``started_at``, so 5s is plenty."""
+        try:
+            while self._status_ws_clients:
+                await asyncio.sleep(5)
+                await self.broadcast_status()
+        except asyncio.CancelledError:
+            pass

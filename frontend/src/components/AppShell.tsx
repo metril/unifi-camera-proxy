@@ -1,6 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { memo, useEffect, useState, type ReactNode } from 'react';
 import { Cctv, Grid2x2, MonitorPlay, Settings, LogOut, Radio, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useDocumentVisible } from '@/lib/useDocumentVisible';
 
 export type View = 'cameras' | 'live-views' | 'wall' | 'settings';
 
@@ -31,6 +32,24 @@ interface AppShellProps {
   children: ReactNode;
 }
 
+/** Self-contained 1 Hz UTC clock — keeps its tick local so AppShell doesn't
+ *  re-render every second. Also auto-pauses when the tab is hidden. */
+const ClockTick = memo(function ClockTick() {
+  const visible = useDocumentVisible();
+  const [clock, setClock] = useState(() => new Date());
+  useEffect(() => {
+    if (!visible) return;
+    setClock(new Date());
+    const id = setInterval(() => setClock(new Date()), 1000);
+    return () => clearInterval(id);
+  }, [visible]);
+  return (
+    <span className="text-foreground/80 animate-tick">
+      {clock.toISOString().substring(11, 19)}
+    </span>
+  );
+});
+
 export default function AppShell({
   view,
   onNavigate,
@@ -43,20 +62,15 @@ export default function AppShell({
   actions,
   children,
 }: AppShellProps) {
-  // Pull version + uptime tick from /health so the sidebar shows real, live
-  // instrumentation instead of a hardcoded number that goes stale.
+  // Pull version from /health so the sidebar shows the running build.
   const [version, setVersion] = useState<string | null>(null);
-  const [clock, setClock] = useState(() => new Date());
   useEffect(() => {
     fetch('/health')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => d?.version && setVersion(d.version))
       .catch(() => {});
-    const id = setInterval(() => setClock(new Date()), 1000);
-    return () => clearInterval(id);
   }, []);
 
-  const utc = clock.toISOString().substring(11, 19);
   const isLive = runningCount > 0;
 
   return (
@@ -148,7 +162,7 @@ export default function AppShell({
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2 text-[0.6875rem] text-muted-foreground font-data tabular-nums">
               <span className="opacity-70">UTC</span>
-              <span className="text-foreground/80 animate-tick">{utc}</span>
+              <ClockTick />
             </div>
             {version && (
               <span className="chip chip-muted !py-0 !px-1.5 !text-[0.5625rem]">v{version}</span>

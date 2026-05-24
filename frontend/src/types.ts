@@ -48,6 +48,10 @@ export interface CameraStatus {
   exit_code: number | null;
   error_message: string | null;
   uptime: number | null;
+  /** Epoch seconds when this run started. Surfaced so the UI can
+   *  interpolate the displayed uptime locally at 1 Hz instead of
+   *  forcing the server to push every second. */
+  started_at?: number | null;
   pid: number | null;
   restart_attempt: number;
   next_restart_at: number | null;
@@ -113,6 +117,11 @@ export interface LogEntry {
   level: string;
   message: string;
   raw: string;
+  /** Client-assigned monotonic seq used as the React row key. Survives
+   *  the buffer's slice(-500) trim — without it, all rows would
+   *  re-render whenever the buffer fills. Only set on log-push entries;
+   *  the initial logs_batch fills with index-derived keys instead. */
+  _key?: number;
 }
 
 export interface AppConfig {

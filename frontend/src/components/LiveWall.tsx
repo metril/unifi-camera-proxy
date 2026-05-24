@@ -1,10 +1,11 @@
-import { useMemo, useRef, useState, type MouseEvent } from 'react';
+import { memo, useCallback, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { MonitorPlay, Maximize2, Expand, Activity, X } from 'lucide-react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import type { CameraStatus } from '../types';
 import HlsPlayer from './HlsPlayer';
 import CameraVideo from './CameraVideo';
 import { cn } from '@/lib/utils';
+import { useTicker } from '@/lib/useTicker';
 
 const COLS = [1, 2, 3, 4] as const;
 
@@ -21,14 +22,23 @@ function formatUptime(seconds: number | null): string {
   return `${h}h ${String(m).padStart(2, '0')}m`;
 }
 
-function ChannelTile({
+/** 1-Hz uptime label derived from started_at; owns its own ticker so the
+ *  parent tile stays memo'd and the HLS player doesn't get torn down by
+ *  every second's re-render. */
+const LiveUptime = memo(function LiveUptime({ startedAt }: { startedAt: number | null | undefined }) {
+  const tick = useTicker(1000);
+  if (startedAt == null) return <>{formatUptime(null)}</>;
+  return <>{formatUptime(Math.max(0, Math.floor(tick / 1000 - startedAt)))}</>;
+});
+
+function ChannelTileImpl({
   camera,
   channel,
   onExpand,
 }: {
   camera: CameraStatus;
   channel: number;
-  onExpand: () => void;
+  onExpand: (c: CameraStatus) => void;
 }) {
   const tileRef = useRef<HTMLDivElement>(null);
   const [res, setRes] = useState<{ w: number; h: number } | null>(null);
@@ -42,7 +52,7 @@ function ChannelTile({
   return (
     <button
       type="button"
-      onClick={onExpand}
+      onClick={() => onExpand(camera)}
       className="group relative aspect-video w-full bg-black rounded-md overflow-hidden border border-border ring-1 ring-inset ring-primary/5 corner-ticks scanlines text-left transition-all hover:ring-primary/30 hover:shadow-[0_0_0_1px_hsl(var(--signal)/0.3),0_12px_28px_-12px_hsl(var(--signal)/0.4)]"
     >
       <div ref={tileRef} className="absolute inset-0">
@@ -79,7 +89,7 @@ function ChannelTile({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onExpand();
+              onExpand(camera);
             }}
             title="Open low-latency close-up"
             className="p-1 rounded text-white/75 hover:text-primary hover:bg-primary/10 transition-colors"
@@ -104,13 +114,26 @@ function ChannelTile({
         <div className="flex items-center gap-1.5">
           <Activity className="w-3 h-3 text-primary animate-tick" />
           <span className="font-data text-[0.6875rem] text-white/85 tabular-nums">
-            {formatUptime(camera.uptime)}
+            <LiveUptime startedAt={camera.started_at} />
           </span>
         </div>
       </div>
     </button>
   );
 }
+
+const ChannelTile = memo(ChannelTileImpl, (prev, next) => {
+  const a = prev.camera;
+  const b = next.camera;
+  return (
+    a.id === b.id &&
+    a.status === b.status &&
+    a.started_at === b.started_at &&
+    a.config.name === b.config.name &&
+    prev.channel === next.channel &&
+    prev.onExpand === next.onExpand
+  );
+});
 
 export default function LiveWall({ cameras }: { cameras: CameraStatus[] }) {
   const running = useMemo(() => cameras.filter((c) => c.status === 'running'), [cameras]);
@@ -119,6 +142,7 @@ export default function LiveWall({ cameras }: { cameras: CameraStatus[] }) {
   const defaultCols = running.length <= 1 ? 1 : running.length <= 4 ? 2 : running.length <= 9 ? 3 : 4;
   const [cols, setCols] = useState<number>(defaultCols);
   const [expanded, setExpanded] = useState<CameraStatus | null>(null);
+  const handleExpand = useCallback((c: CameraStatus) => setExpanded(c), []);
 
   if (running.length === 0) {
     return (
@@ -175,7 +199,7 @@ export default function LiveWall({ cameras }: { cameras: CameraStatus[] }) {
         style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
       >
         {running.map((c, i) => (
-          <ChannelTile key={c.id} camera={c} channel={i + 1} onExpand={() => setExpanded(c)} />
+          <ChannelTile key={c.id} camera={c} channel={i + 1} onExpand={handleExpand} />
         ))}
       </div>
 
