@@ -373,12 +373,16 @@ function CanvasTile({
           : undefined
       }
       className={cn(
-        'group absolute overflow-hidden rounded-md border border-border ring-1 ring-inset ring-primary/5 corner-ticks scanlines transition-all bg-black',
+        // No `.scanlines` here — that class sets `position: relative` and
+        // would override Tailwind's `absolute`, collapsing every tile to
+        // (0, 0). Decorations live on the inner wrapper instead.
+        'group absolute overflow-hidden rounded-md border border-border ring-1 ring-inset ring-primary/5 transition-all bg-black',
         clickable && 'cursor-pointer hover:ring-primary/30 hover:shadow-[0_0_0_1px_hsl(var(--signal)/0.3),0_12px_28px_-12px_hsl(var(--signal)/0.4)]',
       )}
       style={rect}
       aria-label={ariaLabel}
     >
+      <div className="relative w-full h-full corner-ticks scanlines">
       {camera && isRunning ? (
         <HlsPlayer cameraId={camera.id} className="w-full h-full object-cover" onMeta={(m) => setRes({ w: m.width, h: m.height })} />
       ) : (
@@ -457,6 +461,7 @@ function CanvasTile({
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
