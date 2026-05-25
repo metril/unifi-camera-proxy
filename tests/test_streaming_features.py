@@ -480,15 +480,22 @@ class TestFirmwareVersionParse:
 
 
 class TestExtractUriVersion:
-    """v1.7.8: Protect 4.x exposes the target firmware version as a
-    query-string param on the UpdateFirmwareRequest URI. Parsing it
-    out is the authoritative way to know what Protect wants the camera
-    to report on the post-upgrade hello — far better than guessing
-    where the version lives in a firmware binary's bytes."""
+    """v1.7.8 + v1.8.3: Protect's UpdateFirmwareRequest URI carries the
+    target firmware version — in two shapes, depending on Protect
+    version. The parser tries both so we work against legacy and
+    modern controllers."""
 
+    # Protect 4.x — query-string form (v1.7.8 baseline).
     REAL_URI = (
         "https://unifi-protect:7444/internal/update?platform=sav539gp"
         "&product=uvc&updateType=firmware&version=5.2.73&mac=AABBCC5B04C3"
+    )
+
+    # Protect 5.x — clean path-segment form (v1.8.3, taken verbatim from
+    # the user's repro log).
+    PATH_URI = (
+        "https://unifi-protect:7444/internal/update/sav539gp/uvc/firmware/"
+        "5.3.89/AABBCC5B04C3"
     )
 
     def test_extracts_semver_from_real_uri(self):
@@ -496,11 +503,28 @@ class TestExtractUriVersion:
 
         assert _extract_uri_version(self.REAL_URI) == "5.2.73"
 
+    def test_extracts_semver_from_protect_5x_path_uri(self):
+        from unifi.cams.base import _extract_uri_version
+
+        assert _extract_uri_version(self.PATH_URI) == "5.3.89"
+
     def test_returns_empty_when_no_version_param(self):
         from unifi.cams.base import _extract_uri_version
 
         assert _extract_uri_version("https://h/firmware.bin") == ""
         assert _extract_uri_version("https://h/firmware.bin?platform=s5l") == ""
+
+    def test_path_form_with_no_semver_segment_returns_empty(self):
+        from unifi.cams.base import _extract_uri_version
+
+        # Same shape as the Protect 5.x URI but the version slot is
+        # garbage — must not false-match any other segment.
+        assert (
+            _extract_uri_version(
+                "https://h/internal/update/sav539gp/uvc/firmware/garbage/AABBCC5B04C3"
+            )
+            == ""
+        )
 
     def test_rejects_non_semver_version_param(self):
         from unifi.cams.base import _extract_uri_version

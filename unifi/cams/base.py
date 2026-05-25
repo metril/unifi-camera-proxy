@@ -46,20 +46,40 @@ _URI_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 
 def _extract_uri_version(uri: str) -> str:
-    """Pull ``version=X.Y.Z`` from Protect's UpdateFirmwareRequest URI.
+    """Pull ``X.Y.Z`` from Protect's UpdateFirmwareRequest URI.
 
-    Protect 4.x+ exposes the target version as a query-string param on a
-    metadata endpoint (``/internal/update?version=5.2.73…``). That's the
-    authoritative source — the endpoint is NOT a firmware binary on
-    newer controllers, just text body, so v1.7.6's "parse 54 bytes from
-    the URI" approach was wrong. Returns ``""`` if no parseable version.
+    Two URI shapes seen in the wild:
+
+    - Protect 4.x — query-string params on a metadata endpoint::
+
+          /internal/update?platform=…&version=5.2.73&mac=…
+
+    - Protect 5.x — clean RESTful path segments, no query::
+
+          /internal/update/<platform>/<product>/firmware/5.3.89/<mac>
+
+    Both are tried. Returns ``""`` if neither carries a parseable
+    version. Platform segments in the path (``sav539gp``, ``s5l``,
+    ``s2l``, …) are alphanumeric-only and can't false-match the semver
+    regex.
     """
     try:
-        params = parse_qs(urlparse(uri).query)
+        parsed = urlparse(uri)
     except Exception:
         return ""
-    version = (params.get("version") or [""])[0]
-    return version if _URI_SEMVER_RE.match(version) else ""
+
+    # Protect 4.x query-string form.
+    params = parse_qs(parsed.query)
+    qs_version = (params.get("version") or [""])[0]
+    if _URI_SEMVER_RE.match(qs_version):
+        return qs_version
+
+    # Protect 5.x path-segment form.
+    for segment in parsed.path.split("/"):
+        if _URI_SEMVER_RE.match(segment):
+            return segment
+
+    return ""
 
 
 def _compose_fw_version(model: str, version: str) -> str:
