@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import signal
 import ssl
 import subprocess
@@ -527,7 +528,7 @@ class UnifiCamBase(
             return
         diag = self.get_diagnostics()
         dead = set()
-        for ws in clients:
+        for ws in list(clients):
             try:
                 await ws.send_json(diag)
             except Exception:
@@ -647,13 +648,19 @@ class UnifiCamBase(
         )
 
         # Read Protect's audio session and re-encode to the camera's speaker.
+        if sampling_rate:
+            try:
+                sampling_rate = int(sampling_rate)
+            except (TypeError, ValueError):
+                self.logger.warning(f"Ignoring invalid samplingRate: {sampling_rate!r}")
+                sampling_rate = None
         rate_arg = f"-ar {sampling_rate} " if sampling_rate else ""
         cmd = (
             f"AV_LOG_FORCE_NOCOLOR=1 ffmpeg -nostdin "
             f"-loglevel level+{self.args.loglevel} -y "
             f"-protocol_whitelist file,udp,rtp,crypto,data "
-            f'{rate_arg}-i "{url}" '
-            f'{options} "{talkback_url}"'
+            f"{rate_arg}-i {shlex.quote(str(url))} "
+            f"{options} {shlex.quote(str(talkback_url))}"
         )
         from unifi.utils import mask_url
 
@@ -1086,6 +1093,7 @@ class UnifiCamBase(
         object_type: SmartDetectObjectType,
         custom_descriptor: Optional[dict[str, Any]] = None,
         event_timestamp: Optional[float] = None,
+        event_id: Optional[int] = None,
     ) -> None:
         """
         Send a smart detect update (moving) event with updated descriptor information.
@@ -1094,13 +1102,19 @@ class UnifiCamBase(
             object_type: The type of object to update
             custom_descriptor: Updated descriptor data (bounding box, etc.)
             event_timestamp: Optional timestamp for the event
+            event_id: Optional specific event ID to update. If not provided, uses the first
+                active (not ended) event of the given object type.
         """
-        # Find the active smart detect event with matching object type
-        event_id = None
-        for eid, event in self._active_smart_events.items():
-            if event["object_type"] == object_type:
-                event_id = eid
-                break
+        if event_id is None:
+            for eid, event in self._active_smart_events.items():
+                if (
+                    event["object_type"] == object_type
+                    and event.get("end_time") is None
+                ):
+                    event_id = eid
+                    break
+        elif event_id not in self._active_smart_events:
+            event_id = None
 
         if event_id is None:
             self.logger.warning(
@@ -1189,7 +1203,10 @@ class UnifiCamBase(
         if target_event_id is None:
             # Fallback to finding by object type (legacy behavior)
             for eid, event in self._active_smart_events.items():
-                if event["object_type"] == object_type:
+                if (
+                    event["object_type"] == object_type
+                    and event.get("end_time") is None
+                ):
                     target_event_id = eid
                     break
 
@@ -1216,7 +1233,10 @@ class UnifiCamBase(
                 f"Sending final update with custom descriptor before stopping event {target_event_id}"
             )
             await self.trigger_smart_detect_update(
-                object_type, custom_descriptor, frame_time_ms or event_timestamp
+                object_type,
+                custom_descriptor,
+                frame_time_ms or event_timestamp,
+                event_id=target_event_id,
             )
 
         zonesStatus = {
@@ -1326,6 +1346,8 @@ class UnifiCamBase(
 
         # If no descriptors were processed, create a minimal default entry
         if not smart_detect_snapshots:
+            snapshot_width = active_event.get("snapshot_width") or 640
+            snapshot_height = active_event.get("snapshot_height") or 360
             default_tracker_id = 1
             default_timestamp_ms = event_timestamp or int(round(time.time() * 1000))
             default_monotonic = int(self.get_uptime())
@@ -1789,7 +1811,11 @@ class UnifiCamBase(
         Useful during cleanup or when forcing a reset of event state.
         """
         # Stop all smart detect events
-        smart_event_ids = list(self._active_smart_events.keys())
+        smart_event_ids = [
+            eid
+            for eid, e in self._active_smart_events.items()
+            if e.get("end_time") is None
+        ]
         for event_id in smart_event_ids:
             event = self._active_smart_events[event_id]
             self.logger.info(
@@ -1847,14 +1873,14 @@ class UnifiCamBase(
                     # For video1, always probe
                     if stream_index == "video1":
                         video1_source = source
-                        width, height = self.probe_video_resolution(
-                            stream_index, source
+                        width, height = await asyncio.to_thread(
+                            self.probe_video_resolution, stream_index, source
                         )
                         self._detected_resolutions[stream_index] = (width, height)
                     # For video2/video3, only probe if source is different from video1 (not a fallback)
                     elif source != video1_source:
-                        width, height = self.probe_video_resolution(
-                            stream_index, source
+                        width, height = await asyncio.to_thread(
+                            self.probe_video_resolution, stream_index, source
                         )
                         self._detected_resolutions[stream_index] = (width, height)
                     else:

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import shlex
 import signal
 import subprocess
 import sys
@@ -8,6 +9,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Optional
 
 
 @dataclass
@@ -19,6 +21,9 @@ class StreamState:
     restart_timestamps: deque = field(default_factory=lambda: deque(maxlen=5))
     last_start_time: float = field(default_factory=time.time)
 
+
+# Cached result of `ffmpeg -h full` probe (slow; ffmpeg doesn't change at runtime)
+_FFMPEG_HAS_STIMEOUT: Optional[bool] = None
 
 WATCHDOG_INTERVAL = 30  # seconds
 MAX_RESTARTS = 5
@@ -43,9 +48,12 @@ class VideoStreamHandlers:
             "-use_wallclock_as_timestamps 1",
         ]
 
+        global _FFMPEG_HAS_STIMEOUT
         try:
-            output = subprocess.check_output(["ffmpeg", "-h", "full"])
-            if b"stimeout" in output:
+            if _FFMPEG_HAS_STIMEOUT is None:
+                output = subprocess.check_output(["ffmpeg", "-h", "full"])
+                _FFMPEG_HAS_STIMEOUT = b"stimeout" in output
+            if _FFMPEG_HAS_STIMEOUT:
                 base_args.append("-stimeout 15000000")
             else:
                 base_args.append("-timeout 15000000")
@@ -124,11 +132,11 @@ class VideoStreamHandlers:
             cmd = (
                 f"AV_LOG_FORCE_NOCOLOR=1 ffmpeg -nostdin -loglevel level+{self.args.loglevel} -y"
                 f" {self.get_base_ffmpeg_args(stream_index)} -rtsp_transport"
-                f' {self.args.rtsp_transport} -i "{source}"'
+                f" {shlex.quote(str(self.args.rtsp_transport))} -i {shlex.quote(str(source))}"
                 f" {self.get_extra_ffmpeg_args(stream_index)} -metadata"
-                f" streamName={stream_name} -f {self.args.format} -"
-                f" | {sys.executable} -m unifi.clock_sync --timestamp-modifier {self.args.timestamp_modifier}"
-                f" | nc {destination[0]} {destination[1]}"
+                f" streamName={shlex.quote(str(stream_name))} -f {shlex.quote(str(self.args.format))} -"
+                f" | {sys.executable} -m unifi.clock_sync --timestamp-modifier {shlex.quote(str(self.args.timestamp_modifier))}"
+                f" | nc {shlex.quote(str(destination[0]))} {shlex.quote(str(destination[1]))}"
             )
 
             # Preserve restart tracking from previous state

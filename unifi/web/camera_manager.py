@@ -180,6 +180,7 @@ class CameraManager:
                 *args,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                limit=1024 * 1024,
                 env={**os.environ, "PYTHONUNBUFFERED": "1"},
             )
             instance.process = process
@@ -217,7 +218,12 @@ class CameraManager:
         async def read_stream(stream, label: str):
             try:
                 while True:
-                    line = await stream.readline()
+                    try:
+                        line = await stream.readline()
+                    except ValueError:
+                        # Line exceeded the stream limit; the buffer was
+                        # discarded, so skip it and keep reading.
+                        continue
                     if not line:
                         break
                     decoded = line.decode("utf-8", errors="replace").rstrip()

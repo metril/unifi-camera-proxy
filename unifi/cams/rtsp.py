@@ -1,5 +1,6 @@
 import argparse
 import logging
+import shlex
 import subprocess
 import tempfile
 from pathlib import Path
@@ -102,10 +103,10 @@ class RTSPCam(UnifiCamBase):
             )
             cmd = (
                 f"AV_LOG_FORCE_NOCOLOR=1 ffmpeg -loglevel level+{self.args.loglevel} "
-                f"-nostdin -y -re -rtsp_transport {self.args.rtsp_transport} "
-                f'-i "{snapshot_source}" '
+                f"-nostdin -y -re -rtsp_transport {shlex.quote(str(self.args.rtsp_transport))} "
+                f"-i {shlex.quote(str(snapshot_source))} "
                 "-r 1 "
-                f"-update 1 {self.snapshot_dir}/screen.jpg"
+                f"-update 1 {shlex.quote(str(self.snapshot_dir) + '/screen.jpg')}"
             )
             from unifi.utils import mask_url
 

@@ -1,4 +1,6 @@
 import asyncio
+import os
+import tempfile
 from pathlib import Path
 from typing import Any, Optional
 
@@ -108,6 +110,20 @@ class SnapshotHandlers:
                 payload={"height": height, "width": width},
             )
 
+    def _is_allowed_snapshot_path(self, path: Path) -> bool:
+        """Only allow files under the temp dir or configured snapshot dir."""
+        allowed = [tempfile.gettempdir()]
+        snapshot_dir = getattr(self, "snapshot_dir", None)
+        if snapshot_dir:
+            allowed.append(str(snapshot_dir))
+        real = os.path.realpath(path)
+        for base in allowed:
+            base_real = os.path.realpath(base)
+            if real == base_real or real.startswith(base_real + os.sep):
+                return True
+        self.logger.warning(f"Refusing to serve snapshot outside allowed dirs: {path}")
+        return False
+
     def _find_cached_snapshot(
         self, filename: str, snapshot_type: str
     ) -> Optional[Path]:
@@ -140,7 +156,7 @@ class SnapshotHandlers:
         if original_filename and "/" in original_filename:
             # It's a file path - try to use it directly
             path = Path(original_filename)
-            if path.exists():
+            if self._is_allowed_snapshot_path(path) and path.exists():
                 self.logger.debug(f"Found cached snapshot at original path: {path}")
                 return path
 

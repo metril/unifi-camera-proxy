@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import copy
 import logging
+import os
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -161,8 +162,12 @@ def save_config(path: str, config: dict) -> None:
     resolved = Path(path).resolve()
     logger.info(f"Saving config to {resolved}")
     resolved.parent.mkdir(parents=True, exist_ok=True)
-    with open(str(resolved), "w") as f:
+    tmp_path = resolved.with_name(resolved.name + ".tmp")
+    fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    os.chmod(str(tmp_path), 0o600)
+    os.replace(str(tmp_path), str(resolved))
     logger.info(f"Config saved successfully ({resolved.stat().st_size} bytes)")
 
 
