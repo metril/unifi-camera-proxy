@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 
 interface HlsPlayerProps {
@@ -33,6 +33,8 @@ interface HlsPlayerProps {
  */
 export default function HlsPlayer({ cameraId, className, onMeta, authToken }: HlsPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Bumped ~30s after the player gives up, to trigger a full re-init.
+  const [retryNonce, setRetryNonce] = useState(0);
   // Hold onMeta in a ref so the main effect doesn't need to depend on it. A
   // bare `onMeta` dep means an inline arrow from the parent (e.g. `(m) =>
   // setRes(...)`) re-creates the hls.js instance on every parent re-render —
@@ -75,6 +77,15 @@ export default function HlsPlayer({ cameraId, className, onMeta, authToken }: Hl
     let attempts = 0;
     const MAX_ATTEMPTS = 5;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let reinitTimer: ReturnType<typeof setTimeout> | undefined;
+    let dead = false;
+    const giveUp = () => {
+      if (dead) return;
+      dead = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      hls.destroy();
+      reinitTimer = setTimeout(() => setRetryNonce((n) => n + 1), 30000);
+    };
 
     hls.on(Hls.Events.ERROR, (_evt, data) => {
       if (!data.fatal) return;
@@ -87,7 +98,7 @@ export default function HlsPlayer({ cameraId, className, onMeta, authToken }: Hl
             // new one and trigger the 404 loop, so we never call it here.
             retryTimer = setTimeout(() => hls.startLoad(), delay);
           } else {
-            hls.destroy();
+            giveUp();
           }
           break;
         case Hls.ErrorTypes.MEDIA_ERROR:
@@ -95,11 +106,11 @@ export default function HlsPlayer({ cameraId, className, onMeta, authToken }: Hl
             attempts += 1;
             hls.recoverMediaError();
           } else {
-            hls.destroy();
+            giveUp();
           }
           break;
         default:
-          hls.destroy();
+          giveUp();
       }
     });
 
@@ -118,10 +129,12 @@ export default function HlsPlayer({ cameraId, className, onMeta, authToken }: Hl
     // the decoder — together they ensure a backgrounded tab pins ~0% CPU
     // per tile instead of the per-second drain browsers leave on otherwise.
     const stop = () => {
+      if (dead) return;
       hls.stopLoad();
       video.pause();
     };
     const start = () => {
+      if (dead) return;
       hls.startLoad();
       void video.play().catch(() => {});
     };
@@ -139,6 +152,7 @@ export default function HlsPlayer({ cameraId, className, onMeta, authToken }: Hl
 
     return () => {
       if (retryTimer) clearTimeout(retryTimer);
+      if (reinitTimer) clearTimeout(reinitTimer);
       document.removeEventListener('visibilitychange', onVisibility);
       observer?.disconnect();
       video.removeEventListener('loadedmetadata', onLoaded);
@@ -146,7 +160,7 @@ export default function HlsPlayer({ cameraId, className, onMeta, authToken }: Hl
       video.removeAttribute('src');
       video.load();
     };
-  }, [cameraId]);
+  }, [cameraId, retryNonce]);
 
   return <video ref={videoRef} muted playsInline className={className} />;
 }

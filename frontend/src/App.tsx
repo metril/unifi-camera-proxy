@@ -18,6 +18,15 @@ import { Button } from '@/components/ui/button';
 import { useDocumentVisible } from '@/lib/useDocumentVisible';
 import { useReconnectingWs } from '@/lib/useReconnectingWs';
 
+// Move an OIDC session token from the URL hash into localStorage synchronously,
+// before the first render, so the status WebSocket URL is built with the token.
+if (window.location.hash.startsWith('#token=')) {
+  try {
+    localStorage.setItem('ui_token', window.location.hash.slice(7));
+  } catch { /* storage unavailable */ }
+  window.history.replaceState(null, '', window.location.pathname);
+}
+
 const DEFAULT_GLOBAL: GlobalConfig = {
   host: '',
   cert: '/app/data/client.pem',
@@ -93,17 +102,22 @@ function AppShellApp() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  // Extract OIDC session token from URL hash after login redirect
+  // Report OIDC auth errors from the URL hash after login redirect
+  // (the #token= case is handled at module load, before the first render).
   useEffect(() => {
     const hash = window.location.hash;
-    if (hash.startsWith('#token=')) {
-      localStorage.setItem('ui_token', hash.slice(7));
-      window.history.replaceState(null, '', window.location.pathname);
-    } else if (hash.startsWith('#auth_error=')) {
+    if (hash.startsWith('#auth_error=')) {
       addToast(`Authentication error: ${hash.slice(12)}`);
       window.history.replaceState(null, '', window.location.pathname);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-show the login screen whenever any API call hits a 401
+  useEffect(() => {
+    const onUnauthorized = () => setNeedsLogin(true);
+    window.addEventListener('unifi:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('unifi:unauthorized', onUnauthorized);
+  }, []);
 
   // Load initial data
   useEffect(() => {
@@ -204,8 +218,12 @@ function AppShellApp() {
   }, [addToast]);
 
   const handleDelete = useCallback(async (id: string) => {
-    await api.deleteCamera(id);
-  }, []);
+    try {
+      await api.deleteCamera(id);
+    } catch (err) {
+      addToast(`Failed to delete camera: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    }
+  }, [addToast]);
 
   const handleToggleEnabled = useCallback(async (id: string, enabled: boolean) => {
     const cam = camerasRef.current.find((c) => c.id === id);

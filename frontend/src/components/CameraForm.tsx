@@ -146,11 +146,18 @@ export default function CameraForm({ isOpen, onClose, onSave, schemas, editCamer
     const frigatePass = (form.frigate_password as string) || globalConfig.frigate_password;
     const verifySsl = globalConfig.frigate_verify_ssl ?? true;
 
+    let cancelled = false;
     setFrigateCamerasLoading(true);
-    api.testFrigate(frigateUrl, frigateUser, frigatePass, verifySsl)
-      .then((result) => setFrigateCameras(result.cameras || []))
-      .catch(() => setFrigateCameras([]))
-      .finally(() => setFrigateCamerasLoading(false));
+    const timer = setTimeout(() => {
+      api.testFrigate(frigateUrl, frigateUser, frigatePass, verifySsl)
+        .then((result) => { if (!cancelled) setFrigateCameras(result.cameras || []); })
+        .catch(() => { if (!cancelled) setFrigateCameras([]); })
+        .finally(() => { if (!cancelled) setFrigateCamerasLoading(false); });
+    }, 500);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [isOpen, form.type, form.frigate_http_url, globalConfig.frigate_http_url]);
 
   // Auto-trigger detect when a Frigate camera is selected from dropdown
