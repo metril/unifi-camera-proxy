@@ -94,6 +94,11 @@ function Thumb({
   const restarting = camera.status === 'restarting';
   const visible = useDocumentVisible();
 
+  // Give the snapshot another chance on each refresh / start.
+  useEffect(() => {
+    setOk(true);
+  }, [bust, isRunning]);
+
   useEffect(() => {
     // Skip the thumbnail-bust loop when the tab is hidden — otherwise 11
     // cameras keep hammering /snapshot in the background for nothing.

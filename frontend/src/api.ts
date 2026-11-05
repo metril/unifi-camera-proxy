@@ -39,10 +39,15 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     },
     ...options,
   });
-  if (res.status === 401) throw new Error('Unauthorized');
+  if (res.status === 401) {
+    window.dispatchEvent(new Event('unifi:unauthorized'));
+    throw new Error('Unauthorized');
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || res.statusText);
+    throw new Error(
+      err.error || (Array.isArray(err.errors) ? err.errors.join('; ') : res.statusText),
+    );
   }
   return res.json();
 }
@@ -107,7 +112,10 @@ export const api = {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
     });
-    if (res.status === 401) throw new Error('Unauthorized');
+    if (res.status === 401) {
+      window.dispatchEvent(new Event('unifi:unauthorized'));
+      throw new Error('Unauthorized');
+    }
     const body = await res.json().catch(() => ({ status: 'error', detail: res.statusText }));
     return { httpOk: res.ok, ...body } as { httpOk: boolean; status: string; detail?: string };
   },
