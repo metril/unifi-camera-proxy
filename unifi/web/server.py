@@ -795,8 +795,12 @@ async def generate_cert(request: web.Request) -> web.Response:
         with open(priv_key) as priv, open(pub_key) as pub:
             combined = priv.read() + pub.read()
         resolved.parent.mkdir(parents=True, exist_ok=True)
-        with open(str(resolved), "w") as f:
+        tmp_path = resolved.with_name(resolved.name + ".tmp")
+        fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
             f.write(combined)
+        os.chmod(str(tmp_path), 0o600)
+        os.replace(str(tmp_path), str(resolved))
 
         logger.info(f"Generated certificate at {resolved}")
         return web.json_response({"status": "ok", "path": str(resolved)})
@@ -967,6 +971,8 @@ async def auth_middleware(request: web.Request, handler):
         and request.path.startswith("/go2rtc/")
         and _any_kiosk_token_matches(manager, token)
     ):
+        if not _is_kiosk_stream_request(request):
+            return web.json_response({"error": "Forbidden"}, status=403)
         return await handler(request)
     if token and token in manager.valid_tokens:
         if manager.valid_tokens[token] > time.time():
@@ -976,6 +982,32 @@ async def auth_middleware(request: web.Request, handler):
             return web.json_response({"error": "token_expired"}, status=401)
 
     return web.json_response({"error": "Unauthorized"}, status=401)
+
+
+_KIOSK_STREAM_PATHS = (
+    "api/stream.m3u8",
+    "api/hls/",
+    "api/ws",
+    "api/frame.jpeg",
+    "api/stream.mp4",
+)
+
+
+def _is_kiosk_stream_request(request: web.Request) -> bool:
+    """Kiosk tokens may only GET (or WS-upgrade) go2rtc stream endpoints."""
+    if request.method != "GET":
+        return False
+    sub = request.path[len("/go2rtc/") :]
+    return any(
+        sub == p or (p.endswith("/") and sub.startswith(p)) for p in _KIOSK_STREAM_PATHS
+    )
+
+
+def _public_origin(request: web.Request) -> str:
+    """scheme://host as seen by the client, honoring reverse-proxy headers."""
+    scheme = request.headers.get("X-Forwarded-Proto") or request.scheme
+    host = request.headers.get("X-Forwarded-Host") or request.host
+    return f"{scheme}://{host}"
 
 
 async def auth_login(request: web.Request) -> web.Response:
@@ -989,9 +1021,7 @@ async def auth_login(request: web.Request) -> web.Response:
     }
     state = secrets.token_hex(16)
     code_verifier, code_challenge = generate_pkce()
-    scheme = request.headers.get("X-Forwarded-Proto") or request.scheme
-    host = request.headers.get("X-Forwarded-Host") or request.host
-    redirect_uri = f"{scheme}://{host}/api/auth/callback"
+    redirect_uri = f"{_public_origin(request)}/api/auth/callback"
     manager.pending_auths[state] = PendingAuth(
         code_verifier=code_verifier, redirect_uri=redirect_uri, created_at=now
     )
@@ -1152,9 +1182,7 @@ async def mint_kiosk_token(request: web.Request) -> web.Response:
     except ValueError as e:
         return web.json_response({"error": str(e)}, status=404)
     # Build the public URL the operator pastes into a kiosk browser.
-    scheme = "https" if request.scheme == "https" else "http"
-    host = request.headers.get("Host", request.host)
-    url = f"{scheme}://{host}/live/{view_id}?token={token}"
+    url = f"{_public_origin(request)}/live/{view_id}?token={token}"
     return web.json_response({"token": token, "url": url})
 
 

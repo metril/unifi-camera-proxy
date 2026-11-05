@@ -3,6 +3,17 @@ import ssl
 
 import backoff
 import websockets
+import websockets.exceptions
+
+# websockets>=14 raises InvalidStatus; older versions raise InvalidStatusCode
+_INVALID_STATUS_ERRORS = tuple(
+    cls
+    for cls in (
+        getattr(websockets.exceptions, name, None)
+        for name in ("InvalidStatus", "InvalidStatusCode")
+    )
+    if cls is not None
+)
 
 
 class RetryableError(Exception):
@@ -75,20 +86,25 @@ class Core(object):
                     subprotocols=["secure_transfer"],
                 )
                 has_connected = True
-            except websockets.exceptions.InvalidStatusCode as e:
-                if e.status_code == 403:
+            except _INVALID_STATUS_ERRORS as e:
+                # websockets>=14 raises InvalidStatus (e.response.status_code);
+                # older versions raise InvalidStatusCode (e.status_code)
+                response = getattr(e, "response", None)
+                status_code = (
+                    response.status_code
+                    if response is not None
+                    else getattr(e, "status_code", None)
+                )
+                if status_code == 403:
                     self.logger.error(
                         "The token is invalid. Please generate a new one and try again."
                     )
                 # Hitting rate-limiting
-                elif e.status_code == 429:
+                elif status_code == 429:
                     return True
                 raise
-            except asyncio.exceptions.TimeoutError:
-                self.logger.info(f"Connection to {self.host} timed out.")
-                return True
-            except ConnectionRefusedError:
-                self.logger.info(f"Connection to {self.host} refused.")
+            except (OSError, asyncio.TimeoutError) as e:
+                self.logger.info(f"Connection to {self.host} failed: {e!r}. Retrying.")
                 return True
 
             tasks = [

@@ -99,6 +99,7 @@ class Go2rtcManager:
         self.process: Optional[asyncio.subprocess.Process] = None
         self._log_task: Optional[asyncio.Task] = None
         self._available = shutil.which("go2rtc") is not None
+        self._apply_lock = asyncio.Lock()
 
     @property
     def available(self) -> bool:
@@ -223,5 +224,6 @@ class Go2rtcManager:
         """
         if not self._available:
             return
-        await self.stop()
-        await self.start(config)
+        async with self._apply_lock:
+            await self.stop()
+            await self.start(config)
